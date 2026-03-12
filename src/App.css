@@ -1,0 +1,38 @@
+/* App-level animations */
+@keyframes slideUp {
+  from { transform: translateY(100%); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes scaleIn {
+  from { transform: scale(0.94); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+/* Tab bar dark mode */
+@media (prefers-color-scheme: dark) {
+  .tab-bar { background: rgba(28,28,30,0.92) !important; }
+}
+
+/* Dark input fields */
+@media (prefers-color-scheme: dark) {
+  .input-field { background: var(--gray4) !important; }
+}
+
+/* Sheet modal animation */
+.sheet-enter { animation: slideUp 0.32s cubic-bezier(0.32,0.72,0,1); }
+
+/* Card hover on desktop */
+@media (hover: hover) {
+  button:hover { opacity: 0.85; }
+}
+
+/* Number inputs — remove spinners */
+input[type=number]::-webkit-outer-spin-button,
+input[type=number]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+input[type=number] { -moz-appearance: textfield; }
