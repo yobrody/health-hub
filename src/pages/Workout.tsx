@@ -1,12 +1,23 @@
 import { useEffect, useState, useRef } from 'react'
 import { api } from '../api/client'
 import type { WorkoutData, ExerciseSet } from '../api/client'
+import { PROGRAM, ROTATION, getNextDay } from '../program'
+import type { DayName, ProgramDay } from '../program'
 
 interface LiveSet extends ExerciseSet { done: boolean }
-interface LiveExercise { name: string; sets: LiveSet[]; prevBest?: { weight_kg: number; reps: number } }
+interface LiveExercise {
+  name: string
+  sets: LiveSet[]
+  prevBest?: { weight_kg: number; reps: number }
+  // Program guidance
+  repRange?: string
+  rir?: string
+  restSeconds?: number
+  notes?: string
+}
 interface LiveWorkout { title: string; startTime: string; exercises: LiveExercise[] }
 
-// Wger exercise search (free, no auth needed for read)
+// Wger exercise search
 async function searchExercises(query: string): Promise<string[]> {
   try {
     const url = `https://wger.de/api/v2/exercise/search/?term=${encodeURIComponent(query)}&language=english&format=json`
@@ -22,39 +33,30 @@ function RestTimer({ seconds, onSkip }: { seconds: number; onSkip: () => void })
 
   useEffect(() => {
     if (remaining <= 0) { onSkip(); return }
-    // Haptic at 15s intervals
     if (remaining % 15 === 0 && remaining < seconds && navigator.vibrate) navigator.vibrate(30)
     const t = setTimeout(() => setRemaining(r => r - 1), 1000)
     return () => clearTimeout(t)
   }, [remaining])
 
-  // Big buzz at 0
   useEffect(() => {
     if (remaining === 0 && navigator.vibrate) navigator.vibrate([100, 50, 100, 50, 200])
-  }, [remaining === 0])
+  }, [remaining === 0]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const mins = String(Math.floor(remaining / 60)).padStart(2, '0')
+  const secs = String(remaining % 60).padStart(2, '0')
 
   return (
-    <div style={{
-      position: 'fixed', bottom: 'calc(var(--tab-bar-height) + var(--safe-bottom))',
-      left: 0, right: 0, zIndex: 50
-    }}>
+    <div style={{ position: 'fixed', bottom: 'calc(var(--tab-bar-height) + var(--safe-bottom))', left: 0, right: 0, zIndex: 50 }}>
       <div style={{ background: 'var(--card)', padding: '12px 20px 14px', borderTop: '0.5px solid var(--separator)' }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
           <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--label2)' }}>Rest</div>
-          <div style={{ fontSize: 24, fontWeight: 700, color: remaining <= 10 ? 'var(--red)' : 'var(--label)', letterSpacing: '-0.5px' }}>
-            {String(Math.floor(remaining / 60)).padStart(2, '0')}:{String(remaining % 60).padStart(2, '0')}
+          <div style={{ fontSize: 28, fontWeight: 700, color: remaining <= 10 ? 'var(--red)' : 'var(--label)', letterSpacing: '-0.5px', fontVariantNumeric: 'tabular-nums' }}>
+            {mins}:{secs}
           </div>
-          <button onClick={onSkip} style={{
-            background: 'none', border: '1.5px solid var(--blue)', borderRadius: 16,
-            color: 'var(--blue)', fontSize: 14, fontWeight: 600, padding: '4px 12px', cursor: 'pointer'
-          }}>Skip</button>
+          <button onClick={onSkip} style={{ background: 'none', border: '1.5px solid var(--blue)', borderRadius: 16, color: 'var(--blue)', fontSize: 14, fontWeight: 600, padding: '6px 14px', cursor: 'pointer' }}>Skip</button>
         </div>
         <div style={{ height: 6, background: 'var(--gray5)', borderRadius: 3, overflow: 'hidden' }}>
-          <div style={{
-            height: '100%', background: remaining <= 10 ? 'var(--red)' : 'var(--blue)',
-            width: `${pct * 100}%`, borderRadius: 3,
-            transition: 'width 1s linear, background 0.3s'
-          }} />
+          <div style={{ height: '100%', background: remaining <= 10 ? 'var(--red)' : 'var(--blue)', width: `${pct * 100}%`, borderRadius: 3, transition: 'width 1s linear, background 0.3s' }} />
         </div>
       </div>
     </div>
@@ -72,68 +74,91 @@ function ElapsedTimer({ startTime }: { startTime: string }) {
   const h = Math.floor(elapsed / 3600)
   const m = Math.floor((elapsed % 3600) / 60)
   const s = elapsed % 60
-  return <span>{h > 0 ? `${h}:` : ''}{String(m).padStart(2, '0')}:{String(s).padStart(2, '0')}</span>
+  return <span style={{ fontVariantNumeric: 'tabular-nums' }}>{h > 0 ? `${h}:` : ''}{String(m).padStart(2, '0')}:{String(s).padStart(2, '0')}</span>
 }
 
 function SetRow({ set, idx, onUpdate, onDone, prevSets }: {
-  set: LiveSet; idx: number;
-  onUpdate: (field: keyof LiveSet, val: number) => void
+  set: LiveSet; idx: number
+  onUpdate: (field: 'weight_kg' | 'reps', val: number | undefined) => void
   onDone: () => void
   prevSets: ExerciseSet[]
 }) {
-  const isPR = set.done && set.weight_kg && set.reps &&
-    (!prevSets.length || prevSets.every(p => !p.weight_kg || (set.weight_kg ?? 0) > (p.weight_kg ?? 0)))
+  const hasWeight = set.weight_kg !== undefined && set.weight_kg !== null && !isNaN(set.weight_kg)
+  const hasReps = set.reps !== undefined && set.reps !== null && set.reps > 0
+  const canComplete = hasReps && hasWeight
+
+  const prevBest = prevSets[0]
+  const isPR = set.done && hasWeight && hasReps &&
+    (!prevBest?.weight_kg || (set.weight_kg ?? 0) > (prevBest.weight_kg ?? 0))
 
   return (
-    <div style={{
-      display: 'flex', alignItems: 'center', gap: 8,
-      padding: '10px 0', borderBottom: '0.5px solid var(--separator)',
-      opacity: set.done ? 0.6 : 1, transition: 'opacity 0.3s'
-    }}>
-      <div style={{ width: 28, fontSize: 14, color: 'var(--label2)', fontWeight: 500 }}>{idx + 1}</div>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 0', borderBottom: '0.5px solid var(--separator)', opacity: set.done ? 0.55 : 1, transition: 'opacity 0.3s' }}>
+      <div style={{ width: 24, fontSize: 13, color: 'var(--label2)', fontWeight: 600, textAlign: 'center' }}>{idx + 1}</div>
 
       {prevSets[idx] && (
-        <div style={{ width: 60, fontSize: 12, color: 'var(--label3)', textAlign: 'center' }}>
-          {prevSets[idx].weight_kg}kg×{prevSets[idx].reps}
+        <div style={{ width: 58, fontSize: 11, color: 'var(--label3)', textAlign: 'center', lineHeight: 1.2 }}>
+          {prevSets[idx].weight_kg ?? 0}kg<br />×{prevSets[idx].reps}
         </div>
       )}
 
       <input
-        type="number" placeholder="kg"
-        style={{
-          flex: 1, background: 'var(--bg)', border: 'none', borderRadius: 10,
-          padding: '10px 12px', fontSize: 17, fontWeight: 600, textAlign: 'center',
-          color: 'var(--label)', outline: 'none'
-        }}
-        value={set.weight_kg ?? ''}
-        onChange={e => onUpdate('weight_kg', parseFloat(e.target.value))}
+        type="number" inputMode="decimal" placeholder="kg"
+        style={{ flex: 1, background: 'var(--bg)', border: 'none', borderRadius: 10, padding: '10px 8px', fontSize: 17, fontWeight: 600, textAlign: 'center', color: 'var(--label)', outline: 'none', minWidth: 0 }}
+        value={set.weight_kg !== undefined ? set.weight_kg : ''}
+        onChange={e => { const v = e.target.value; onUpdate('weight_kg', v === '' ? undefined : parseFloat(v)) }}
         disabled={set.done}
       />
 
       <input
-        type="number" placeholder="reps"
-        style={{
-          flex: 1, background: 'var(--bg)', border: 'none', borderRadius: 10,
-          padding: '10px 12px', fontSize: 17, fontWeight: 600, textAlign: 'center',
-          color: 'var(--label)', outline: 'none'
-        }}
-        value={set.reps ?? ''}
-        onChange={e => onUpdate('reps', parseInt(e.target.value))}
+        type="number" inputMode="numeric" placeholder="reps"
+        style={{ flex: 1, background: 'var(--bg)', border: 'none', borderRadius: 10, padding: '10px 8px', fontSize: 17, fontWeight: 600, textAlign: 'center', color: 'var(--label)', outline: 'none', minWidth: 0 }}
+        value={set.reps !== undefined ? set.reps : ''}
+        onChange={e => { const v = e.target.value; onUpdate('reps', v === '' ? undefined : parseInt(v)) }}
         disabled={set.done}
       />
 
       <button
-        onClick={onDone}
-        disabled={set.done || !set.weight_kg || !set.reps}
-        style={{
-          width: 40, height: 40, borderRadius: 20, border: 'none',
-          background: set.done ? 'var(--green)' : 'var(--gray5)',
-          cursor: set.done ? 'default' : 'pointer',
-          fontSize: 18, display: 'flex', alignItems: 'center', justifyContent: 'center',
-          opacity: (!set.done && (!set.weight_kg || !set.reps)) ? 0.4 : 1,
-          transition: 'background 0.2s, opacity 0.2s'
-        }}
-      >{set.done ? '✓' : isPR ? '🏆' : '○'}</button>
+        onClick={onDone} disabled={set.done || !canComplete}
+        style={{ width: 40, height: 40, borderRadius: 20, border: 'none', flexShrink: 0, background: set.done ? 'var(--green)' : canComplete ? 'var(--blue)' : 'var(--gray5)', cursor: set.done ? 'default' : canComplete ? 'pointer' : 'default', fontSize: 16, display: 'flex', alignItems: 'center', justifyContent: 'center', color: (set.done || canComplete) ? '#fff' : 'var(--label3)', transition: 'background 0.2s' }}
+      >{set.done ? (isPR ? '🏆' : '✓') : '✓'}</button>
+    </div>
+  )
+}
+
+// Program day card for the idle screen
+function DayCard({ day, isNext, onStart }: { day: ProgramDay; isNext: boolean; onStart: () => void }) {
+  return (
+    <div style={{
+      background: isNext ? 'var(--blue)' : 'var(--card)',
+      borderRadius: 16, padding: '16px 16px 12px',
+      border: isNext ? 'none' : '1px solid var(--separator)',
+    }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
+        <div>
+          <div style={{ fontSize: 18, fontWeight: 700, color: isNext ? '#fff' : 'var(--label)' }}>{day.name}</div>
+          <div style={{ fontSize: 13, color: isNext ? 'rgba(255,255,255,0.75)' : 'var(--label2)', marginTop: 2 }}>{day.focus}</div>
+        </div>
+        <button
+          onClick={onStart}
+          style={{
+            background: isNext ? 'rgba(255,255,255,0.22)' : 'var(--blue)',
+            color: '#fff', border: 'none', borderRadius: 20,
+            padding: '8px 18px', fontSize: 14, fontWeight: 700, cursor: 'pointer',
+          }}
+        >{isNext ? 'Begin' : 'Start'}</button>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+        {day.exercises.slice(0, 4).map((ex, i) => (
+          <div key={i} style={{ fontSize: 13, color: isNext ? 'rgba(255,255,255,0.8)' : 'var(--label2)' }}>
+            {ex.sets}×{ex.repRange} {ex.name}
+          </div>
+        ))}
+        {day.exercises.length > 4 && (
+          <div style={{ fontSize: 12, color: isNext ? 'rgba(255,255,255,0.55)' : 'var(--label3)', marginTop: 2 }}>
+            +{day.exercises.length - 4} more exercises
+          </div>
+        )}
+      </div>
     </div>
   )
 }
@@ -142,15 +167,16 @@ export default function Workout() {
   const [workouts, setWorkouts] = useState<WorkoutData[]>([])
   const [prs, setPRs] = useState<Record<string, { weight_kg: number; reps: number; date: string }>>({})
   const [live, setLive] = useState<LiveWorkout | null>(null)
-  const [restTimer, setRestTimer] = useState<number | null>(null)
+  const [restTimer, setRestTimer] = useState<{ seconds: number } | null>(null)
   const [exSearch, setExSearch] = useState('')
   const [exResults, setExResults] = useState<string[]>([])
   const [showExSearch, setShowExSearch] = useState(false)
   const [finishing, setFinishing] = useState(false)
+  const [selectedDay, setSelectedDay] = useState<DayName | null>(null)
   const searchTimeout = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
   useEffect(() => {
-    api.getWorkouts(10).then(setWorkouts)
+    api.getWorkouts(20).then(setWorkouts)
     api.getPRs().then(setPRs)
   }, [])
 
@@ -163,27 +189,49 @@ export default function Workout() {
     }, 300)
   }, [exSearch])
 
-  function startWorkout() {
+  const recentTitles = [...workouts].reverse().map(w => w.title)
+  const nextDay = getNextDay(recentTitles)
+  const displayDay = selectedDay ?? nextDay
+
+  function startWorkout(day?: ProgramDay) {
     const hour = new Date().getHours()
     const timeOfDay = hour < 12 ? 'Morning' : hour < 17 ? 'Afternoon' : 'Evening'
-    setLive({ title: `${timeOfDay} Session`, startTime: new Date().toISOString(), exercises: [] })
+    const title = day?.name ?? `${timeOfDay} Session`
+
+    if (day) {
+      const exercises: LiveExercise[] = day.exercises.map(ex => {
+        const pr = prs[ex.name]
+        const sets: LiveSet[] = Array.from({ length: ex.sets }, () => ({
+          weight_kg: pr?.weight_kg,
+          reps: pr?.reps,
+          done: false,
+        }))
+        return { name: ex.name, sets, prevBest: pr, repRange: ex.repRange, rir: ex.rir, restSeconds: ex.restSeconds, notes: ex.notes }
+      })
+      setLive({ title, startTime: new Date().toISOString(), exercises })
+    } else {
+      setLive({ title, startTime: new Date().toISOString(), exercises: [] })
+    }
+    setSelectedDay(null)
     if (navigator.vibrate) navigator.vibrate(20)
   }
 
   function addExercise(name: string) {
     if (!live) return
+    const pr = prs[name]
     const defaultSets: LiveSet[] = [
-      { weight_kg: prs[name]?.weight_kg ?? undefined, reps: prs[name]?.reps ?? undefined, done: false },
-      { weight_kg: prs[name]?.weight_kg ?? undefined, reps: prs[name]?.reps ?? undefined, done: false },
-      { weight_kg: prs[name]?.weight_kg ?? undefined, reps: prs[name]?.reps ?? undefined, done: false },
+      { weight_kg: pr?.weight_kg, reps: pr?.reps, done: false },
+      { weight_kg: pr?.weight_kg, reps: pr?.reps, done: false },
+      { weight_kg: pr?.weight_kg, reps: pr?.reps, done: false },
     ]
-    setLive(w => w ? { ...w, exercises: [...w.exercises, { name, sets: defaultSets, prevBest: prs[name] }] } : w)
+    setLive(w => w ? { ...w, exercises: [...w.exercises, { name, sets: defaultSets, prevBest: pr }] } : w)
     setExSearch('')
     setExResults([])
     setShowExSearch(false)
+    if (navigator.vibrate) navigator.vibrate(10)
   }
 
-  function updateSet(exIdx: number, setIdx: number, field: keyof LiveSet, val: number) {
+  function updateSet(exIdx: number, setIdx: number, field: 'weight_kg' | 'reps', val: number | undefined) {
     setLive(w => {
       if (!w) return w
       const exercises = [...w.exercises]
@@ -203,7 +251,8 @@ export default function Workout() {
       exercises[exIdx] = { ...exercises[exIdx], sets }
       return { ...w, exercises }
     })
-    setRestTimer(90) // default 90s rest
+    const restSecs = live?.exercises[exIdx]?.restSeconds ?? 90
+    setRestTimer({ seconds: restSecs })
     if (navigator.vibrate) navigator.vibrate([10, 10, 30])
   }
 
@@ -212,10 +261,7 @@ export default function Workout() {
       if (!w) return w
       const exercises = [...w.exercises]
       const lastSet = exercises[exIdx].sets.at(-1)
-      exercises[exIdx] = {
-        ...exercises[exIdx],
-        sets: [...exercises[exIdx].sets, { weight_kg: lastSet?.weight_kg, reps: lastSet?.reps, done: false }]
-      }
+      exercises[exIdx] = { ...exercises[exIdx], sets: [...exercises[exIdx].sets, { weight_kg: lastSet?.weight_kg, reps: lastSet?.reps, done: false }] }
       return { ...w, exercises }
     })
   }
@@ -233,7 +279,7 @@ export default function Workout() {
         sets: ex.sets.filter(s => s.done).map(({ done, ...rest }) => rest)
       }))
     })
-    const [updated, updatedPRs] = await Promise.all([api.getWorkouts(10), api.getPRs()])
+    const [updated, updatedPRs] = await Promise.all([api.getWorkouts(20), api.getPRs()])
     setWorkouts(updated)
     setPRs(updatedPRs)
     setLive(null)
@@ -242,20 +288,18 @@ export default function Workout() {
     if (navigator.vibrate) navigator.vibrate([50, 50, 200])
   }
 
+  // ── LIVE WORKOUT VIEW ──────────────────────────────────────────
   if (live) {
     const totalSets = live.exercises.reduce((a, ex) => a + ex.sets.filter(s => s.done).length, 0)
     const totalVolume = live.exercises.reduce((a, ex) =>
-      a + ex.sets.filter(s => s.done && s.weight_kg && s.reps)
+      a + ex.sets.filter(s => s.done && s.weight_kg !== undefined && s.reps)
         .reduce((b, s) => b + (s.weight_kg ?? 0) * (s.reps ?? 0), 0), 0)
 
     return (
       <div className="page" style={{ background: 'var(--bg)' }}>
-        <div className="page-content">
+        <div className="page-content" style={{ paddingBottom: restTimer !== null ? 'calc(var(--tab-bar-height) + var(--safe-bottom) + 90px)' : undefined }}>
           {/* Live header */}
-          <div style={{
-            background: 'var(--blue)', borderRadius: 16, padding: '14px 16px',
-            marginBottom: 16, color: '#fff'
-          }}>
+          <div style={{ background: 'var(--blue)', borderRadius: 16, padding: '14px 16px', marginBottom: 16, color: '#fff' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div>
                 <div style={{ fontSize: 18, fontWeight: 700 }}>{live.title}</div>
@@ -265,12 +309,7 @@ export default function Workout() {
               </div>
               <button
                 onClick={finishWorkout} disabled={finishing || live.exercises.length === 0}
-                style={{
-                  background: 'rgba(255,255,255,0.25)', border: 'none',
-                  borderRadius: 20, padding: '8px 16px', color: '#fff',
-                  fontSize: 14, fontWeight: 700, cursor: 'pointer',
-                  opacity: (finishing || live.exercises.length === 0) ? 0.5 : 1
-                }}
+                style={{ background: 'rgba(255,255,255,0.25)', border: 'none', borderRadius: 20, padding: '8px 16px', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer', opacity: (finishing || live.exercises.length === 0) ? 0.5 : 1 }}
               >{finishing ? '…' : 'Finish'}</button>
             </div>
           </div>
@@ -278,26 +317,36 @@ export default function Workout() {
           {/* Exercises */}
           {live.exercises.map((ex, exIdx) => {
             const exPR = prs[ex.name]
-            const hasNewPR = ex.sets.some(s => s.done && s.weight_kg && exPR && s.weight_kg > exPR.weight_kg)
+            const hasNewPR = ex.sets.some(s => s.done && s.weight_kg !== undefined && exPR && (s.weight_kg ?? 0) > exPR.weight_kg)
+            const restLabel = ex.restSeconds ? (ex.restSeconds >= 60 ? `${ex.restSeconds / 60} min` : `${ex.restSeconds}s`) : null
+
             return (
               <div key={exIdx} className="card" style={{ marginBottom: 12, padding: '0 16px' }}>
-                <div style={{
-                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-                  padding: '14px 0', borderBottom: '0.5px solid var(--separator)'
-                }}>
-                  <div>
-                    <div style={{ fontSize: 17, fontWeight: 700 }}>{ex.name}</div>
-                    {exPR && <div style={{ fontSize: 12, color: 'var(--label2)' }}>Best: {exPR.weight_kg}kg × {exPR.reps}</div>}
+                <div style={{ padding: '14px 0 10px', borderBottom: '0.5px solid var(--separator)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 17, fontWeight: 700 }}>{ex.name}</div>
+                      {/* Program targets */}
+                      {ex.repRange && (
+                        <div style={{ fontSize: 12, color: 'var(--blue)', fontWeight: 600, marginTop: 3 }}>
+                          {ex.sets.length} sets · {ex.repRange} reps · {ex.rir} RIR{restLabel ? ` · ${restLabel} rest` : ''}
+                        </div>
+                      )}
+                      {ex.notes && <div style={{ fontSize: 12, color: 'var(--label3)', marginTop: 2 }}>{ex.notes}</div>}
+                      {exPR && <div style={{ fontSize: 12, color: 'var(--label2)', marginTop: 2 }}>Best: {exPR.weight_kg}kg × {exPR.reps}</div>}
+                    </div>
+                    {hasNewPR && <span className="badge badge-gold">🏆 PR!</span>}
                   </div>
-                  {hasNewPR && <span className="badge badge-gold">🏆 New PR!</span>}
                 </div>
+
                 <div style={{ padding: '4px 0 8px' }}>
+                  {/* Column headers */}
                   <div style={{ display: 'flex', gap: 8, padding: '6px 0 4px' }}>
-                    <div style={{ width: 28 }}/>
-                    {exPR && <div style={{ width: 60, fontSize: 11, color: 'var(--label3)', textAlign: 'center' }}>prev</div>}
+                    <div style={{ width: 24 }} />
+                    {exPR && <div style={{ width: 58, fontSize: 11, color: 'var(--label3)', textAlign: 'center' }}>prev</div>}
                     <div style={{ flex: 1, fontSize: 11, color: 'var(--label3)', textAlign: 'center' }}>kg</div>
                     <div style={{ flex: 1, fontSize: 11, color: 'var(--label3)', textAlign: 'center' }}>reps</div>
-                    <div style={{ width: 40 }}/>
+                    <div style={{ width: 40 }} />
                   </div>
                   {ex.sets.map((set, setIdx) => (
                     <SetRow
@@ -308,75 +357,93 @@ export default function Workout() {
                     />
                   ))}
                 </div>
+
                 <button
                   onClick={() => addSet(exIdx)}
-                  style={{
-                    width: '100%', background: 'none', border: '1.5px dashed var(--gray4)',
-                    borderRadius: 10, padding: '10px', color: 'var(--label2)', fontSize: 14,
-                    fontWeight: 600, cursor: 'pointer', marginBottom: 12
-                  }}
+                  style={{ width: '100%', background: 'none', border: '1.5px dashed var(--gray4)', borderRadius: 10, padding: '10px', color: 'var(--label2)', fontSize: 14, fontWeight: 600, cursor: 'pointer', marginBottom: 12 }}
                 >+ Add Set</button>
               </div>
             )
           })}
 
           {/* Add exercise */}
-          <div className="card" style={{ overflow: 'visible' }}>
+          <div className="card" style={{ overflow: 'visible', marginBottom: 8 }}>
             {!showExSearch ? (
               <button
                 onClick={() => setShowExSearch(true)}
-                style={{
-                  width: '100%', background: 'none', border: 'none', padding: '16px',
-                  color: 'var(--blue)', fontSize: 17, fontWeight: 600, cursor: 'pointer'
-                }}
+                style={{ width: '100%', background: 'none', border: 'none', padding: '16px', color: 'var(--blue)', fontSize: 17, fontWeight: 600, cursor: 'pointer' }}
               >+ Add Exercise</button>
             ) : (
               <div style={{ padding: 12 }}>
-                <input
-                  className="input-field"
-                  placeholder="Search exercises (e.g. bench press)"
-                  value={exSearch} onChange={e => setExSearch(e.target.value)} autoFocus
-                />
+                <input className="input-field" placeholder="Search exercises (e.g. bench press)" value={exSearch} onChange={e => setExSearch(e.target.value)} autoFocus />
                 {exResults.length > 0 && (
                   <div style={{ marginTop: 8 }}>
                     {exResults.map((r, i) => (
-                      <div key={i} className="list-row" style={{ borderRadius: 10 }} onClick={() => addExercise(r)}>
+                      <button key={i} className="list-row" style={{ width: '100%', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', borderRadius: 10 }} onClick={() => addExercise(r)}>
                         <span style={{ fontSize: 15 }}>{r}</span>
-                      </div>
+                      </button>
                     ))}
                   </div>
                 )}
-                {/* Common exercises */}
                 {!exSearch && (
                   <div style={{ marginTop: 8 }}>
-                    {['Bench Press (Barbell)', 'Squat (Barbell)', 'Deadlift (Barbell)', 'Overhead Press (Barbell)', 'Pull-Up', 'Barbell Row'].map(ex => (
-                      <div key={ex} className="list-row" onClick={() => addExercise(ex)}>
+                    <div style={{ fontSize: 11, color: 'var(--label3)', fontWeight: 600, padding: '6px 4px 4px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Quick add</div>
+                    {['Bench Press (Barbell)', 'Squat (Barbell)', 'Deadlift (Barbell)', 'Overhead Press (Barbell)', 'Pull-Up', 'Barbell Row', 'Dumbbell Curl', 'Tricep Pushdown'].map(ex => (
+                      <button key={ex} className="list-row" style={{ width: '100%', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left' }} onClick={() => addExercise(ex)}>
                         <span style={{ fontSize: 15 }}>{ex}</span>
-                      </div>
+                      </button>
                     ))}
                   </div>
                 )}
+                <button onClick={() => { setShowExSearch(false); setExSearch('') }} style={{ width: '100%', background: 'none', border: 'none', color: 'var(--label2)', fontSize: 14, fontWeight: 500, padding: '10px 0', cursor: 'pointer' }}>Cancel</button>
               </div>
             )}
           </div>
         </div>
 
         {restTimer !== null && (
-          <RestTimer seconds={restTimer} onSkip={() => setRestTimer(null)} />
+          <RestTimer key={restTimer.seconds + live.exercises.reduce((a, ex) => a + ex.sets.filter(s => s.done).length, 0)} seconds={restTimer.seconds} onSkip={() => setRestTimer(null)} />
         )}
       </div>
     )
   }
 
-  // Default: workout history
+  // ── IDLE VIEW ──────────────────────────────────────────────────
   return (
     <div className="page" style={{ background: 'var(--bg)' }}>
       <div className="page-content">
-        <div style={{ fontSize: 30, fontWeight: 700, marginBottom: 8 }}>Workout</div>
+        <div style={{ fontSize: 30, fontWeight: 700, marginBottom: 16 }}>Workout</div>
 
-        <button className="btn-primary" onClick={startWorkout} style={{ marginBottom: 24 }}>
-          Start Workout
-        </button>
+        {/* Next up — big card */}
+        <div className="section-label" style={{ marginTop: 0 }}>Next up</div>
+        <DayCard day={PROGRAM[displayDay]} isNext={true} onStart={() => startWorkout(PROGRAM[displayDay])} />
+
+        {/* Day picker */}
+        <div style={{ display: 'flex', gap: 8, margin: '12px 0 4px' }}>
+          {ROTATION.map(day => (
+            <button
+              key={day}
+              onClick={() => setSelectedDay(day === selectedDay ? null : day)}
+              style={{
+                flex: 1, padding: '8px 4px', borderRadius: 12, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 700,
+                background: displayDay === day ? 'var(--blue)' : 'var(--card)',
+                color: displayDay === day ? '#fff' : 'var(--label2)',
+                transition: 'background 0.15s, color 0.15s',
+              }}
+            >{day}</button>
+          ))}
+        </div>
+
+        {/* Other days preview (if not default) */}
+        {selectedDay && selectedDay !== nextDay && (
+          <div style={{ marginBottom: 4 }} />
+        )}
+
+        {/* Custom workout */}
+        <button
+          onClick={() => startWorkout()}
+          style={{ width: '100%', background: 'none', border: '1.5px dashed var(--gray4)', borderRadius: 14, padding: '13px', color: 'var(--label2)', fontSize: 15, fontWeight: 600, cursor: 'pointer', marginTop: 12, marginBottom: 8 }}
+        >+ Custom Workout</button>
 
         {/* PRs */}
         {Object.keys(prs).length > 0 && (
@@ -384,10 +451,7 @@ export default function Workout() {
             <div className="section-label">Personal Records</div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
               {Object.entries(prs).slice(0, 6).map(([ex, pr]) => (
-                <div key={ex} style={{
-                  background: 'var(--card)', borderRadius: 12, padding: '10px 14px',
-                  minWidth: 140, flex: '1 1 140px'
-                }}>
+                <div key={ex} style={{ background: 'var(--card)', borderRadius: 12, padding: '10px 14px', minWidth: 140, flex: '1 1 140px' }}>
                   <div style={{ fontSize: 12, color: 'var(--label2)', marginBottom: 4 }}>{ex}</div>
                   <div style={{ fontSize: 18, fontWeight: 700 }}>{pr.weight_kg}kg <span style={{ fontSize: 14, fontWeight: 400 }}>× {pr.reps}</span></div>
                   <div className="badge badge-gold" style={{ marginTop: 4 }}>🏆 PR</div>
@@ -406,12 +470,15 @@ export default function Workout() {
                 const start = new Date(w.start_time)
                 const end = new Date(w.end_time)
                 const mins = Math.round((end.getTime() - start.getTime()) / 60000)
-                const vol = w.exercises.reduce((a, ex) =>
-                  a + ex.sets.reduce((b, s) => b + (s.weight_kg ?? 0) * (s.reps ?? 0), 0), 0)
+                const vol = w.exercises.reduce((a, ex) => a + ex.sets.reduce((b, s) => b + (s.weight_kg ?? 0) * (s.reps ?? 0), 0), 0)
+                const isProgramDay = ROTATION.includes(w.title as DayName)
                 return (
                   <div key={i} className="list-row">
                     <div style={{ flex: 1 }}>
-                      <div style={{ fontSize: 15, fontWeight: 600 }}>{w.title}</div>
+                      <div style={{ fontSize: 15, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
+                        {w.title}
+                        {isProgramDay && <span className="badge badge-blue" style={{ fontSize: 10 }}>{(PROGRAM as Record<string, ProgramDay>)[w.title]?.focus}</span>}
+                      </div>
                       <div style={{ fontSize: 13, color: 'var(--label2)', marginTop: 2 }}>
                         {start.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })} · {mins} min
                       </div>
@@ -428,10 +495,8 @@ export default function Workout() {
         )}
 
         {workouts.length === 0 && (
-          <div style={{ textAlign: 'center', padding: '40px 24px', color: 'var(--label2)' }}>
-            <div style={{ fontSize: 40, marginBottom: 12 }}>💪</div>
-            <div style={{ fontWeight: 600, marginBottom: 4 }}>No workouts yet</div>
-            <div style={{ fontSize: 14 }}>Hit Start Workout to begin tracking</div>
+          <div style={{ textAlign: 'center', padding: '24px 24px', color: 'var(--label2)' }}>
+            <div style={{ fontSize: 14 }}>Tap Begin above to start your first session</div>
           </div>
         )}
       </div>

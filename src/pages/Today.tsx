@@ -1,6 +1,8 @@
 import { useEffect, useState, useRef } from 'react'
 import { api } from '../api/client'
 import type { TodayData } from '../api/client'
+import { PROGRAM, getNextDay } from '../program'
+import type { DayName } from '../program'
 
 function CalorieRing({ current, goal }: { current: number; goal: number }) {
   const r = 54
@@ -22,10 +24,7 @@ function CalorieRing({ current, goal }: { current: number; goal: number }) {
           style={{ transition: 'stroke-dashoffset 0.8s cubic-bezier(0.4,0,0.2,1), stroke 0.3s' }}
         />
       </svg>
-      <div style={{
-        position: 'absolute', inset: 0, display: 'flex',
-        flexDirection: 'column', alignItems: 'center', justifyContent: 'center'
-      }}>
+      <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
         <div style={{ fontSize: 28, fontWeight: 700, letterSpacing: '-1px', color }}>{current.toLocaleString()}</div>
         <div style={{ fontSize: 12, color: 'var(--label2)', fontWeight: 500 }}>of {goal.toLocaleString()} kcal</div>
       </div>
@@ -39,10 +38,7 @@ function MacroBar({ label, value, goal, color }: { label: string; value: number;
     <div style={{ flex: 1 }}>
       <div style={{ fontSize: 12, color: 'var(--label2)', marginBottom: 4 }}>{label}</div>
       <div style={{ height: 6, background: 'var(--gray5)', borderRadius: 3, overflow: 'hidden' }}>
-        <div style={{
-          height: '100%', width: `${pct * 100}%`, background: color,
-          borderRadius: 3, transition: 'width 0.6s ease'
-        }} />
+        <div style={{ height: '100%', width: `${pct * 100}%`, background: color, borderRadius: 3, transition: 'width 0.6s ease' }} />
       </div>
       <div style={{ fontSize: 12, fontWeight: 600, color, marginTop: 3 }}>{value}g</div>
     </div>
@@ -57,14 +53,20 @@ export default function Today({ onNavigate }: Props) {
   const [quickEntry, setQuickEntry] = useState('')
   const [quickKcal, setQuickKcal] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [nextWorkout, setNextWorkout] = useState<DayName>('Upper A')
   const inputRef = useRef<HTMLInputElement>(null)
 
   const now = new Date()
   const hour = now.getHours()
   const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening'
+  const dayName = now.toLocaleDateString('en-GB', { weekday: 'long' })
 
   useEffect(() => {
     api.getToday().then(setData).finally(() => setLoading(false))
+    api.getWorkouts(20).then(workouts => {
+      const recentTitles = [...workouts].reverse().map(w => w.title)
+      setNextWorkout(getNextDay(recentTitles))
+    })
   }, [])
 
   async function handleQuickLog(e: React.FormEvent) {
@@ -82,9 +84,12 @@ export default function Today({ onNavigate }: Props) {
   }
 
   const total = data?.total_kcal ?? 0
-  const goals = data?.goals ?? { calories: 2200, protein: 160, gym_days: 4 }
-  // Rough protein estimate (not tracked separately without barcode; show 0 as placeholder)
+  const goals = data?.goals ?? { calories: 2800, protein: 140, gym_days: 4 }
   const protein = data?.entries.reduce((acc, e) => acc + Math.round(e.kcal * 0.15), 0) ?? 0
+
+  const nextDay = PROGRAM[nextWorkout]
+  const defaultWorkoutDays: Record<string, string> = { Tuesday: 'Upper A', Wednesday: 'Lower A', Friday: 'Upper B', Sunday: 'Lower B' }
+  const isWorkoutDay = dayName in defaultWorkoutDays
 
   return (
     <div className="page" style={{ background: 'var(--bg)' }}>
@@ -129,16 +134,35 @@ export default function Today({ onNavigate }: Props) {
             <button
               type="submit"
               disabled={submitting || !quickEntry || !quickKcal}
-              style={{
-                background: 'var(--blue)', color: '#fff', border: 'none',
-                borderRadius: 10, padding: '10px 14px', fontSize: 15, fontWeight: 600,
-                cursor: 'pointer', opacity: (!quickEntry || !quickKcal) ? 0.5 : 1,
-                transition: 'opacity 0.15s'
-              }}
+              style={{ background: 'var(--blue)', color: '#fff', border: 'none', borderRadius: 10, padding: '10px 14px', fontSize: 15, fontWeight: 600, cursor: 'pointer', opacity: (!quickEntry || !quickKcal) ? 0.5 : 1, transition: 'opacity 0.15s' }}
             >
               {submitting ? '…' : 'Add'}
             </button>
           </form>
+        </div>
+
+        {/* Workout card */}
+        <div
+          onClick={() => onNavigate('workout')}
+          style={{
+            background: isWorkoutDay ? 'var(--blue)' : 'var(--card)',
+            borderRadius: 16, padding: '14px 16px', marginBottom: 12,
+            cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 14,
+          }}
+        >
+          <div style={{ fontSize: 32 }}>💪</div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 16, fontWeight: 700, color: isWorkoutDay ? '#fff' : 'var(--label)' }}>
+              {isWorkoutDay ? `Today — ${nextDay.name}` : `Next up — ${nextDay.name}`}
+            </div>
+            <div style={{ fontSize: 13, color: isWorkoutDay ? 'rgba(255,255,255,0.75)' : 'var(--label2)', marginTop: 2 }}>
+              {nextDay.focus} · {nextDay.exercises.length} exercises
+            </div>
+            <div style={{ fontSize: 12, color: isWorkoutDay ? 'rgba(255,255,255,0.6)' : 'var(--label3)', marginTop: 3 }}>
+              {nextDay.exercises.slice(0, 3).map(e => e.name).join(' · ')}
+            </div>
+          </div>
+          <div style={{ fontSize: 18, color: isWorkoutDay ? 'rgba(255,255,255,0.7)' : 'var(--label3)' }}>›</div>
         </div>
 
         {/* Today's entries */}
@@ -167,19 +191,15 @@ export default function Today({ onNavigate }: Props) {
         <div className="section-label">Quick access</div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
           {[
-            { label: 'Fridge', sub: 'What can I make?', tab: 'fridge' as const, icon: '🥗', color: 'var(--green)' },
-            { label: 'Workout', sub: 'Log a session', tab: 'workout' as const, icon: '💪', color: 'var(--blue)' },
-            { label: 'Nutrition', sub: 'Full food log', tab: 'nutrition' as const, icon: '🍽️', color: 'var(--orange)' },
-            { label: 'Goals', sub: 'Weekly stats', tab: 'goals' as const, icon: '📊', color: 'var(--purple)' },
+            { label: 'Fridge',    sub: 'What can I make?', tab: 'fridge'    as const, icon: '🥗', color: 'var(--green)'  },
+            { label: 'Nutrition', sub: 'Full food log',    tab: 'nutrition' as const, icon: '🍽️', color: 'var(--orange)' },
+            { label: 'Goals',     sub: 'Weekly stats',    tab: 'goals'     as const, icon: '📊', color: 'var(--purple)' },
+            { label: 'Workout',   sub: 'Log a session',   tab: 'workout'   as const, icon: '🏋️', color: 'var(--blue)'   },
           ].map(item => (
             <button
               key={item.tab}
               onClick={() => onNavigate(item.tab)}
-              style={{
-                background: 'var(--card)', borderRadius: 14, padding: '16px 14px',
-                border: 'none', cursor: 'pointer', textAlign: 'left',
-                transition: 'opacity 0.15s', display: 'flex', flexDirection: 'column', gap: 6
-              }}
+              style={{ background: 'var(--card)', borderRadius: 14, padding: '16px 14px', border: 'none', cursor: 'pointer', textAlign: 'left', transition: 'opacity 0.15s', display: 'flex', flexDirection: 'column', gap: 6 }}
             >
               <div style={{ fontSize: 28 }}>{item.icon}</div>
               <div style={{ fontSize: 15, fontWeight: 600, color: item.color }}>{item.label}</div>
