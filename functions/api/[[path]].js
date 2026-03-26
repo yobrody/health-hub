@@ -3,7 +3,10 @@
  * This keeps the API key server-side and avoids mixed-content (HTTPS→HTTP) issues.
  */
 
-const VPS_BASE = 'http://128.140.33.150:8080'
+// Direct IP is blocked from Cloudflare Workers (error 1003).
+// nip.io wildcard DNS resolves 128-140-33-150.nip.io → 128.140.33.150
+// allowing Workers to reach the VPS without Cloudflare intercepting the IP.
+const VPS_BASE = 'http://128-140-33-150.nip.io:8080'
 
 export async function onRequest(context) {
   const url = new URL(context.request.url)

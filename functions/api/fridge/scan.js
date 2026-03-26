@@ -8,7 +8,7 @@
  * If ANTHROPIC_API_KEY is missing, falls back to proxying to the VPS.
  */
 
-const VPS = 'http://128.140.33.150:8080'
+const VPS = 'http://128-140-33-150.nip.io:8080'
 
 const CORS = {
   'Content-Type': 'application/json',
