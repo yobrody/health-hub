@@ -42,8 +42,8 @@ export default function GoalsPage() {
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
-    api.getWeekStats().then(s => setStats(s))
-    api.getGoals().then(g => setGoals(g.parsed))
+    api.getWeekStats().then(s => setStats(s)).catch(() => setStats(null))
+    api.getGoals().then(g => setGoals(g.parsed)).catch(() => { /* keep defaults */ })
   }, [])
 
   async function saveGoals() {

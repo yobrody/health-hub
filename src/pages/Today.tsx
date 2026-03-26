@@ -73,14 +73,19 @@ export default function Today({ onNavigate }: Props) {
     e.preventDefault()
     if (!quickEntry || !quickKcal) return
     setSubmitting(true)
-    const meal = hour < 11 ? 'Breakfast' : hour < 15 ? 'Lunch' : hour < 18 ? 'Snack' : 'Dinner'
-    await api.addFood({ meal, description: quickEntry, kcal: parseInt(quickKcal) })
-    const updated = await api.getToday()
-    setData(updated)
-    setQuickEntry('')
-    setQuickKcal('')
-    setSubmitting(false)
-    if (navigator.vibrate) navigator.vibrate(10)
+    try {
+      const meal = hour < 11 ? 'Breakfast' : hour < 15 ? 'Lunch' : hour < 18 ? 'Snack' : 'Dinner'
+      await api.addFood({ meal, description: quickEntry, kcal: parseInt(quickKcal) })
+      const updated = await api.getToday()
+      setData(updated)
+      setQuickEntry('')
+      setQuickKcal('')
+      if (navigator.vibrate) navigator.vibrate(10)
+    } catch (err) {
+      console.error('Quick log failed:', err)
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   const total = data?.total_kcal ?? 0

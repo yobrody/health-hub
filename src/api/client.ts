@@ -10,13 +10,34 @@ async function request<T>(path: string, opts: RequestInit = {}): Promise<T> {
   return res.json()
 }
 
+// Some VPS endpoints wrap arrays as { value: T[], Count: N }
+function unwrap<T>(r: T[] | { value: T[] }): T[] {
+  if (Array.isArray(r)) return r
+  if (r && typeof r === 'object' && 'value' in r && Array.isArray((r as { value: T[] }).value))
+    return (r as { value: T[] }).value
+  return []
+}
+
+// Convert File to base64 string (data-URL strip)
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve((reader.result as string).split(',')[1])
+    reader.onerror = reject
+    reader.readAsDataURL(file)
+  })
+}
+
 export const api = {
   // Today
   getToday: () => request<TodayData>('/today'),
 
   // Food
   addFood: (entry: FoodEntryInput) => request('/food', { method: 'POST', body: JSON.stringify(entry) }),
-  getFoodHistory: (days = 7) => request<HistoryDay[]>(`/food/history?days=${days}`),
+  deleteFood: (time: string, meal: string) =>
+    request('/food/delete', { method: 'POST', body: JSON.stringify({ time, meal }) }),
+  getFoodHistory: (days = 7) =>
+    request<HistoryDay[] | { value: HistoryDay[] }>(`/food/history?days=${days}`).then(unwrap),
 
   // Fridge
   getFridge: () => request<FridgeData>('/fridge'),
@@ -24,21 +45,35 @@ export const api = {
     request('/fridge/item', { method: 'POST', body: JSON.stringify({ name, section }) }),
   removeFridgeItem: (name: string) =>
     request(`/fridge/item/${encodeURIComponent(name)}`, { method: 'DELETE' }),
-  scanReceipt: (file: File) => {
-    const form = new FormData()
-    form.append('file', file)
-    return fetch(`${BASE}/fridge/scan`, {
+  scanReceipt: async (file: File): Promise<ScanResult> => {
+    const image = await fileToBase64(file)
+    const res = await fetch(`${BASE}/fridge/scan`, {
       method: 'POST',
-      headers: { 'X-Health-Key': KEY },
-      body: form,
-    }).then(r => r.json())
+      headers: { 'X-Health-Key': KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ image, mimeType: file.type || 'image/jpeg' }),
+    })
+    if (!res.ok) throw new Error(`Scan failed: ${res.status}`)
+    return res.json()
   },
 
   // AI meals
   getMealSuggestions: () => request<{ meals: Meal[] }>('/ai/meals', { method: 'POST' }),
 
-  // Workouts
-  getWorkouts: (limit = 30) => request<WorkoutData[]>(`/workouts?limit=${limit}`),
+  // AI food photo analysis (new)
+  analyzeFood: async (file: File, description: string): Promise<FoodAnalysis> => {
+    const image = await fileToBase64(file)
+    const res = await fetch(`${BASE}/ai/analyze-food`, {
+      method: 'POST',
+      headers: { 'X-Health-Key': KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ image, mimeType: file.type || 'image/jpeg', description }),
+    })
+    if (!res.ok) throw new Error(`AI error: ${res.status}`)
+    return res.json()
+  },
+
+  // Workouts — VPS returns { value: WorkoutData[], Count: N }, unwrap it
+  getWorkouts: (limit = 30) =>
+    request<WorkoutData[] | { value: WorkoutData[] }>(`/workouts?limit=${limit}`).then(unwrap),
   saveWorkout: (workout: WorkoutInput) =>
     request('/workouts', { method: 'POST', body: JSON.stringify(workout) }),
   getPRs: () => request<Record<string, PR>>('/workouts/prs'),
@@ -52,13 +87,13 @@ export const api = {
   getWeekStats: () => request<WeekStats>('/stats/week'),
 }
 
-// Types
-export interface TodayData {
-  date: string
-  entries: FoodEntry[]
-  total_kcal: number
-  goals: Goals
+// ---- Types ----
+export interface ScanResult { items_added?: number; items?: string[]; error?: string }
+export interface FoodAnalysis {
+  name: string; kcal: number; protein_g: number; carbs_g: number; fat_g: number
+  description: string; confidence: 'high' | 'medium' | 'low'
 }
+export interface TodayData { date: string; entries: FoodEntry[]; total_kcal: number; goals: Goals }
 export interface FoodEntry { time: string; meal: string; items: string; kcal: number }
 export interface FoodEntryInput { meal: string; description: string; kcal: number; time?: string }
 export interface HistoryDay { date: string; total_kcal: number; logged: boolean }
@@ -74,10 +109,6 @@ export interface WorkoutData { id: string; title: string; start_time: string; en
 export interface WorkoutInput { title: string; start_time: string; end_time: string; exercises: ExerciseData[] }
 export interface PR { weight_kg: number; reps: number; date: string }
 export interface WeekStats {
-  food_by_day: HistoryDay[]
-  logged_days: number
-  avg_kcal: number
-  goal_kcal: number
-  workout_count: number
-  goal_gym_days: number
+  food_by_day: HistoryDay[]; logged_days: number; avg_kcal: number
+  goal_kcal: number; workout_count: number; goal_gym_days: number
 }

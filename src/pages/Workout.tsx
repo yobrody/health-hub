@@ -40,7 +40,7 @@ function RestTimer({ seconds, onSkip }: { seconds: number; onSkip: () => void })
 
   useEffect(() => {
     if (remaining === 0 && navigator.vibrate) navigator.vibrate([100, 50, 100, 50, 200])
-  }, [remaining === 0]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [remaining]) // fires whenever remaining changes; vibrate only when it hits 0
 
   const mins = String(Math.floor(remaining / 60)).padStart(2, '0')
   const secs = String(remaining % 60).padStart(2, '0')
