@@ -149,7 +149,7 @@ export default defineConfig(({ mode }) => {
       localAiPlugin(anthropicKey, healthKey),
       VitePWA({
         registerType: 'autoUpdate',
-        includeAssets: ['favicon.ico', 'apple-touch-icon.png'],
+        includeAssets: ['icon.svg', 'maskable-icon.svg'],
         manifest: {
           name: 'Health Hub',
           short_name: 'Health',
@@ -160,8 +160,8 @@ export default defineConfig(({ mode }) => {
           orientation: 'portrait',
           start_url: '/',
           icons: [
-            { src: 'icon-192.png', sizes: '192x192', type: 'image/png' },
-            { src: 'icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any maskable' },
+            { src: 'icon.svg', sizes: 'any', type: 'image/svg+xml' },
+            { src: 'maskable-icon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'maskable' },
           ],
         },
         workbox: {
@@ -186,7 +186,7 @@ export default defineConfig(({ mode }) => {
           rewrite: (path) => path.replace(/^\/api/, ''),
           configure: (proxy) => {
             proxy.on('proxyReq', (proxyReq) => {
-              proxyReq.setHeader('X-Health-Key', process.env.VITE_API_KEY || 'brody-health-hub-2026')
+              proxyReq.setHeader('X-Health-Key', healthKey)
             })
             proxy.on('error', (err, _req, res) => {
               console.error('[proxy error]', err.message)

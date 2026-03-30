@@ -1,10 +1,17 @@
-const BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8080'
-const KEY = import.meta.env.VITE_API_KEY || 'change-me'
+// Default to same-origin Pages Functions: keeps secrets server-side.
+// For local debugging you can still set VITE_API_BASE to an absolute URL.
+const BASE = import.meta.env.VITE_API_BASE || '/api'
+const KEY: string | undefined = import.meta.env.VITE_API_KEY || undefined
 
 async function request<T>(path: string, opts: RequestInit = {}): Promise<T> {
+  const h = new Headers(opts.headers)
+  // Only attach the key when explicitly configured (e.g. direct-to-VPS debugging).
+  if (KEY) h.set('X-Health-Key', KEY)
+  if (!h.has('Content-Type')) h.set('Content-Type', 'application/json')
+
   const res = await fetch(`${BASE}${path}`, {
     ...opts,
-    headers: { 'X-Health-Key': KEY, 'Content-Type': 'application/json', ...opts.headers },
+    headers: h,
   })
   if (!res.ok) throw new Error(`API error ${res.status}: ${await res.text()}`)
   return res.json()
@@ -41,15 +48,17 @@ export const api = {
 
   // Fridge
   getFridge: () => request<FridgeData>('/fridge'),
-  addFridgeItem: (name: string, section: string) =>
-    request('/fridge/item', { method: 'POST', body: JSON.stringify({ name, section }) }),
+  addFridgeItem: (name: string, section: string, meta?: { size?: string | null; cost?: number | null; store?: string | null }) =>
+    request('/fridge/item', { method: 'POST', body: JSON.stringify({ name, section, ...meta }) }),
   removeFridgeItem: (name: string) =>
     request(`/fridge/item/${encodeURIComponent(name)}`, { method: 'DELETE' }),
   scanReceipt: async (file: File): Promise<ScanResult> => {
     const image = await fileToBase64(file)
+    const headers = new Headers({ 'Content-Type': 'application/json' })
+    if (KEY) headers.set('X-Health-Key', KEY)
     const res = await fetch(`${BASE}/fridge/scan`, {
       method: 'POST',
-      headers: { 'X-Health-Key': KEY, 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify({ image, mimeType: file.type || 'image/jpeg' }),
     })
     if (!res.ok) throw new Error(`Scan failed: ${res.status}`)
@@ -62,9 +71,11 @@ export const api = {
   // AI food photo analysis (new)
   analyzeFood: async (file: File, description: string): Promise<FoodAnalysis> => {
     const image = await fileToBase64(file)
+    const headers = new Headers({ 'Content-Type': 'application/json' })
+    if (KEY) headers.set('X-Health-Key', KEY)
     const res = await fetch(`${BASE}/ai/analyze-food`, {
       method: 'POST',
-      headers: { 'X-Health-Key': KEY, 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify({ image, mimeType: file.type || 'image/jpeg', description }),
     })
     if (!res.ok) throw new Error(`AI error: ${res.status}`)
@@ -88,7 +99,8 @@ export const api = {
 }
 
 // ---- Types ----
-export interface ScanResult { items_added?: number; items?: string[]; error?: string }
+export interface ScannedItem { name: string; size: string | null; cost: number | null; section: string }
+export interface ScanResult { items?: ScannedItem[]; store?: { name: string; location: string | null } | null; error?: string; raw?: string }
 export interface FoodAnalysis {
   name: string; kcal: number; protein_g: number; carbs_g: number; fat_g: number
   description: string; confidence: 'high' | 'medium' | 'low'
@@ -101,7 +113,7 @@ export interface Goals { calories: number; protein: number; gym_days: number }
 export interface GoalsResponse { content: string; parsed: Goals }
 export interface GoalsUpdateInput { calories?: number; protein?: number; gym_days?: number; notes?: string }
 export interface FridgeData { fridge: FridgeItem[]; pantry: FridgeItem[]; condiments: FridgeItem[]; freezer: FridgeItem[] }
-export interface FridgeItem { name: string; added: string | null }
+export interface FridgeItem { name: string; added: string | null; size?: string | null; cost?: number | null; store?: string | null }
 export interface Meal { name: string; ingredients: string[]; kcal_estimate: number }
 export interface ExerciseSet { weight_kg?: number; reps?: number; duration_seconds?: number }
 export interface ExerciseData { name: string; sets: ExerciseSet[] }

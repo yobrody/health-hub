@@ -1,14 +1,9 @@
 /**
  * Cloudflare Pages Function — POST /api/fridge/scan
- * Scans a grocery receipt image using Claude Vision and adds items to the fridge.
- * Body: multipart/form-data with field "file" (the receipt image)
- * Returns: { items_added: N, items: string[] }
- *
- * Set ANTHROPIC_API_KEY in Cloudflare Pages → Settings → Environment variables.
- * If ANTHROPIC_API_KEY is missing, falls back to proxying to the VPS.
+ * AI-powered receipt scanning via OpenRouter (Gemini 2.0 Flash).
+ * Returns detected items — client handles adding to VPS via /api/fridge/item.
+ * This avoids issues with outbound VPS calls inside the Worker.
  */
-
-const VPS = 'http://128-140-33-150.nip.io:8080'
 
 const CORS = {
   'Content-Type': 'application/json',
@@ -25,27 +20,48 @@ export async function onRequestOptions() {
   return new Response(null, { status: 204, headers: CORS })
 }
 
-export async function onRequestPost(context) {
-  const reqKey = context.request.headers.get('X-Health-Key') || ''
-  const expected = context.env.HEALTH_API_KEY || 'brody-health-hub-2026'
-  if (reqKey !== expected) return json({ error: 'Unauthorized' }, 401)
-
-  const anthropicKey = context.env.ANTHROPIC_API_KEY
-
-  // No AI key → fall back to VPS proxy
-  if (!anthropicKey) {
-    const h = new Headers(context.request.headers)
-    h.delete('host')
-    try {
-      const r = await fetch(`${VPS}/fridge/scan`, { method: 'POST', headers: h, body: context.request.body })
-      const body = await r.text()
-      return new Response(body, { status: r.status, headers: { ...CORS, 'Content-Type': r.headers.get('Content-Type') || 'application/json' } })
-    } catch (e) {
-      return json({ error: 'Receipt scan unavailable', items_added: 0 }, 503)
+function extractJSON(str) {
+  try { return JSON.parse(str) } catch {}
+  let depth = 0, end = -1
+  for (let i = str.length - 1; i >= 0; i--) {
+    if (str[i] === '}') { if (depth === 0) end = i; depth++ }
+    else if (str[i] === '{') {
+      depth--
+      if (depth === 0 && end !== -1) {
+        try { return JSON.parse(str.slice(i, end + 1)) } catch {}
+      }
     }
   }
+  const m = str.match(/\{[\s\S]*\}/)
+  if (m) { try { return JSON.parse(m[0]) } catch {} }
+  return null
+}
 
-  // Parse JSON body { image: base64string, mimeType: string }
+const PROMPT = `Look at this grocery store receipt. Extract the purchased food and drink items.
+
+Return ONLY valid JSON — no markdown, no explanation:
+{"store":{"name":"store name","location":"address/area on receipt or null"},"items":[{"name":"readable name","size":"package size or null","cost":1.89,"section":"fridge"}]}
+
+Rules:
+- name: clean readable name (e.g. "greek yogurt" not "GREEK YOG 10%", "peanut butter" not "PNT BTR 340G")
+- size: package size if visible on receipt (e.g. "340g", "1L") — null if not shown
+- cost: item price as a number (e.g. 2.25) — null if not visible
+- section: one of "fridge", "freezer", "pantry", "condiments"
+  - fridge: dairy, fresh produce, eggs, fresh meat/fish, yogurt, juice, deli
+  - freezer: frozen meals, ice cream, frozen veg/meat
+  - pantry: canned goods, dry goods, snacks, coffee, tea, bread, nuts, spreads, chocolate
+  - condiments: sauces, oils, vinegar, dressings, spices
+- INCLUDE all food and drink items on the receipt
+- SKIP non-food items (foil, bags, cleaning supplies, toiletries, packaging)
+- SKIP totals, subtotals, VAT lines, discounts, store header rows
+- If a name contains "/" (e.g. "edamame/mushroom") add both as separate items`
+
+export async function onRequestPost(context) {
+  const expected = context.env.HEALTH_API_KEY || 'brody-health-hub-2026'
+
+  const orKey = context.env.OPENROUTER_API_KEY
+  if (!orKey) return json({ error: 'OpenRouter key not configured', items: [] }, 503)
+
   let imageBase64, imageMediaType = 'image/jpeg'
   try {
     const body = await context.request.json()
@@ -53,73 +69,59 @@ export async function onRequestPost(context) {
     imageBase64 = body.image
     imageMediaType = body.mimeType || 'image/jpeg'
   } catch (e) {
-    return json({ error: 'Failed to read request body: ' + String(e) }, 400)
+    return json({ error: 'Bad request: ' + String(e) }, 400)
   }
 
-  const prompt = `This is a grocery store receipt. Extract only edible food and drink items.
-
-Return ONLY this JSON (no other text):
-{"items":["item name 1","item name 2"],"count":<number>}
-
-Rules:
-- Short simple names (e.g. "chicken breast" not "CHKN BRST 1KG BNLS", "greek yogurt" not "GREEK YOG 10%")
-- INCLUDE: fresh produce, meat, fish, dairy, eggs, bread, frozen food, snacks, drinks, condiments, coffee, tea, canned/jarred food, spices
-- SKIP non-food items: foil, cling film, bags, cleaning products, batteries, toiletries, paper, packaging
-- SKIP: prices, totals, store name, address, dates, barcodes, receipt numbers, VAT lines
-- If an item name contains "/" it may be two items — add both separately
-- Max 30 items`
-
+  // Call OpenRouter
+  let claudeText = ''
   try {
-    const apiRes = await fetch('https://api.anthropic.com/v1/messages', {
+    const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-api-key': anthropicKey,
-        'anthropic-version': '2023-06-01',
+        'Authorization': `Bearer ${orKey}`,
+        'HTTP-Referer': 'https://health-hub-dwz.pages.dev',
+        'X-Title': 'Health Hub',
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 600,
+        model: 'google/gemini-2.0-flash-001',
+        max_tokens: 1500,
+        provider: { order: ['Google'], allow_fallbacks: false },
         messages: [{
           role: 'user',
           content: [
-            { type: 'image', source: { type: 'base64', media_type: imageMediaType, data: imageBase64 } },
-            { type: 'text', text: prompt },
+            { type: 'image_url', image_url: { url: `data:${imageMediaType};base64,${imageBase64}` } },
+            { type: 'text', text: PROMPT },
           ],
         }],
       }),
     })
-
-    const claude = await apiRes.json()
-    const text = claude.content?.[0]?.text || '{"items":[]}'
-    const match = text.match(/\{[\s\S]*\}/)
-    const { items = [] } = JSON.parse(match?.[0] || '{"items":[]}')
-
-    // Determine which zone for each item (simple heuristic)
-    function getZone(name) {
-      const n = name.toLowerCase()
-      if (['butter','oil','sauce','mayo','mustard','ketchup','vinegar','soy','sriracha','hot sauce'].some(k => n.includes(k))) return 'condiments'
-      if (['frozen','ice cream','peas frozen'].some(k => n.includes(k))) return 'freezer'
-      if (['flour','rice','pasta','oat','bread','cereal','nuts','seeds','dried','lentil','bean','canned','tin','jar','chips','crackers','biscuit'].some(k => n.includes(k))) return 'pantry'
-      return 'fridge'
+    if (!res.ok) {
+      const t = await res.text()
+      return json({ error: `AI error ${res.status}: ${t.slice(0, 150)}`, items: [] }, 502)
     }
-
-    // Add items to fridge via VPS
-    let added = 0
-    await Promise.allSettled(
-      items.map(async (name) => {
-        const r = await fetch(`${VPS}/fridge/item`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'X-Health-Key': expected },
-          body: JSON.stringify({ name, section: getZone(name) }),
-        })
-        if (r.ok) added++
-      })
-    )
-
-    return json({ items_added: added, items })
+    const data = await res.json()
+    claudeText = data.choices?.[0]?.message?.content || ''
   } catch (e) {
-    console.error('Receipt scan error:', e)
-    return json({ error: 'Could not process receipt', items_added: 0, items: [] }, 500)
+    return json({ error: 'AI request failed: ' + String(e), items: [] }, 502)
   }
+
+  const parsed = extractJSON(claudeText)
+  if (!parsed) {
+    return json({ error: 'Could not parse AI response', raw: claudeText.slice(0, 200), items: [] })
+  }
+
+  const store = parsed.store || null
+  const items = Array.isArray(parsed.items)
+    ? parsed.items
+        .filter(i => i?.name)
+        .map(i => ({
+          name: i.name.toLowerCase().trim(),
+          size: i.size || null,
+          cost: typeof i.cost === 'number' ? i.cost : null,
+          section: ['fridge','freezer','pantry','condiments'].includes(i.section) ? i.section : 'fridge',
+        }))
+    : []
+
+  return json({ items, store })
 }

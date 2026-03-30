@@ -1,12 +1,9 @@
 /**
- * Cloudflare Pages Function — POST /api/ai/analyze-food
- * Analyzes a food photo + optional text with Claude Vision.
- * Body: JSON { image: base64string, mimeType: string, description: string }
+ * Cloudflare Pages Function - POST /api/ai/analyze-food
+ * Analyzes a food photo via OpenRouter (Gemini 2.0 Flash vision).
+ * Body: { image: base64, mimeType: string, description: string }
  * Returns: { name, kcal, protein_g, carbs_g, fat_g, description, confidence }
- *
- * Set ANTHROPIC_API_KEY in Cloudflare Pages → Settings → Environment variables.
  */
-
 const CORS = {
   'Content-Type': 'application/json',
   'Access-Control-Allow-Origin': '*',
@@ -17,81 +14,88 @@ const CORS = {
 function json(data, status = 200) {
   return new Response(JSON.stringify(data), { status, headers: CORS })
 }
-
 export async function onRequestOptions() {
   return new Response(null, { status: 204, headers: CORS })
 }
 
-export async function onRequestPost(context) {
-  // Auth check
-  const reqKey = context.request.headers.get('X-Health-Key') || ''
-  const expected = context.env.HEALTH_API_KEY || 'brody-health-hub-2026'
-  if (reqKey !== expected) return json({ error: 'Unauthorized' }, 401)
+function extractJSON(str) {
+  try { return JSON.parse(str) } catch {}
+  const m = str.match(/\{[\s\S]*\}/)
+  if (m) { try { return JSON.parse(m[0]) } catch {} }
+  return null
+}
 
-  const anthropicKey = context.env.ANTHROPIC_API_KEY
-  if (!anthropicKey)
-    return json({ error: 'ANTHROPIC_API_KEY not configured on server. Add it in Cloudflare Pages → Settings → Environment Variables.' }, 503)
+const PROMPT = (desc) =>
+  `Analyze this food image${desc ? ` (user says: "${desc}")` : ''}.
+
+Return ONLY valid JSON, no markdown:
+{"name":"short food name","kcal":450,"protein_g":35,"carbs_g":40,"fat_g":12,"description":"one sentence description","confidence":"high"}
+
+confidence: "high" if clearly visible, "medium" if partially visible, "low" if unclear.
+Be realistic about portion sizes. If no food visible, set kcal to 0.`
+
+export async function onRequestPost(context) {
+  const expected = context.env.HEALTH_API_KEY || 'brody-health-hub-2026'
+
+  const orKey = context.env.OPENROUTER_API_KEY
+  if (!orKey) return json({ error: 'OpenRouter not configured' }, 503)
 
   let body
   try { body = await context.request.json() }
   catch { return json({ error: 'Invalid JSON body' }, 400) }
 
   const { image, mimeType = 'image/jpeg', description = '' } = body
-
-  const prompt = `Analyze this food image${description ? ` — the user says it is: "${description}"` : ''}.
-
-Estimate the nutritional content and return ONLY this JSON (no other text):
-{
-  "name": "short common food name",
-  "kcal": <integer calories for this portion>,
-  "protein_g": <grams protein>,
-  "carbs_g": <grams carbs>,
-  "fat_g": <grams fat>,
-  "description": "one sentence describing what you see",
-  "confidence": "high" | "medium" | "low"
-}
-
-Be realistic about portion sizes. If no food is visible, set kcal to 0.`
-
-  const content = []
-  if (image) {
-    content.push({ type: 'image', source: { type: 'base64', media_type: mimeType, data: image } })
-  }
-  content.push({ type: 'text', text: prompt })
+  if (!image) return json({ error: 'No image provided' }, 400)
 
   try {
-    const apiRes = await fetch('https://api.anthropic.com/v1/messages', {
+    const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'x-api-key': anthropicKey,
-        'anthropic-version': '2023-06-01',
+        'Authorization': `Bearer ${orKey}`,
+        'HTTP-Referer': 'https://health-hub-dwz.pages.dev',
+        'X-Title': 'Health Hub',
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
+        model: 'google/gemini-2.0-flash-001',
         max_tokens: 300,
-        messages: [{ role: 'user', content }],
+        provider: { order: ['Google'], allow_fallbacks: false },
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'image_url', image_url: { url: `data:${mimeType};base64,${image}` } },
+            { type: 'text', text: PROMPT(description) },
+          ],
+        }],
       }),
     })
 
-    if (!apiRes.ok) {
-      const err = await apiRes.text()
-      console.error('Anthropic error:', err)
-      return json({ error: 'AI service error', detail: err }, 502)
+    if (!res.ok) {
+      const err = await res.text()
+      console.error('OpenRouter error:', err)
+      return json({ error: 'AI error', detail: err.slice(0, 100) }, 502)
     }
 
-    const claude = await apiRes.json()
-    const text = claude.content?.[0]?.text || '{}'
-    const match = text.match(/\{[\s\S]*\}/)
-    if (!match) throw new Error('No JSON in AI response')
-    const result = JSON.parse(match[0])
-    return json(result)
+    const data = await res.json()
+    const text = data.choices?.[0]?.message?.content || '{}'
+    const result = extractJSON(text)
+    if (!result) throw new Error('No JSON in response')
+
+    return json({
+      name: result.name || description || 'Unknown food',
+      kcal: result.kcal || 0,
+      protein_g: result.protein_g || 0,
+      carbs_g: result.carbs_g || 0,
+      fat_g: result.fat_g || 0,
+      description: result.description || '',
+      confidence: result.confidence || 'medium',
+    })
   } catch (e) {
     console.error('analyze-food error:', e)
     return json({
       name: description || 'Unknown food',
       kcal: 0, protein_g: 0, carbs_g: 0, fat_g: 0,
-      description: 'Could not analyze — enter details manually',
+      description: 'Could not analyse — enter details manually',
       confidence: 'low',
     })
   }
