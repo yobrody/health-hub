@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import Today from './pages/Today'
 import Nutrition from './pages/Nutrition'
 import Fridge from './pages/Fridge'
@@ -77,6 +77,28 @@ function TabIcon({ id, active }: { id: Tab; active: boolean }) {
 
 export default function App() {
   const [tab, setTab] = useState<Tab>('today')
+  const [showOnboarding, setShowOnboarding] = useState(false)
+  const [name, setName] = useState('Brody')
+  const [calories, setCalories] = useState('2800')
+  const [protein, setProtein] = useState('140')
+
+  useEffect(() => {
+    const done = localStorage.getItem('onboarding_done') === '1'
+    if (!done) setShowOnboarding(true)
+  }, [])
+
+  function saveOnboarding() {
+    const profile = {
+      name: name.trim() || 'Brody',
+      calories: Number(calories) || 2800,
+      protein: Number(protein) || 140,
+    }
+    try {
+      localStorage.setItem('user_profile', JSON.stringify(profile))
+      localStorage.setItem('onboarding_done', '1')
+    } catch {}
+    setShowOnboarding(false)
+  }
 
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
@@ -122,6 +144,23 @@ export default function App() {
           </button>
         ))}
       </div>
+
+      {showOnboarding && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 500, display: 'flex', alignItems: 'flex-end' }}
+          onClick={e => { if (e.target === e.currentTarget) saveOnboarding() }}>
+          <div style={{ width: '100%', background: 'var(--card)', borderRadius: '22px 22px 0 0', padding: '18px 20px 38px' }}>
+            <div style={{ width: 40, height: 5, borderRadius: 3, background: 'var(--gray4)', margin: '0 auto 14px' }} />
+            <div style={{ fontSize: 22, fontWeight: 700, marginBottom: 4 }}>Welcome to Health Hub</div>
+            <div style={{ fontSize: 14, color: 'var(--label2)', marginBottom: 12 }}>Quick setup for your daily autopilot.</div>
+            <input className="input-field" placeholder="Your name" value={name} onChange={e => setName(e.target.value)} style={{ marginBottom: 8 }} />
+            <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+              <input className="input-field" type="number" placeholder="Daily calories" value={calories} onChange={e => setCalories(e.target.value)} />
+              <input className="input-field" type="number" placeholder="Protein g" value={protein} onChange={e => setProtein(e.target.value)} />
+            </div>
+            <button className="btn-primary" onClick={saveOnboarding}>Start</button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

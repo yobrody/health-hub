@@ -112,7 +112,16 @@ function freshnessColor(age: number, zone: Zone): string {
   return 'var(--green)'
 }
 
-function ItemCard({ item, zone, onTap }: { item: FridgeItem; zone: Zone; onTap: () => void }) {
+function ItemCard({
+  item, zone, qty, onTap, onInc, onDec,
+}: {
+  item: FridgeItem
+  zone: Zone
+  qty: number
+  onTap: () => void
+  onInc: () => void
+  onDec: () => void
+}) {
   const age = daysOld(item.added)
   const pct = Math.min(age / SHELF_LIFE[zone], 1)
   const fColor = freshnessColor(age, zone)
@@ -142,6 +151,11 @@ function ItemCard({ item, zone, onTap }: { item: FridgeItem; zone: Zone; onTap: 
         overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', width: '100%' }}>
         {item.name}
       </span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
+        <button onClick={(e) => { e.stopPropagation(); onDec() }} style={{ border: 'none', background: 'var(--gray5)', color: 'var(--label)', width: 20, height: 20, borderRadius: 10, fontWeight: 700, cursor: 'pointer' }}>−</button>
+        <span style={{ fontSize: 11, fontWeight: 700, minWidth: 16 }}>{qty}</span>
+        <button onClick={(e) => { e.stopPropagation(); onInc() }} style={{ border: 'none', background: 'var(--blue)', color: '#fff', width: 20, height: 20, borderRadius: 10, fontWeight: 700, cursor: 'pointer' }}>+</button>
+      </div>
       {(item.size || item.cost != null) && (
         <span style={{ fontSize: 10, color: 'var(--label2)', fontWeight: 500, lineHeight: 1.2 }}>
           {[item.size, item.cost != null ? `\u00A3${item.cost.toFixed(2)}` : null].filter(Boolean).join(' \u00B7 ')}
@@ -166,8 +180,12 @@ function ItemCard({ item, zone, onTap }: { item: FridgeItem; zone: Zone; onTap: 
   )
 }
 
-function ZoneSection({ zone, items, onRemove }: {
-  zone: Zone; items: FridgeItem[]; onRemove: (name: string, zone: Zone) => void
+function ZoneSection({ zone, items, onRemove, getQty, onQty }: {
+  zone: Zone
+  items: FridgeItem[]
+  onRemove: (name: string, zone: Zone) => void
+  getQty: (name: string) => number
+  onQty: (name: string, delta: number) => void
 }) {
   const cfg = ZONE_CONFIG[zone]
   const totalCost = items.reduce((s, i) => s + (i.cost ?? 0), 0)
@@ -202,7 +220,15 @@ function ZoneSection({ zone, items, onRemove }: {
       </div>
       <div style={{ padding: '4px 10px 12px', display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 8 }}>
         {items.map((item, i) => (
-          <ItemCard key={i} item={item} zone={zone} onTap={() => onRemove(item.name, zone)} />
+          <ItemCard
+            key={i}
+            item={item}
+            zone={zone}
+            qty={getQty(item.name)}
+            onTap={() => onRemove(item.name, zone)}
+            onInc={() => onQty(item.name, 1)}
+            onDec={() => onQty(item.name, -1)}
+          />
         ))}
       </div>
     </div>
@@ -233,11 +259,27 @@ export default function Fridge() {
   const [groceryDone, setGroceryDone] = useState<string[]>(() => {
     try { return JSON.parse(localStorage.getItem('grocery_done') || '[]') } catch { return [] }
   })
+  const [qtyMap, setQtyMap] = useState<Record<string, number>>(() => {
+    try { return JSON.parse(localStorage.getItem('fridge_qty') || '{}') } catch { return {} }
+  })
 
   useEffect(() => { api.getFridge().then(setData) }, [])
   useEffect(() => {
     try { localStorage.setItem('grocery_done', JSON.stringify(groceryDone)) } catch {}
   }, [groceryDone])
+  useEffect(() => {
+    try { localStorage.setItem('fridge_qty', JSON.stringify(qtyMap)) } catch {}
+  }, [qtyMap])
+
+  function qtyKey(name: string) { return name.trim().toLowerCase() }
+  function getQty(name: string) { return Math.max(1, qtyMap[qtyKey(name)] ?? 1) }
+  function onQty(name: string, delta: number) {
+    setQtyMap(prev => {
+      const key = qtyKey(name)
+      const next = Math.max(0, (prev[key] ?? 1) + delta)
+      return { ...prev, [key]: next }
+    })
+  }
 
   const smartGrocery = [
     ...alertItems.map(i => i.name),
@@ -459,7 +501,16 @@ export default function Fridge() {
         {(['fridge', 'freezer', 'pantry', 'condiments'] as Zone[]).map(zone => {
           const items = data[zone] ?? []
           if (items.length === 0) return null
-          return <ZoneSection key={zone} zone={zone} items={items} onRemove={(name, z) => setRemoveModal({ name, zone: z })} />
+          return (
+            <ZoneSection
+              key={zone}
+              zone={zone}
+              items={items}
+              onRemove={(name, z) => setRemoveModal({ name, zone: z })}
+              getQty={getQty}
+              onQty={onQty}
+            />
+          )
         })}
 
         {/* ── Bottom action row ── */}

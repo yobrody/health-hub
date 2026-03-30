@@ -172,6 +172,10 @@ export default function Nutrition() {
     acc[e.meal] = [...(acc[e.meal] ?? []), e]
     return acc
   }, {})
+  const mealSplit: Record<string, number> = { Breakfast: 0.25, Lunch: 0.3, Dinner: 0.3, Snack: 0.15 }
+  const mealTargetKcal = Math.round(goal * (mealSplit[meal] ?? 0.25))
+  const proteinGoal = data?.goals.protein ?? 140
+  const mealTargetProtein = Math.round(proteinGoal * (mealSplit[meal] ?? 0.25))
 
   return (
     <div className="page" style={{ background: 'var(--bg)' }}>
@@ -328,6 +332,9 @@ export default function Nutrition() {
                     {m}
                   </button>
                 ))}
+              </div>
+              <div style={{ marginTop: -6, marginBottom: 10, fontSize: 12, color: 'var(--label2)' }}>
+                Target for {meal.toLowerCase()}: ~{mealTargetKcal} kcal · ~{mealTargetProtein}g protein
               </div>
 
               <input className="input-field" style={{ marginBottom: 10 }}

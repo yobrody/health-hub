@@ -98,6 +98,7 @@ export default function Today({ onNavigate }: Props) {
   const [coachFeed, setCoachFeed] = useState<{ date: string; title: string; hardSets: number; proteinTarget: number; grocery: string[] } | null>(null)
   const [timelineDone, setTimelineDone] = useState<Record<string, boolean>>({})
   const [showCelebrate, setShowCelebrate] = useState(false)
+  const [displayName, setDisplayName] = useState('Brody')
   const inputRef = useRef<HTMLInputElement>(null)
 
   const now = new Date()
@@ -118,6 +119,13 @@ export default function Today({ onNavigate }: Props) {
     try {
       const raw = localStorage.getItem('today_timeline_done')
       if (raw) setTimelineDone(JSON.parse(raw))
+    } catch {}
+    try {
+      const raw = localStorage.getItem('user_profile')
+      if (raw) {
+        const p = JSON.parse(raw) as { name?: string }
+        if (p.name) setDisplayName(p.name)
+      }
     } catch {}
   }, [])
 
@@ -205,7 +213,7 @@ export default function Today({ onNavigate }: Props) {
           <div style={{ fontSize: 13, color: 'var(--label2)', fontWeight: 500, marginBottom: 2 }}>
             {now.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })}
           </div>
-          <div style={{ fontSize: 30, fontWeight: 700, letterSpacing: '-0.5px' }}>{greeting}, Brody</div>
+          <div style={{ fontSize: 30, fontWeight: 700, letterSpacing: '-0.5px' }}>{greeting}, {displayName}</div>
         </div>
 
         <div className="card" style={{ padding: '10px 12px', marginBottom: 12 }}>
