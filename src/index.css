@@ -1,5 +1,9 @@
 :root,
 :root[data-theme='light'] {
+  --font-title: 30px;
+  --font-cardTitle: 18px;
+  --font-body: 15px;
+  --font-caption: 12px;
   --blue: #007AFF;
   --blue-light: #EAF3FF;
   --green: #34C759;
@@ -53,6 +57,8 @@ body {
   background: radial-gradient(circle at top, color-mix(in srgb, var(--blue) 12%, var(--bg)), var(--bg) 36%);
   color: var(--label);
   -webkit-font-smoothing: antialiased;
+  letter-spacing: -0.15px;
+  line-height: 1.35;
 }
 
 input, textarea, button, select {
@@ -91,6 +97,14 @@ input, textarea, button, select {
 }
 .tap-lift:active {
   transform: translateY(1px) scale(0.985);
+}
+
+.celebrate-pop {
+  animation: popIn 0.28s cubic-bezier(0.22, 1, 0.36, 1);
+}
+@keyframes popIn {
+  from { transform: translateY(8px) scale(0.96); opacity: 0; }
+  to { transform: translateY(0) scale(1); opacity: 1; }
 }
 
 .page {

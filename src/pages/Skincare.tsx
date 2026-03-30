@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 type RoutineStep = { id: string; label: string; icon: string }
 type DayLog = { date: string; morning: string[]; evening: string[] }
@@ -51,6 +51,7 @@ function getStreak(days: DayLog[]): number {
 export default function Skincare() {
   const [log, setLocalLog] = useState<DayLog[]>(() => getLog())
   const [period, setPeriod] = useState<'morning' | 'evening'>(() => new Date().getHours() < 14 ? 'morning' : 'evening')
+  const [showCelebrate, setShowCelebrate] = useState(false)
   const today = todayISO()
 
   const todayRow = useMemo(
@@ -62,6 +63,17 @@ export default function Skincare() {
 
   const streak = getStreak(log)
   const totalDoneToday = todayRow.morning.length + todayRow.evening.length
+
+  useEffect(() => {
+    if (totalDoneToday < 6) return
+    const key = `skin_celebrate_${today}`
+    if (localStorage.getItem(key) === '1') return
+    setShowCelebrate(true)
+    localStorage.setItem(key, '1')
+    const t = window.setTimeout(() => setShowCelebrate(false), 1800)
+    if (navigator.vibrate) navigator.vibrate([20, 40, 20])
+    return () => window.clearTimeout(t)
+  }, [totalDoneToday, today])
 
   function toggle(stepId: string) {
     const has = doneIds.includes(stepId)
@@ -139,6 +151,15 @@ export default function Skincare() {
           })}
         </div>
       </div>
+
+      {showCelebrate && (
+        <div style={{ position: 'fixed', inset: 0, pointerEvents: 'none', zIndex: 420, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div className="celebrate-pop" style={{ background: 'var(--card)', borderRadius: 16, padding: '10px 14px', border: '1px solid var(--separator)' }}>
+            <div style={{ fontSize: 20, textAlign: 'center' }}>✨ 🧴 ✨</div>
+            <div style={{ fontSize: 13, fontWeight: 700 }}>Skincare complete today!</div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

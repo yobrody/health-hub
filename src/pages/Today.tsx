@@ -97,6 +97,7 @@ export default function Today({ onNavigate }: Props) {
   const [nextWorkout, setNextWorkout] = useState<DayName>('Upper A')
   const [coachFeed, setCoachFeed] = useState<{ date: string; title: string; hardSets: number; proteinTarget: number; grocery: string[] } | null>(null)
   const [timelineDone, setTimelineDone] = useState<Record<string, boolean>>({})
+  const [showCelebrate, setShowCelebrate] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
   const now = new Date()
@@ -173,6 +174,27 @@ export default function Today({ onNavigate }: Props) {
     { id: 'train', label: 'Check workout progression', done: !!coachFeed || !!timelineDone.train, go: () => onNavigate('workout'), action: 'Open workout' },
   ]
   const nextAction = timeline.find(t => !t.done) ?? null
+  const allDone = timeline.every(t => t.done)
+  const nutritionPct = Math.min(Math.round((total / Math.max(goals.calories, 1)) * 100), 100)
+  const proteinPct = Math.min(Math.round((protein / Math.max(goals.protein, 1)) * 100), 100)
+  const summaryStats = [
+    { label: 'Nutrition', value: `${nutritionPct}%`, tone: 'var(--blue)' },
+    { label: 'Protein', value: `${proteinPct}%`, tone: 'var(--orange)' },
+    { label: 'Hydration', value: waterDone ? '100%' : '0%', tone: 'var(--green)' },
+    { label: 'Skincare', value: skinDone ? 'Done' : 'Todo', tone: 'var(--purple)' },
+  ]
+
+  useEffect(() => {
+    if (!allDone) return
+    const todayKey = new Date().toISOString().slice(0, 10)
+    const saved = localStorage.getItem('celebrated_today')
+    if (saved === todayKey) return
+    setShowCelebrate(true)
+    localStorage.setItem('celebrated_today', todayKey)
+    const t = window.setTimeout(() => setShowCelebrate(false), 2200)
+    if (navigator.vibrate) navigator.vibrate([30, 60, 30])
+    return () => window.clearTimeout(t)
+  }, [allDone])
 
   return (
     <div className="page" style={{ background: 'var(--bg)' }}>
@@ -184,6 +206,17 @@ export default function Today({ onNavigate }: Props) {
             {now.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })}
           </div>
           <div style={{ fontSize: 30, fontWeight: 700, letterSpacing: '-0.5px' }}>{greeting}, Brody</div>
+        </div>
+
+        <div className="card" style={{ padding: '10px 12px', marginBottom: 12 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 8 }}>
+            {summaryStats.map((s) => (
+              <div key={s.label} style={{ textAlign: 'center', borderRadius: 10, padding: '8px 6px', background: 'var(--gray6)' }}>
+                <div style={{ fontSize: 13, fontWeight: 800, color: s.tone }}>{s.value}</div>
+                <div style={{ fontSize: 10, color: 'var(--label2)', marginTop: 2 }}>{s.label}</div>
+              </div>
+            ))}
+          </div>
         </div>
 
         {/* Calorie card */}
@@ -339,6 +372,15 @@ export default function Today({ onNavigate }: Props) {
           ))}
         </div>
       </div>
+
+      {showCelebrate && (
+        <div style={{ position: 'fixed', inset: 0, pointerEvents: 'none', zIndex: 500, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div className="celebrate-pop" style={{ background: 'var(--card)', borderRadius: 18, padding: '12px 16px', border: '1px solid var(--separator)', boxShadow: '0 8px 22px rgba(0,0,0,0.12)' }}>
+            <div style={{ fontSize: 22, textAlign: 'center' }}>🎉 🌟 🎉</div>
+            <div style={{ fontSize: 14, fontWeight: 700, marginTop: 4 }}>Daily checklist complete!</div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
