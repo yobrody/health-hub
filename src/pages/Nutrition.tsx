@@ -278,13 +278,13 @@ export default function Nutrition() {
               <div style={{ display: 'flex', gap: 8 }}>
                 {/* Barcode (Chrome/Android only) */}
                 {hasBarcodeSupport && (
-                  <button onClick={() => fileInputRef.current?.click()} disabled={scanning || analyzing}
+                <button className="tap-lift" onClick={() => fileInputRef.current?.click()} disabled={scanning || analyzing}
                     style={{ background: 'var(--gray6)', border: 'none', borderRadius: 14, padding: '7px 12px', fontSize: 13, fontWeight: 600, color: 'var(--label)', cursor: 'pointer', opacity: (scanning || analyzing) ? 0.5 : 1 }}>
                     {scanning ? '⏳' : '📷 Barcode'}
                   </button>
                 )}
                 {/* Food photo AI */}
-                <button onClick={() => photoInputRef.current?.click()} disabled={scanning || analyzing}
+                <button className="tap-lift" onClick={() => photoInputRef.current?.click()} disabled={scanning || analyzing}
                   style={{ background: analyzing ? 'var(--gray5)' : 'var(--blue)', border: 'none', borderRadius: 14, padding: '7px 12px', fontSize: 13, fontWeight: 600, color: analyzing ? 'var(--label2)' : '#fff', cursor: 'pointer', opacity: (scanning || analyzing) ? 0.7 : 1 }}>
                   {analyzing ? '⏳ Analyzing…' : '🍽️ Snap Food'}
                 </button>

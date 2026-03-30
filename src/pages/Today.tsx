@@ -172,6 +172,7 @@ export default function Today({ onNavigate }: Props) {
     { id: 'skin', label: 'Complete skincare routine', done: skinDone || !!timelineDone.skin, go: () => onNavigate('skincare'), action: 'Open skincare' },
     { id: 'train', label: 'Check workout progression', done: !!coachFeed || !!timelineDone.train, go: () => onNavigate('workout'), action: 'Open workout' },
   ]
+  const nextAction = timeline.find(t => !t.done) ?? null
 
   return (
     <div className="page" style={{ background: 'var(--bg)' }}>
@@ -277,6 +278,27 @@ export default function Today({ onNavigate }: Props) {
           ))}
         </div>
 
+        {nextAction && (
+          <div className="card" style={{ padding: '12px 14px', marginBottom: 12, border: '1px solid rgba(10,132,255,0.24)' }}>
+            <div style={{ fontSize: 11, color: 'var(--blue)', fontWeight: 800, letterSpacing: '0.05em', marginBottom: 4 }}>AUTOPILOT</div>
+            <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 8 }}>
+              Next best action: {nextAction.label}
+            </div>
+            <button
+              className="action-pill tap-lift"
+              onClick={nextAction.go}
+              disabled={nextAction.action === 'Track above'}
+              style={{
+                background: nextAction.action === 'Track above' ? 'var(--gray5)' : 'var(--blue)',
+                color: nextAction.action === 'Track above' ? 'var(--label2)' : '#fff',
+                opacity: nextAction.action === 'Track above' ? 0.8 : 1,
+              }}
+            >
+              {nextAction.action}
+            </button>
+          </div>
+        )}
+
         {/* Today's entries */}
         {(data?.entries.length ?? 0) > 0 && (
           <>
@@ -306,7 +328,7 @@ export default function Today({ onNavigate }: Props) {
             { label: 'Skincare',  sub: 'Morning + evening',tab: 'skincare'  as const, icon: '\u{1F9F4}', color: 'var(--purple)' },
             { label: 'Workout',   sub: 'Log a session',    tab: 'workout'   as const, icon: '\u{1F3CB}\uFE0F', color: 'var(--green)'  },
           ].map(item => (
-            <button key={item.tab} onClick={() => onNavigate(item.tab)}
+            <button key={item.tab} className="tap-lift" onClick={() => onNavigate(item.tab)}
               style={{ background: 'var(--card)', borderRadius: 14, padding: '16px 14px', border: 'none',
                 cursor: 'pointer', textAlign: 'left', display: 'flex', flexDirection: 'column', gap: 6,
                 transition: 'opacity 0.15s', WebkitTapHighlightColor: 'transparent' }}>

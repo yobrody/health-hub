@@ -41,6 +41,15 @@ function getEmoji(name: string): string {
   return '\u{1F6D2}'
 }
 
+function getFoodTint(name: string): string {
+  const n = name.toLowerCase()
+  if (['apple', 'banana', 'orange', 'berry', 'grape', 'mango'].some(k => n.includes(k))) return 'rgba(255,149,0,0.22)'
+  if (['chicken', 'beef', 'salmon', 'fish', 'egg', 'turkey', 'pork'].some(k => n.includes(k))) return 'rgba(255,59,48,0.2)'
+  if (['spinach', 'lettuce', 'broccoli', 'cucumber', 'avocado'].some(k => n.includes(k))) return 'rgba(52,199,89,0.22)'
+  if (['milk', 'yogurt', 'cheese'].some(k => n.includes(k))) return 'rgba(10,132,255,0.22)'
+  return 'rgba(175,82,222,0.18)'
+}
+
 async function detectBarcode(file: File): Promise<string | null> {
   if (!('BarcodeDetector' in window)) return null
   try {
@@ -110,9 +119,10 @@ function ItemCard({ item, zone, onTap }: { item: FridgeItem; zone: Zone; onTap: 
   const cfg = ZONE_CONFIG[zone]
   const isOld = age > 5
   const isWarn = age > 3 && age <= 5
+  const tint = getFoodTint(item.name)
 
   return (
-    <button onClick={onTap} style={{
+    <button className="tap-lift" onClick={onTap} style={{
       background: isOld ? '#FFF0EE' : isWarn ? '#FFFAEE' : 'var(--card)',
       border: `1.5px solid ${isOld ? 'rgba(255,59,48,0.22)' : isWarn ? 'rgba(255,149,0,0.2)' : cfg.border}`,
       borderRadius: 16, padding: '10px 8px 8px',
@@ -125,7 +135,7 @@ function ItemCard({ item, zone, onTap }: { item: FridgeItem; zone: Zone; onTap: 
       {isWarn && !isOld && <div style={{ position:'absolute', top:-7, right:-7, background:'var(--orange)', color:'#fff', borderRadius:8, fontSize:9, fontWeight:700, padding:'2px 5px' }}>SOON</div>}
       <span style={{
         fontSize: 26, lineHeight: 1.1, padding: '2px 6px', borderRadius: 12,
-        background: 'linear-gradient(180deg, rgba(255,255,255,0.92), rgba(255,255,255,0.35))',
+        background: `linear-gradient(180deg, rgba(255,255,255,0.95), ${tint})`,
         boxShadow: 'inset 0 1px 2px rgba(255,255,255,0.8), 0 1px 3px rgba(0,0,0,0.08)',
       }}>{getEmoji(item.name)}</span>
       <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--label)', lineHeight: 1.3,
