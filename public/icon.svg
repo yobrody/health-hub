@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Health Hub">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0A84FF"/>
+      <stop offset="1" stop-color="#34C759"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="120" fill="url(#g)"/>
+  <path fill="#ffffff" d="M256 392c-10.3 0-20.2-3.9-27.7-10.9C170.5 326.7 128 287.9 128 236.6 128 192.1 163.8 160 208.7 160c18.8 0 36.6 6.6 50.5 18.6 13.9-12 31.7-18.6 50.5-18.6C354.2 160 390 192.1 390 236.6c0 51.3-42.5 90.1-100.3 144.5-7.5 7-17.4 10.9-27.7 10.9z"/>
+  <path fill="#ffffff" d="M246 210h20v92h-20z"/>
+  <path fill="#ffffff" d="M210 246h92v20h-92z"/>
+</svg>
