@@ -44,6 +44,21 @@ function progressionHint(ex: LiveExercise): string | null {
   return 'Progressing well — add reps before weight'
 }
 
+function publishCoachFeed(live: LiveWorkout) {
+  const doneSets = live.exercises.flatMap(ex => ex.sets.filter(s => s.done))
+  const hardSets = doneSets.length
+  const proteinTarget = Math.min(60, Math.max(20, Math.round(hardSets * 1.8)))
+  const grocery = ['greek yogurt', 'eggs', 'chicken breast', 'bananas', 'oats']
+  const payload = {
+    date: new Date().toISOString(),
+    title: live.title,
+    hardSets,
+    proteinTarget,
+    grocery,
+  }
+  try { localStorage.setItem('coach_feed', JSON.stringify(payload)) } catch {}
+}
+
 // Wger exercise search
 async function searchExercises(query: string): Promise<string[]> {
   try {
@@ -309,6 +324,7 @@ export default function Workout() {
     const [updated, updatedPRs] = await Promise.all([api.getWorkouts(20), api.getPRs()])
     setWorkouts(updated)
     setPRs(updatedPRs)
+    publishCoachFeed(live)
     setLive(null)
     setRestTimer(null)
     setFinishing(false)

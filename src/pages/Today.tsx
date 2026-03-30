@@ -95,6 +95,7 @@ export default function Today({ onNavigate }: Props) {
   const [quickKcal, setQuickKcal] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [nextWorkout, setNextWorkout] = useState<DayName>('Upper A')
+  const [coachFeed, setCoachFeed] = useState<{ date: string; title: string; hardSets: number; proteinTarget: number; grocery: string[] } | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
   const now = new Date()
@@ -108,6 +109,10 @@ export default function Today({ onNavigate }: Props) {
       const recentTitles = [...workouts].reverse().map(w => w.title)
       setNextWorkout(getNextDay(recentTitles))
     })
+    try {
+      const raw = localStorage.getItem('coach_feed')
+      if (raw) setCoachFeed(JSON.parse(raw))
+    } catch {}
   }, [])
 
   async function handleQuickLog(e: React.FormEvent) {
@@ -197,6 +202,26 @@ export default function Today({ onNavigate }: Props) {
           </div>
           <div style={{ fontSize: 18, color: isWorkoutDay ? 'rgba(255,255,255,0.7)' : 'var(--label3)' }}>❯</div>
         </div>
+
+        {coachFeed && (
+          <div className="card" style={{ padding: '14px 16px', marginBottom: 12, border: '1px solid rgba(52,199,89,0.22)' }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--green)', marginBottom: 5 }}>AUTO IMPROVEMENT</div>
+            <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 2 }}>
+              After {coachFeed.title}: target +{coachFeed.proteinTarget}g protein
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--label2)', marginBottom: 10 }}>
+              {coachFeed.hardSets} hard sets logged. Suggested groceries: {coachFeed.grocery.slice(0, 3).join(' · ')}
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button onClick={() => onNavigate('nutrition')} style={{ flex: 1, border: 'none', borderRadius: 10, padding: '9px 10px', background: 'var(--blue)', color: '#fff', fontWeight: 600, cursor: 'pointer' }}>
+                Log meal
+              </button>
+              <button onClick={() => onNavigate('fridge')} style={{ flex: 1, border: '1px solid var(--separator)', borderRadius: 10, padding: '9px 10px', background: 'var(--card)', color: 'var(--label)', fontWeight: 600, cursor: 'pointer' }}>
+                Open grocery
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Today's entries */}
         {(data?.entries.length ?? 0) > 0 && (

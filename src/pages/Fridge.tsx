@@ -41,6 +41,29 @@ function getEmoji(name: string): string {
   return '\u{1F6D2}'
 }
 
+async function detectBarcode(file: File): Promise<string | null> {
+  if (!('BarcodeDetector' in window)) return null
+  try {
+    const BD = (window as unknown as { BarcodeDetector: new (o: object) => { detect: (b: ImageBitmap) => Promise<Array<{ rawValue: string }>> } }).BarcodeDetector
+    const detector = new BD({ formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128'] })
+    const bitmap = await createImageBitmap(file)
+    const barcodes = await detector.detect(bitmap)
+    bitmap.close()
+    if (!barcodes.length) return null
+    return barcodes[0].rawValue
+  } catch {
+    return null
+  }
+}
+
+function inferSection(name: string): Zone {
+  const n = name.toLowerCase()
+  if (['sauce', 'ketchup', 'mustard', 'mayo', 'vinegar', 'oil'].some(k => n.includes(k))) return 'condiments'
+  if (['frozen', 'ice cream'].some(k => n.includes(k))) return 'freezer'
+  if (['rice', 'pasta', 'oat', 'cereal', 'bread', 'nuts', 'flour'].some(k => n.includes(k))) return 'pantry'
+  return 'fridge'
+}
+
 function daysOld(added: string | null): number {
   if (!added) return 0
   try {
@@ -186,8 +209,10 @@ export default function Fridge() {
   const [addZone, setAddZone] = useState<Zone>('fridge')
   const [scanning, setScanning] = useState(false)
   const [scanStatus, setScanStatus] = useState<string | null>(null)
+  const [barcodeScanning, setBarcodeScanning] = useState(false)
   const [removeModal, setRemoveModal] = useState<{ name: string; zone: Zone } | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const barcodeInputRef = useRef<HTMLInputElement>(null)
 
   const allItems = Object.values(data).flat()
   const totalItems = allItems.length
@@ -283,6 +308,36 @@ export default function Fridge() {
     }
   }
 
+  async function handleBarcodeScan(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setBarcodeScanning(true)
+    setScanStatus('Scanning barcode...')
+    try {
+      const code = await detectBarcode(file)
+      if (!code) {
+        setScanStatus('No barcode found - try a clearer shot')
+        return
+      }
+      const product = await api.lookupBarcode(code)
+      if (!product?.name) {
+        setScanStatus('Barcode found, but product not matched')
+        return
+      }
+      const section = inferSection(product.name)
+      await api.addFridgeItem(product.name, section)
+      const updated = await api.getFridge()
+      setData(updated)
+      setScanStatus(`✓ Added ${product.name} to ${ZONE_CONFIG[section].label}`)
+    } catch {
+      setScanStatus('Barcode add failed - try again')
+    } finally {
+      setBarcodeScanning(false)
+      if (barcodeInputRef.current) barcodeInputRef.current.value = ''
+      setTimeout(() => setScanStatus(null), 4500)
+    }
+  }
+
   async function confirmRemove() {
     if (!removeModal) return
     await api.removeFridgeItem(removeModal.name)
@@ -324,6 +379,11 @@ export default function Fridge() {
             </div>
           </div>
           <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+            <button onClick={() => barcodeInputRef.current?.click()} disabled={barcodeScanning}
+              style={{ background: barcodeScanning ? 'var(--gray5)' : 'var(--purple)', color: '#fff',
+                border: 'none', borderRadius: 20, padding: '8px 13px', fontSize: 13, fontWeight: 600, cursor: 'pointer', opacity: barcodeScanning ? 0.7 : 1 }}>
+              {barcodeScanning ? '⏳' : '🏷️ Barcode'}
+            </button>
             <button onClick={() => fileInputRef.current?.click()} disabled={scanning}
               style={{ background: scanning ? 'var(--gray5)' : 'var(--green)', color: scanning ? 'var(--label2)' : '#fff',
                 border: 'none', borderRadius: 20, padding: '8px 13px', fontSize: 13, fontWeight: 600, cursor: 'pointer', opacity: scanning ? 0.7 : 1 }}>
@@ -337,6 +397,7 @@ export default function Fridge() {
         </div>
 
         <input ref={fileInputRef} type="file" accept="image/*" style={{ display: 'none' }} onChange={handleScan} />
+        <input ref={barcodeInputRef} type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={handleBarcodeScan} />
 
         {/* ── Scan toast ── */}
         {scanStatus && (
