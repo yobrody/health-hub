@@ -4,15 +4,17 @@ import Nutrition from './pages/Nutrition'
 import Fridge from './pages/Fridge'
 import Workout from './pages/Workout'
 import GoalsPage from './pages/Goals'
+import Skincare from './pages/Skincare'
 import './App.css'
 
-type Tab = 'today' | 'nutrition' | 'fridge' | 'workout' | 'goals'
+type Tab = 'today' | 'nutrition' | 'fridge' | 'workout' | 'goals' | 'skincare'
 
 const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: 'today', label: 'Today', icon: 'sun.max.fill' },
   { id: 'nutrition', label: 'Nutrition', icon: 'fork.knife' },
   { id: 'fridge', label: 'Fridge', icon: 'refrigerator' },
   { id: 'workout', label: 'Workout', icon: 'dumbbell.fill' },
+  { id: 'skincare', label: 'Skin', icon: 'drop.fill' },
   { id: 'goals', label: 'Goals', icon: 'chart.bar.fill' },
 ]
 
@@ -65,6 +67,11 @@ function TabIcon({ id, active }: { id: Tab; active: boolean }) {
         <rect x="17" y="4" width="4" height="18" rx="1" opacity={active ? 1 : 0.6}/>
       </svg>
     )
+    case 'skincare': return (
+      <svg {...s} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M12 3C10 7 6 10 6 14a6 6 0 0 0 12 0c0-4-4-7-6-11z" />
+      </svg>
+    )
   }
 }
 
@@ -78,6 +85,7 @@ export default function App() {
         {tab === 'nutrition' && <Nutrition />}
         {tab === 'fridge' && <Fridge />}
         {tab === 'workout' && <Workout />}
+        {tab === 'skincare' && <Skincare />}
         {tab === 'goals' && <GoalsPage />}
       </div>
 

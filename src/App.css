@@ -15,14 +15,10 @@
 }
 
 /* Tab bar dark mode */
-@media (prefers-color-scheme: dark) {
-  .tab-bar { background: rgba(28,28,30,0.92) !important; }
-}
+:root[data-theme='dark'] .tab-bar { background: rgba(28,28,30,0.92) !important; }
 
 /* Dark input fields */
-@media (prefers-color-scheme: dark) {
-  .input-field { background: var(--gray4) !important; }
-}
+:root[data-theme='dark'] .input-field { background: var(--gray4) !important; }
 
 /* Sheet modal animation */
 .sheet-enter { animation: slideUp 0.32s cubic-bezier(0.32,0.72,0,1); }

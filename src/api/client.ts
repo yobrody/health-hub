@@ -35,6 +35,42 @@ function fileToBase64(file: File): Promise<string> {
   })
 }
 
+async function lookupBarcode(barcode: string): Promise<BarcodeLookupResult | null> {
+  const apiUrl = import.meta.env.VITE_BARCODE_API_URL
+  const apiKey = import.meta.env.VITE_BARCODE_API_KEY
+
+  // Paid provider path (configurable). Expected response:
+  // { name: string, kcal?: number, protein_g?: number, carbs_g?: number, fat_g?: number }
+  if (apiUrl && apiKey) {
+    try {
+      const res = await fetch(`${apiUrl}?barcode=${encodeURIComponent(barcode)}`, {
+        headers: { Authorization: `Bearer ${apiKey}` },
+      })
+      if (res.ok) {
+        const data = await res.json() as BarcodeLookupResult
+        if (data?.name) return data
+      }
+    } catch {}
+  }
+
+  // Fallback for development/demo.
+  try {
+    const res = await fetch(`https://world.openfoodfacts.org/api/v0/product/${barcode}.json`)
+    const data = await res.json()
+    if (data.status === 1 && data.product) {
+      const p = data.product
+      const name: string = p.product_name_en || p.product_name || `Product ${barcode}`
+      const kcal100: number | null = p.nutriments?.['energy-kcal_100g']
+        ?? (p.nutriments?.energy_100g ? p.nutriments.energy_100g / 4.184 : null)
+      const servingG = parseFloat(p.serving_quantity) || 100
+      const kcal = kcal100 ? Math.round(kcal100 * servingG / 100) : undefined
+      return { name, kcal }
+    }
+  } catch {}
+
+  return null
+}
+
 export const api = {
   // Today
   getToday: () => request<TodayData>('/today'),
@@ -81,6 +117,7 @@ export const api = {
     if (!res.ok) throw new Error(`AI error: ${res.status}`)
     return res.json()
   },
+  lookupBarcode,
 
   // Workouts — VPS returns { value: WorkoutData[], Count: N }, unwrap it
   getWorkouts: (limit = 30) =>
@@ -104,6 +141,13 @@ export interface ScanResult { items?: ScannedItem[]; store?: { name: string; loc
 export interface FoodAnalysis {
   name: string; kcal: number; protein_g: number; carbs_g: number; fat_g: number
   description: string; confidence: 'high' | 'medium' | 'low'
+}
+export interface BarcodeLookupResult {
+  name: string
+  kcal?: number
+  protein_g?: number
+  carbs_g?: number
+  fat_g?: number
 }
 export interface TodayData { date: string; entries: FoodEntry[]; total_kcal: number; goals: Goals }
 export interface FoodEntry { time: string; meal: string; items: string; kcal: number }

@@ -1,11 +1,11 @@
 import { useEffect, useState, useRef } from 'react'
 import { api } from '../api/client'
-import type { FoodEntry, TodayData, HistoryDay, FoodAnalysis } from '../api/client'
+import type { FoodEntry, TodayData, HistoryDay, FoodAnalysis, BarcodeLookupResult } from '../api/client'
 
 const MEALS = ['Breakfast', 'Lunch', 'Dinner', 'Snack']
 
 // ── Barcode scanning (Chrome Android / desktop only) ─────────────────────────
-async function scanBarcode(file: File): Promise<{ name: string; kcal: number | null } | null> {
+async function detectBarcode(file: File): Promise<string | null> {
   if (!('BarcodeDetector' in window)) return null
   try {
     const BD = (window as unknown as { BarcodeDetector: new (o: object) => { detect: (b: ImageBitmap) => Promise<Array<{ rawValue: string }>> } }).BarcodeDetector
@@ -14,18 +14,7 @@ async function scanBarcode(file: File): Promise<{ name: string; kcal: number | n
     const barcodes = await detector.detect(bitmap)
     bitmap.close()
     if (!barcodes.length) return null
-    const barcode = barcodes[0].rawValue
-    const res = await fetch(`https://world.openfoodfacts.org/api/v0/product/${barcode}.json`)
-    const data = await res.json()
-    if (data.status === 1 && data.product) {
-      const p = data.product
-      const name: string = p.product_name_en || p.product_name || `Product ${barcode}`
-      const kcal100: number = p.nutriments?.['energy-kcal_100g'] ?? (p.nutriments?.energy_100g ? p.nutriments.energy_100g / 4.184 : null)
-      const servingG = parseFloat(p.serving_quantity) || 100
-      const kcal: number | null = kcal100 ? Math.round(kcal100 * servingG / 100) : null
-      return { name, kcal }
-    }
-    return null
+    return barcodes[0].rawValue
   } catch (e) {
     console.error('Barcode scan failed:', e)
     return null
@@ -98,13 +87,18 @@ export default function Nutrition() {
     setScanMsg('Scanning barcode\u2026')
     setPhotoAnalysis(null)
     try {
-      const result = await scanBarcode(file)
+      const barcode = await detectBarcode(file)
+      if (!barcode) {
+        setScanMsg('Barcode not recognised \u2014 try a clearer photo')
+        return
+      }
+      const result: BarcodeLookupResult | null = await api.lookupBarcode(barcode)
       if (result) {
         setDesc(result.name)
-        if (result.kcal) setKcal(String(result.kcal))
+        if (result.kcal != null) setKcal(String(result.kcal))
         setScanMsg(result.kcal ? `Found: ${result.name} (~${result.kcal} kcal)` : `Found: ${result.name} \u2014 enter calories manually`)
       } else {
-        setScanMsg('Barcode not recognised \u2014 try the food photo button')
+        setScanMsg('No nutrition data found \u2014 enter calories manually')
       }
     } catch {
       setScanMsg('Scan failed \u2014 enter manually')
@@ -205,7 +199,7 @@ export default function Nutrition() {
                     <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--label2)', flexShrink: 0 }}>~{e.kcal}</div>
                     <button onClick={() => setDeleteConfirm(e)}
                       style={{ background: 'none', border: 'none', color: 'var(--label3)', cursor: 'pointer', padding: '4px 6px', fontSize: 16, borderRadius: 8, flexShrink: 0 }}
-                      title="Delete entry">\u00d7</button>
+                      title="Delete entry">×</button>
                   </div>
                 ))}
               </div>
@@ -227,7 +221,7 @@ export default function Nutrition() {
                       {d.logged && <div style={{ height: '100%', borderRadius: 3, background: d.total_kcal > goal ? 'var(--red)' : 'var(--blue)', width: `${Math.min(d.total_kcal / goal * 100, 100)}%` }} />}
                     </div>
                     <div style={{ width: 72, textAlign: 'right', fontSize: 14, fontWeight: 500, flexShrink: 0 }}>
-                      {d.logged ? d.total_kcal.toLocaleString() : <span style={{ color: 'var(--label3)' }}>\u2014</span>}
+                      {d.logged ? d.total_kcal.toLocaleString() : <span style={{ color: 'var(--label3)' }}>—</span>}
                     </div>
                   </div>
                 )

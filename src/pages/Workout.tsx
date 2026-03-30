@@ -17,6 +17,33 @@ interface LiveExercise {
 }
 interface LiveWorkout { title: string; startTime: string; exercises: LiveExercise[] }
 
+function parseRepRange(repRange?: string): { min: number; max: number } | null {
+  if (!repRange) return null
+  const m = repRange.match(/(\d+)\s*-\s*(\d+)/)
+  if (!m) return null
+  return { min: parseInt(m[1]), max: parseInt(m[2]) }
+}
+
+function progressionHint(ex: LiveExercise): string | null {
+  const doneSets = ex.sets.filter(s => s.done && s.weight_kg != null && s.reps != null)
+  if (doneSets.length === 0) return null
+  const rr = parseRepRange(ex.repRange)
+  if (!rr) return null
+  const allAtTop = doneSets.every(s => (s.reps ?? 0) >= rr.max)
+  const allBelowMin = doneSets.every(s => (s.reps ?? 0) < rr.min)
+  const currentWeight = doneSets[0]?.weight_kg ?? ex.prevBest?.weight_kg
+  if (!currentWeight) return null
+
+  if (allAtTop) {
+    const bump = currentWeight >= 40 ? 2.5 : 1.25
+    return `Next time: try +${bump}kg (${(currentWeight + bump).toFixed(2)}kg)`
+  }
+  if (allBelowMin) {
+    return 'Keep weight steady and build reps first'
+  }
+  return 'Progressing well — add reps before weight'
+}
+
 // Wger exercise search
 async function searchExercises(query: string): Promise<string[]> {
   try {
@@ -319,6 +346,7 @@ export default function Workout() {
             const exPR = prs[ex.name]
             const hasNewPR = ex.sets.some(s => s.done && s.weight_kg !== undefined && exPR && (s.weight_kg ?? 0) > exPR.weight_kg)
             const restLabel = ex.restSeconds ? (ex.restSeconds >= 60 ? `${ex.restSeconds / 60} min` : `${ex.restSeconds}s`) : null
+            const hint = progressionHint(ex)
 
             return (
               <div key={exIdx} className="card" style={{ marginBottom: 12, padding: '0 16px' }}>
@@ -334,6 +362,7 @@ export default function Workout() {
                       )}
                       {ex.notes && <div style={{ fontSize: 12, color: 'var(--label3)', marginTop: 2 }}>{ex.notes}</div>}
                       {exPR && <div style={{ fontSize: 12, color: 'var(--label2)', marginTop: 2 }}>Best: {exPR.weight_kg}kg × {exPR.reps}</div>}
+                      {hint && <div style={{ fontSize: 12, color: 'var(--green)', marginTop: 2, fontWeight: 600 }}>{hint}</div>}
                     </div>
                     {hasNewPR && <span className="badge badge-gold">🏆 PR!</span>}
                   </div>
