@@ -96,6 +96,7 @@ export default function Today({ onNavigate }: Props) {
   const [submitting, setSubmitting] = useState(false)
   const [nextWorkout, setNextWorkout] = useState<DayName>('Upper A')
   const [coachFeed, setCoachFeed] = useState<{ date: string; title: string; hardSets: number; proteinTarget: number; grocery: string[] } | null>(null)
+  const [timelineDone, setTimelineDone] = useState<Record<string, boolean>>({})
   const inputRef = useRef<HTMLInputElement>(null)
 
   const now = new Date()
@@ -113,7 +114,15 @@ export default function Today({ onNavigate }: Props) {
       const raw = localStorage.getItem('coach_feed')
       if (raw) setCoachFeed(JSON.parse(raw))
     } catch {}
+    try {
+      const raw = localStorage.getItem('today_timeline_done')
+      if (raw) setTimelineDone(JSON.parse(raw))
+    } catch {}
   }, [])
+
+  useEffect(() => {
+    try { localStorage.setItem('today_timeline_done', JSON.stringify(timelineDone)) } catch {}
+  }, [timelineDone])
 
   async function handleQuickLog(e: React.FormEvent) {
     e.preventDefault()
@@ -138,6 +147,31 @@ export default function Today({ onNavigate }: Props) {
   const nextDay = PROGRAM[nextWorkout]
   const defaultWorkoutDays: Record<string, string> = { Tuesday: 'Upper A', Wednesday: 'Lower A', Friday: 'Upper B', Sunday: 'Lower B' }
   const isWorkoutDay = dayName in defaultWorkoutDays
+  const waterDone = (() => {
+    try {
+      const s = localStorage.getItem('water_intake')
+      if (!s) return false
+      const p = JSON.parse(s)
+      return p.date === new Date().toDateString() && p.count >= 8
+    } catch { return false }
+  })()
+  const skinDone = (() => {
+    try {
+      const s = localStorage.getItem('skincare_log')
+      if (!s) return false
+      const list = JSON.parse(s) as Array<{ date: string; morning: string[]; evening: string[] }>
+      const today = new Date().toISOString().slice(0, 10)
+      const row = list.find(r => r.date === today)
+      if (!row) return false
+      return row.morning.length >= 3 || row.evening.length >= 3
+    } catch { return false }
+  })()
+  const timeline = [
+    { id: 'water', label: 'Hit water goal', done: waterDone || !!timelineDone.water, go: () => {}, action: 'Track above' },
+    { id: 'food', label: 'Log at least one meal', done: (data?.entries.length ?? 0) > 0 || !!timelineDone.food, go: () => onNavigate('nutrition'), action: 'Open nutrition' },
+    { id: 'skin', label: 'Complete skincare routine', done: skinDone || !!timelineDone.skin, go: () => onNavigate('skincare'), action: 'Open skincare' },
+    { id: 'train', label: 'Check workout progression', done: !!coachFeed || !!timelineDone.train, go: () => onNavigate('workout'), action: 'Open workout' },
+  ]
 
   return (
     <div className="page" style={{ background: 'var(--bg)' }}>
@@ -222,6 +256,26 @@ export default function Today({ onNavigate }: Props) {
             </div>
           </div>
         )}
+
+        <div className="section-label">Coach timeline</div>
+        <div className="card" style={{ marginBottom: 12 }}>
+          {timeline.map((item) => (
+            <div key={item.id} className="list-row" style={{ gap: 10 }}>
+              <button
+                onClick={() => setTimelineDone(s => ({ ...s, [item.id]: !item.done }))}
+                style={{ width: 26, height: 26, borderRadius: 13, border: 'none', background: item.done ? 'var(--green)' : 'var(--gray5)', color: item.done ? '#fff' : 'var(--label3)', fontWeight: 700, cursor: 'pointer', flexShrink: 0 }}
+              >{item.done ? '✓' : ''}</button>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 14, fontWeight: 600, textDecoration: item.done ? 'line-through' : 'none', opacity: item.done ? 0.65 : 1 }}>
+                  {item.label}
+                </div>
+              </div>
+              <button onClick={item.go} disabled={item.action === 'Track above'} style={{ background: 'none', border: 'none', color: item.action === 'Track above' ? 'var(--label3)' : 'var(--blue)', fontWeight: 600, cursor: item.action === 'Track above' ? 'default' : 'pointer' }}>
+                {item.action}
+              </button>
+            </div>
+          ))}
+        </div>
 
         {/* Today's entries */}
         {(data?.entries.length ?? 0) > 0 && (

@@ -39,6 +39,7 @@ export default function Nutrition() {
   // Barcode
   const [scanning, setScanning] = useState(false)
   const [scanMsg, setScanMsg] = useState<string | null>(null)
+  const [barcodeProduct, setBarcodeProduct] = useState<BarcodeLookupResult | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   // Food photo AI
   const [analyzing, setAnalyzing] = useState(false)
@@ -60,6 +61,40 @@ export default function Nutrition() {
     setShowAdd(false)
     setScanMsg(null)
     setPhotoAnalysis(null)
+    setBarcodeProduct(null)
+  }
+
+  function inferSection(name: string): 'fridge' | 'freezer' | 'pantry' | 'condiments' {
+    const n = name.toLowerCase()
+    if (['sauce', 'ketchup', 'mustard', 'mayo', 'vinegar', 'oil'].some(k => n.includes(k))) return 'condiments'
+    if (['frozen', 'ice cream'].some(k => n.includes(k))) return 'freezer'
+    if (['rice', 'pasta', 'oat', 'cereal', 'bread', 'nuts', 'flour'].some(k => n.includes(k))) return 'pantry'
+    return 'fridge'
+  }
+
+  async function applyBarcodeChoice(choice: 'log' | 'fridge' | 'both') {
+    if (!barcodeProduct?.name) return
+    try {
+      if (choice === 'fridge' || choice === 'both') {
+        await api.addFridgeItem(barcodeProduct.name, inferSection(barcodeProduct.name))
+      }
+      if (choice === 'log' || choice === 'both') {
+        setDesc(barcodeProduct.name)
+        if (barcodeProduct.kcal != null) setKcal(String(barcodeProduct.kcal))
+      }
+      setScanMsg(
+        choice === 'both'
+          ? `Added to fridge and ready to log: ${barcodeProduct.name}`
+          : choice === 'fridge'
+            ? `Added to fridge: ${barcodeProduct.name}`
+            : `Ready to log: ${barcodeProduct.name}`,
+      )
+    } catch {
+      setScanMsg('Could not apply selection - try again')
+    } finally {
+      setBarcodeProduct(null)
+      setTimeout(() => setScanMsg(null), 4500)
+    }
   }
 
   async function submit(e: React.FormEvent) {
@@ -94,9 +129,8 @@ export default function Nutrition() {
       }
       const result: BarcodeLookupResult | null = await api.lookupBarcode(barcode)
       if (result) {
-        setDesc(result.name)
-        if (result.kcal != null) setKcal(String(result.kcal))
-        setScanMsg(result.kcal ? `Found: ${result.name} (~${result.kcal} kcal)` : `Found: ${result.name} \u2014 enter calories manually`)
+        setBarcodeProduct(result)
+        setScanMsg(result.kcal ? `Found: ${result.name} (~${result.kcal} kcal)` : `Found: ${result.name}`)
       } else {
         setScanMsg('No nutrition data found \u2014 enter calories manually')
       }
@@ -146,8 +180,8 @@ export default function Nutrition() {
         {/* Header */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
           <div style={{ fontSize: 30, fontWeight: 700 }}>Nutrition</div>
-          <button onClick={() => { setShowAdd(true); setScanMsg(null); setPhotoAnalysis(null) }}
-            style={{ background: 'var(--blue)', color: '#fff', border: 'none', borderRadius: 20, padding: '8px 16px', fontSize: 15, fontWeight: 600, cursor: 'pointer' }}>
+          <button className="action-pill" onClick={() => { setShowAdd(true); setScanMsg(null); setPhotoAnalysis(null) }}
+            style={{ background: 'var(--blue)', color: '#fff' }}>
             + Add
           </button>
         </div>
@@ -339,6 +373,24 @@ export default function Nutrition() {
       )}
 
       <style>{`@keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }`}</style>
+
+      {barcodeProduct && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 350, display: 'flex', alignItems: 'flex-end' }}
+          onClick={e => { if (e.target === e.currentTarget) setBarcodeProduct(null) }}>
+          <div style={{ background: 'var(--card)', borderRadius: '20px 20px 0 0', width: '100%', padding: '18px 20px 36px', animation: 'slideUp 0.28s cubic-bezier(0.32,0.72,0,1)' }}>
+            <div style={{ width: 36, height: 5, background: 'var(--gray4)', borderRadius: 3, margin: '0 auto 14px' }} />
+            <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 4 }}>Barcode found</div>
+            <div style={{ fontSize: 14, color: 'var(--label2)', marginBottom: 14 }}>
+              {barcodeProduct.name}{barcodeProduct.kcal ? ` • ~${barcodeProduct.kcal} kcal` : ''}
+            </div>
+            <div style={{ display: 'grid', gap: 8 }}>
+              <button className="btn-primary" onClick={() => applyBarcodeChoice('log')}>Log in nutrition</button>
+              <button onClick={() => applyBarcodeChoice('fridge')} style={{ border: '1px solid var(--separator)', borderRadius: 14, padding: '13px', background: 'var(--card)', color: 'var(--label)', fontSize: 16, fontWeight: 600, cursor: 'pointer' }}>Add to fridge</button>
+              <button onClick={() => applyBarcodeChoice('both')} style={{ border: 'none', borderRadius: 14, padding: '13px', background: 'var(--green)', color: '#fff', fontSize: 16, fontWeight: 700, cursor: 'pointer' }}>Do both</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
