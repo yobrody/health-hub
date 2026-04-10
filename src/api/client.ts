@@ -155,8 +155,8 @@ export interface BarcodeLookupResult {
   fat_g?: number
 }
 export interface TodayData { date: string; entries: FoodEntry[]; total_kcal: number; goals: Goals }
-export interface FoodEntry { time: string; meal: string; items: string; kcal: number }
-export interface FoodEntryInput { meal: string; description: string; kcal: number; time?: string }
+export interface FoodEntry { time: string; meal: string; items: string; kcal: number; protein_g?: number }
+export interface FoodEntryInput { meal: string; description: string; kcal: number; protein_g?: number; time?: string }
 export interface HistoryDay { date: string; total_kcal: number; logged: boolean }
 export interface Goals { calories: number; protein: number; gym_days: number }
 export interface GoalsResponse { content: string; parsed: Goals }

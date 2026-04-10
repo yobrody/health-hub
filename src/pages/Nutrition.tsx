@@ -35,7 +35,11 @@ export default function Nutrition() {
   const [meal, setMeal] = useState('Breakfast')
   const [desc, setDesc] = useState('')
   const [kcal, setKcal] = useState('')
+  const [proteinG, setProteinG] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [recentFoods, setRecentFoods] = useState<Array<{ desc: string; kcal: number; protein_g: number }>>(() => {
+    try { return JSON.parse(localStorage.getItem('recent_foods') || '[]') } catch { return [] }
+  })
   // Barcode
   const [scanning, setScanning] = useState(false)
   const [scanMsg, setScanMsg] = useState<string | null>(null)
@@ -62,6 +66,15 @@ export default function Nutrition() {
     setScanMsg(null)
     setPhotoAnalysis(null)
     setBarcodeProduct(null)
+    setDesc('')
+    setKcal('')
+    setProteinG('')
+  }
+
+  function saveRecent(entry: { desc: string; kcal: number; protein_g: number }) {
+    const updated = [entry, ...recentFoods.filter(r => r.desc.toLowerCase() !== entry.desc.toLowerCase())].slice(0, 12)
+    setRecentFoods(updated)
+    try { localStorage.setItem('recent_foods', JSON.stringify(updated)) } catch {}
   }
 
   function inferSection(name: string): 'fridge' | 'freezer' | 'pantry' | 'condiments' {
@@ -81,6 +94,7 @@ export default function Nutrition() {
       if (choice === 'log' || choice === 'both') {
         setDesc(barcodeProduct.name)
         if (barcodeProduct.kcal != null) setKcal(String(barcodeProduct.kcal))
+        if (barcodeProduct.protein_g != null) setProteinG(String(barcodeProduct.protein_g))
       }
       setScanMsg(
         choice === 'both'
@@ -101,11 +115,13 @@ export default function Nutrition() {
     e.preventDefault()
     if (!desc || !kcal) return
     setSubmitting(true)
+    const kcalNum = parseInt(kcal)
+    const proteinNum = proteinG ? parseInt(proteinG) : undefined
     try {
-      await api.addFood({ meal, description: desc, kcal: parseInt(kcal) })
+      await api.addFood({ meal, description: desc, kcal: kcalNum, protein_g: proteinNum })
+      saveRecent({ desc, kcal: kcalNum, protein_g: proteinNum ?? 0 })
       const updated = await api.getToday()
       setData(updated)
-      setDesc(''); setKcal('')
       resetSheet()
       if (navigator.vibrate) navigator.vibrate(10)
     } catch (err) {
@@ -154,6 +170,7 @@ export default function Nutrition() {
       setPhotoAnalysis(result)
       if (result.name) setDesc(result.name)
       if (result.kcal > 0) setKcal(String(result.kcal))
+      if (result.protein_g > 0) setProteinG(String(result.protein_g))
     } catch (err) {
       setScanMsg('AI analysis failed \u2014 enter details manually')
       setTimeout(() => setScanMsg(null), 4000)
@@ -337,12 +354,33 @@ export default function Nutrition() {
                 Target for {meal.toLowerCase()}: ~{mealTargetKcal} kcal · ~{mealTargetProtein}g protein
               </div>
 
+              {/* Recent foods chips */}
+              {recentFoods.length > 0 && (
+                <div style={{ marginBottom: 12 }}>
+                  <div style={{ fontSize: 12, color: 'var(--label2)', fontWeight: 600, marginBottom: 6 }}>RECENT</div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                    {recentFoods.slice(0, 8).map((r, i) => (
+                      <button key={i} type="button"
+                        onClick={() => { setDesc(r.desc); setKcal(String(r.kcal)); setProteinG(r.protein_g ? String(r.protein_g) : '') }}
+                        style={{ background: 'var(--gray6)', border: '1px solid var(--separator)', borderRadius: 20, padding: '5px 12px', fontSize: 13, fontWeight: 500, color: 'var(--label)', cursor: 'pointer', WebkitTapHighlightColor: 'transparent' }}>
+                        {r.desc} <span style={{ color: 'var(--label3)', fontSize: 11 }}>{r.kcal} kcal{r.protein_g ? ` · ${r.protein_g}g` : ''}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               <input className="input-field" style={{ marginBottom: 10 }}
                 placeholder="What did you eat? e.g. Chicken and rice"
                 value={desc} onChange={e => setDesc(e.target.value)} autoFocus={!scanning && !analyzing} />
-              <input className="input-field" style={{ marginBottom: 20 }}
-                placeholder="Calories (e.g. 650)" type="number" inputMode="numeric"
-                value={kcal} onChange={e => setKcal(e.target.value)} />
+              <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
+                <input className="input-field" style={{ flex: 1 }}
+                  placeholder="Calories" type="number" inputMode="numeric"
+                  value={kcal} onChange={e => setKcal(e.target.value)} />
+                <input className="input-field" style={{ flex: 1 }}
+                  placeholder="Protein (g)" type="number" inputMode="numeric"
+                  value={proteinG} onChange={e => setProteinG(e.target.value)} />
+              </div>
 
               <button type="submit" className="btn-primary" disabled={submitting || !desc || !kcal}
                 style={{ opacity: (!desc || !kcal) ? 0.5 : 1 }}>
