@@ -131,6 +131,11 @@ export const api = {
   updateGoals: (update: GoalsUpdateInput) =>
     request('/goals', { method: 'PUT', body: JSON.stringify(update) }),
 
+  // User profile
+  getProfile: () => request<UserProfile>('/users/profile'),
+  saveProfile: (profile: UserProfile) =>
+    request('/users/profile', { method: 'POST', body: JSON.stringify(profile) }),
+
   // Stats
   getWeekStats: () => request<WeekStats>('/stats/week'),
 }
@@ -164,6 +169,7 @@ export interface ExerciseData { name: string; sets: ExerciseSet[] }
 export interface WorkoutData { id: string; title: string; start_time: string; end_time: string; exercises: ExerciseData[] }
 export interface WorkoutInput { title: string; start_time: string; end_time: string; exercises: ExerciseData[] }
 export interface PR { weight_kg: number; reps: number; date: string }
+export interface UserProfile { name: string; calories: number; protein: number }
 export interface WeekStats {
   food_by_day: HistoryDay[]; logged_days: number; avg_kcal: number
   goal_kcal: number; workout_count: number; goal_gym_days: number

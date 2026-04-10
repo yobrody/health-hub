@@ -127,6 +127,15 @@ export default function Today({ onNavigate }: Props) {
         if (p.name) setDisplayName(p.name)
       }
     } catch {}
+
+    // Sync name from API — update display and localStorage cache
+    api.getProfile().then(profile => {
+      if (profile.name) setDisplayName(profile.name)
+      try {
+        const existing = JSON.parse(localStorage.getItem('user_profile') || '{}')
+        localStorage.setItem('user_profile', JSON.stringify({ ...existing, ...profile }))
+      } catch {}
+    }).catch(() => {})
   }, [])
 
   useEffect(() => {

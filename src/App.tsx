@@ -5,6 +5,7 @@ import Fridge from './pages/Fridge'
 import Workout from './pages/Workout'
 import GoalsPage from './pages/Goals'
 import Skincare from './pages/Skincare'
+import { api } from './api/client'
 import './App.css'
 
 type Tab = 'today' | 'nutrition' | 'fridge' | 'workout' | 'goals' | 'skincare'
@@ -85,6 +86,28 @@ export default function App() {
   useEffect(() => {
     const done = localStorage.getItem('onboarding_done') === '1'
     if (!done) setShowOnboarding(true)
+
+    // Sync profile from API — update localStorage cache and local state
+    api.getProfile().then(profile => {
+      setName(profile.name)
+      setCalories(String(profile.calories))
+      setProtein(String(profile.protein))
+      try {
+        localStorage.setItem('user_profile', JSON.stringify(profile))
+        localStorage.setItem('onboarding_done', '1')
+      } catch {}
+    }).catch(() => {
+      // Offline — load from localStorage cache
+      try {
+        const raw = localStorage.getItem('user_profile')
+        if (raw) {
+          const p = JSON.parse(raw) as { name?: string; calories?: number; protein?: number }
+          if (p.name) setName(p.name)
+          if (p.calories) setCalories(String(p.calories))
+          if (p.protein) setProtein(String(p.protein))
+        }
+      } catch {}
+    })
   }, [])
 
   function saveOnboarding() {
@@ -97,6 +120,8 @@ export default function App() {
       localStorage.setItem('user_profile', JSON.stringify(profile))
       localStorage.setItem('onboarding_done', '1')
     } catch {}
+    // Push to API (fire-and-forget — localStorage is source of truth for UI)
+    api.saveProfile(profile).catch(() => {})
     setShowOnboarding(false)
   }
 
