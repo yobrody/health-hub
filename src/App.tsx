@@ -5,19 +5,20 @@ import Fridge from './pages/Fridge'
 import Workout from './pages/Workout'
 import GoalsPage from './pages/Goals'
 import Skincare from './pages/Skincare'
+import CameraSheet from './components/CameraSheet'
 import { api } from './api/client'
+import type { FridgeData } from './api/client'
 import { registerToastHandler } from './toast'
 import type { Theme } from './main'
 import './App.css'
 
 type Tab = 'today' | 'nutrition' | 'fridge' | 'workout' | 'goals' | 'skincare'
 
+// 4 visible tabs — Fridge/Skincare accessible via navigation within pages
 const TABS: { id: Tab; label: string }[] = [
   { id: 'today',     label: 'Today'    },
   { id: 'nutrition', label: 'Nutrition'},
-  { id: 'fridge',    label: 'Fridge'   },
   { id: 'workout',   label: 'Workout'  },
-  { id: 'skincare',  label: 'Skin'     },
   { id: 'goals',     label: 'Goals'    },
 ]
 
@@ -45,14 +46,6 @@ function TabIcon({ id, active }: { id: Tab; active: boolean }) {
         <path d="M9 9v11M12 9v11M15 9v11"/>
       </svg>
     )
-    case 'fridge': return (
-      <svg {...s} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <rect x="4" y="2" width="16" height="20" rx="3"/>
-        <line x1="4" y1="10" x2="20" y2="10"/>
-        <line x1="8" y1="6" x2="8" y2="8"/>
-        <line x1="8" y1="14" x2="8" y2="18"/>
-      </svg>
-    )
     case 'workout': return (
       <svg {...s} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round">
         <circle cx="5" cy="12" r="2" fill={color} stroke="none"/>
@@ -69,11 +62,7 @@ function TabIcon({ id, active }: { id: Tab; active: boolean }) {
         <rect x="17" y="4" width="4" height="18" rx="1" opacity={active ? 1 : 0.6}/>
       </svg>
     )
-    case 'skincare': return (
-      <svg {...s} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M12 3C10 7 6 10 6 14a6 6 0 0 0 12 0c0-4-4-7-6-11z" />
-      </svg>
-    )
+    default: return null
   }
 }
 
@@ -93,6 +82,8 @@ export default function App({ onToggleTheme, theme }: Props) {
   const [toast, setToast] = useState<ToastState>(null)
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [toastExiting, setToastExiting] = useState(false)
+  const [showCamera, setShowCamera] = useState(false)
+  const [fridgeData, setFridgeData] = useState<FridgeData | null>(null)
 
   // Register module-level toast handler so any page can call showToast()
   useEffect(() => {
@@ -130,7 +121,14 @@ export default function App({ onToggleTheme, theme }: Props) {
         }
       } catch {}
     })
+
+    // Pre-load fridge data for camera cross-ref
+    api.getFridge().then(setFridgeData).catch(() => {})
   }, [])
+
+  function refreshFridge() {
+    api.getFridge().then(setFridgeData).catch(() => {})
+  }
 
   function saveOnboarding() {
     const profile = {
@@ -152,14 +150,14 @@ export default function App({ onToggleTheme, theme }: Props) {
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       <div style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
         {tab === 'today'     && <Today onNavigate={setTab} onToggleTheme={onToggleTheme} themeIcon={themeIcon} />}
-        {tab === 'nutrition' && <Nutrition />}
+        {tab === 'nutrition' && <Nutrition onNavigate={setTab} />}
         {tab === 'fridge'    && <Fridge />}
         {tab === 'workout'   && <Workout />}
         {tab === 'skincare'  && <Skincare />}
         {tab === 'goals'     && <GoalsPage />}
       </div>
 
-      {/* Tab Bar */}
+      {/* Tab Bar — 2 tabs | camera FAB | 2 tabs */}
       <div style={{
         height: 'calc(var(--tab-bar-height) + var(--safe-bottom))',
         background: 'var(--tab-bar-bg)',
@@ -173,34 +171,56 @@ export default function App({ onToggleTheme, theme }: Props) {
         position: 'relative',
         zIndex: 100,
       }}>
-        {TABS.map(t => (
-          <button
-            key={t.id}
-            onClick={() => setTab(t.id)}
-            style={{
-              flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center',
-              gap: 3, background: 'none', border: 'none', cursor: 'pointer',
-              padding: '4px 0', transition: 'transform 0.1s',
-            }}
-          >
+        {/* First 2 tabs */}
+        {TABS.slice(0, 2).map(t => (
+          <button key={t.id} className="tab-btn" onClick={() => setTab(t.id)}>
             <div style={{ transform: tab === t.id ? 'scale(1.08)' : 'scale(1)', transition: 'transform 0.15s' }}>
               <TabIcon id={t.id} active={tab === t.id} />
             </div>
-            <span style={{
-              fontSize: 10, fontWeight: tab === t.id ? 700 : 400,
-              color: tab === t.id ? 'var(--blue)' : 'var(--gray2)',
-              letterSpacing: '-0.1px',
-            }}>{t.label}</span>
+            <span className="tab-label" style={{ fontWeight: tab === t.id ? 700 : 400, color: tab === t.id ? 'var(--blue)' : 'var(--gray2)' }}>
+              {t.label}
+            </span>
+          </button>
+        ))}
+
+        {/* Camera FAB — centre slot */}
+        <div style={{ flex: 1, display: 'flex', justifyContent: 'center', alignItems: 'flex-start' }}>
+          <button
+            className="camera-fab"
+            onClick={() => setShowCamera(true)}
+            aria-label="Open camera"
+          >
+            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+              <circle cx="12" cy="13" r="4"/>
+            </svg>
+          </button>
+        </div>
+
+        {/* Last 2 tabs */}
+        {TABS.slice(2).map(t => (
+          <button key={t.id} className="tab-btn" onClick={() => setTab(t.id)}>
+            <div style={{ transform: tab === t.id ? 'scale(1.08)' : 'scale(1)', transition: 'transform 0.15s' }}>
+              <TabIcon id={t.id} active={tab === t.id} />
+            </div>
+            <span className="tab-label" style={{ fontWeight: tab === t.id ? 700 : 400, color: tab === t.id ? 'var(--blue)' : 'var(--gray2)' }}>
+              {t.label}
+            </span>
           </button>
         ))}
       </div>
 
+      {/* Camera sheet */}
+      <CameraSheet
+        open={showCamera}
+        onClose={() => setShowCamera(false)}
+        fridgeData={fridgeData}
+        onFridgeUpdated={refreshFridge}
+      />
+
       {/* Toast */}
       {toast && (
-        <div
-          key={toast.id}
-          className={`toast toast-${toast.type}${toastExiting ? ' toast-exit' : ''}`}
-        >
+        <div key={toast.id} className={`toast toast-${toast.type}${toastExiting ? ' toast-exit' : ''}`}>
           {toast.msg}
         </div>
       )}

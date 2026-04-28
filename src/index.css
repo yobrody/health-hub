@@ -231,6 +231,49 @@ input, textarea, button, select {
 }
 .theme-toggle:active { transform: scale(0.9); }
 
+/* ── Button spinner ─────────────────────────────────────────────────────── */
+.btn-spinner {
+  display: inline-block;
+  width: 14px; height: 14px;
+  border: 2px solid rgba(255,255,255,0.35);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spinnerRot 0.65s linear infinite;
+  vertical-align: middle;
+}
+@keyframes spinnerRot { to { transform: rotate(360deg); } }
+
+/* ── Camera FAB ─────────────────────────────────────────────────────────── */
+.camera-fab {
+  width: 56px; height: 56px;
+  border-radius: 50%;
+  background: var(--blue);
+  border: none;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 4px 16px rgba(10,132,255,0.45);
+  margin-top: -18px;
+  flex-shrink: 0;
+  transition: transform 0.15s, box-shadow 0.15s;
+  -webkit-tap-highlight-color: transparent;
+}
+.camera-fab:active { transform: scale(0.93); box-shadow: 0 2px 8px rgba(10,132,255,0.3); }
+
+/* ── Tab button ─────────────────────────────────────────────────────────── */
+.tab-btn {
+  flex: 1; display: flex; flex-direction: column; align-items: center;
+  gap: 3px; background: none; border: none; cursor: pointer;
+  padding: 4px 0;
+  -webkit-tap-highlight-color: transparent;
+}
+.tab-label { font-size: 10px; letter-spacing: -0.1px; }
+
+/* ── Slide-up sheet animation ───────────────────────────────────────────── */
+@keyframes slideUp {
+  from { transform: translateY(100%); }
+  to   { transform: translateY(0); }
+}
+
 /* ── Button spinner ─────────────────────────────────────────────────── */
 .btn-spinner {
   display: inline-block;
