@@ -171,7 +171,7 @@ function ItemCard({
           </div>
           <div style={{ fontSize: 10, color: fColor, fontWeight: 600, marginTop: 2, display: 'flex', justifyContent: 'center', gap: 4 }}>
             <span>{age}d</span>
-            {learnedDays && learnedDays.sample_count >= 3 && (
+            {learnedDays && (
               <span style={{ color: 'var(--label3)', fontWeight: 400 }}>/ {learnedDays.avg_days}d avg</span>
             )}
           </div>

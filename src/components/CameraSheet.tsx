@@ -1,9 +1,9 @@
 import { useRef, useState } from 'react'
 import { api } from '../api/client'
 import { showToast } from '../toast'
-import type { FridgeData, FoodAnalysisV2, FridgeItem } from '../api/client'
+import type { FridgeData, FoodAnalysisV2, FridgeItem, BarcodeLookupResult } from '../api/client'
 
-type Stage = 'idle' | 'analyzing' | 'result'
+type Stage = 'idle' | 'analyzing' | 'result' | 'barcode'
 
 interface Props {
   open: boolean
@@ -34,6 +34,29 @@ async function compressThumbnail(file: File): Promise<string> {
   })
 }
 
+async function detectBarcode(file: File): Promise<string | null> {
+  if (!('BarcodeDetector' in window)) return null
+  try {
+    const BD = (window as unknown as { BarcodeDetector: new (o: object) => { detect: (b: ImageBitmap) => Promise<Array<{ rawValue: string }>> } }).BarcodeDetector
+    const detector = new BD({ formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39', 'qr_code'] })
+    const bitmap = await createImageBitmap(file)
+    const barcodes = await detector.detect(bitmap)
+    bitmap.close()
+    if (!barcodes.length) return null
+    return barcodes[0].rawValue
+  } catch {
+    return null
+  }
+}
+
+function inferSection(name: string): 'fridge' | 'freezer' | 'pantry' | 'condiments' {
+  const n = name.toLowerCase()
+  if (['sauce', 'ketchup', 'mustard', 'mayo', 'vinegar', 'oil'].some(k => n.includes(k))) return 'condiments'
+  if (['frozen', 'ice cream'].some(k => n.includes(k))) return 'freezer'
+  if (['rice', 'pasta', 'oat', 'cereal', 'bread', 'nuts', 'flour'].some(k => n.includes(k))) return 'pantry'
+  return 'fridge'
+}
+
 function saveDiaryEntry(thumbnail: string, foods: FoodAnalysisV2['foods']) {
   try {
     const existing: unknown[] = JSON.parse(localStorage.getItem('photo_diary') || '[]')
@@ -47,14 +70,19 @@ export default function CameraSheet({ open, onClose, fridgeData, onFridgeUpdated
   const [analysis, setAnalysis] = useState<FoodAnalysisV2 | null>(null)
   const [checkedMatches, setCheckedMatches] = useState<Set<string>>(new Set())
   const [saving, setSaving] = useState(false)
+  const [barcodeProduct, setBarcodeProduct] = useState<BarcodeLookupResult | null>(null)
+  const [barcodeActioning, setBarcodeActioning] = useState(false)
   const foodInputRef = useRef<HTMLInputElement>(null)
   const receiptInputRef = useRef<HTMLInputElement>(null)
+  const barcodeInputRef = useRef<HTMLInputElement>(null)
 
   function reset() {
     setStage('idle')
     setAnalysis(null)
     setCheckedMatches(new Set())
     setSaving(false)
+    setBarcodeProduct(null)
+    setBarcodeActioning(false)
   }
 
   function handleClose() {
@@ -105,6 +133,65 @@ export default function CameraSheet({ open, onClose, fridgeData, onFridgeUpdated
     }
   }
 
+  async function handleBarcodePhoto(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    if (barcodeInputRef.current) barcodeInputRef.current.value = ''
+    setStage('analyzing')
+    try {
+      const barcode = await detectBarcode(file)
+      if (!barcode) {
+        showToast('Barcode not detected — try a clearer photo', 'err')
+        setStage('idle')
+        return
+      }
+      const result = await api.lookupBarcode(barcode)
+      if (!result) {
+        showToast('No product found for that barcode', 'info')
+        setStage('idle')
+        return
+      }
+      setBarcodeProduct(result)
+      setStage('barcode')
+    } catch {
+      showToast('Barcode scan failed — try again', 'err')
+      setStage('idle')
+    }
+  }
+
+  async function applyBarcodeChoice(choice: 'log' | 'fridge' | 'both') {
+    if (!barcodeProduct?.name) return
+    setBarcodeActioning(true)
+    try {
+      const section = inferSection(barcodeProduct.name)
+      if (choice === 'fridge' || choice === 'both') {
+        await api.addFridgeItem(barcodeProduct.name, section)
+        onFridgeUpdated()
+      }
+      if (choice === 'log' || choice === 'both') {
+        const h = new Date().getHours()
+        const meal = h < 11 ? 'Breakfast' : h < 15 ? 'Lunch' : h < 18 ? 'Snack' : 'Dinner'
+        await api.addFood({
+          meal,
+          description: barcodeProduct.name,
+          kcal: barcodeProduct.kcal ?? 0,
+          protein_g: barcodeProduct.protein_g,
+        })
+      }
+      const msg = choice === 'both'
+        ? `Logged & added to fridge: ${barcodeProduct.name}`
+        : choice === 'fridge'
+          ? `Added to fridge: ${barcodeProduct.name}`
+          : `Logged: ${barcodeProduct.name}${barcodeProduct.kcal ? ` · ${barcodeProduct.kcal} kcal` : ''}`
+      showToast(msg)
+      handleClose()
+    } catch {
+      showToast('Action failed — try again', 'err')
+    } finally {
+      setBarcodeActioning(false)
+    }
+  }
+
   async function confirmLog() {
     if (!analysis || analysis.foods.length === 0) return
     setSaving(true)
@@ -142,6 +229,7 @@ export default function CameraSheet({ open, onClose, fridgeData, onFridgeUpdated
 
   const totalKcal = analysis?.foods.reduce((a, f) => a + f.kcal, 0) ?? 0
   const totalProtein = Math.round(analysis?.foods.reduce((a, f) => a + f.protein_g, 0) ?? 0)
+  const hasBarcodeSupport = typeof window !== 'undefined' && 'BarcodeDetector' in window
 
   return (
     <div
@@ -158,7 +246,7 @@ export default function CameraSheet({ open, onClose, fridgeData, onFridgeUpdated
         <div style={{ width: 36, height: 5, background: 'var(--gray4)', borderRadius: 3, margin: '0 auto 16px' }} />
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
           <div style={{ fontSize: 20, fontWeight: 700 }}>
-            {stage === 'result' ? 'Food identified' : 'Camera'}
+            {stage === 'result' ? 'Food identified' : stage === 'barcode' ? 'Product found' : 'Camera'}
           </div>
           <button className="sheet-close" onClick={handleClose}>×</button>
         </div>
@@ -166,6 +254,7 @@ export default function CameraSheet({ open, onClose, fridgeData, onFridgeUpdated
         {/* Hidden file inputs */}
         <input ref={foodInputRef} type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={handleFoodPhoto} />
         <input ref={receiptInputRef} type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={handleReceiptPhoto} />
+        <input ref={barcodeInputRef} type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={handleBarcodePhoto} />
 
         {/* Idle — mode picker */}
         {stage === 'idle' && (
@@ -196,6 +285,30 @@ export default function CameraSheet({ open, onClose, fridgeData, onFridgeUpdated
                 <div style={{ fontSize: 13, fontWeight: 400, opacity: 0.82, marginTop: 2 }}>Add items directly to fridge</div>
               </div>
             </button>
+
+            <button
+              onClick={() => barcodeInputRef.current?.click()}
+              disabled={!hasBarcodeSupport}
+              style={{
+                background: hasBarcodeSupport ? 'var(--purple)' : 'var(--gray4)',
+                color: '#fff', border: 'none', borderRadius: 16, padding: '18px 20px',
+                fontSize: 17, fontWeight: 700, cursor: hasBarcodeSupport ? 'pointer' : 'default',
+                textAlign: 'left', display: 'flex', alignItems: 'center', gap: 14,
+                opacity: hasBarcodeSupport ? 1 : 0.5,
+              }}
+            >
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round">
+                <rect x="1" y="4" width="4" height="16"/><rect x="7" y="4" width="2" height="16"/>
+                <rect x="11" y="4" width="4" height="16"/><rect x="17" y="4" width="2" height="16"/>
+                <rect x="21" y="4" width="2" height="16"/>
+              </svg>
+              <div>
+                <div>Scan Barcode</div>
+                <div style={{ fontSize: 13, fontWeight: 400, opacity: 0.82, marginTop: 2 }}>
+                  {hasBarcodeSupport ? 'Log food or add to fridge' : 'Not supported on this device'}
+                </div>
+              </div>
+            </button>
           </div>
         )}
 
@@ -208,7 +321,60 @@ export default function CameraSheet({ open, onClose, fridgeData, onFridgeUpdated
           </div>
         )}
 
-        {/* Result */}
+        {/* Barcode result */}
+        {stage === 'barcode' && barcodeProduct && (
+          <>
+            <div className="card" style={{ padding: 16, marginBottom: 20 }}>
+              <div style={{ fontSize: 17, fontWeight: 700, marginBottom: 6 }}>{barcodeProduct.name}</div>
+              <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                {barcodeProduct.kcal != null && (
+                  <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--blue)' }}>{barcodeProduct.kcal} kcal</span>
+                )}
+                {barcodeProduct.protein_g != null && (
+                  <span style={{ fontSize: 14, color: 'var(--label2)' }}>{barcodeProduct.protein_g}g protein</span>
+                )}
+                {barcodeProduct.carbs_g != null && (
+                  <span style={{ fontSize: 14, color: 'var(--label2)' }}>{barcodeProduct.carbs_g}g carbs</span>
+                )}
+                {barcodeProduct.fat_g != null && (
+                  <span style={{ fontSize: 14, color: 'var(--label2)' }}>{barcodeProduct.fat_g}g fat</span>
+                )}
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <button
+                onClick={() => applyBarcodeChoice('log')}
+                disabled={barcodeActioning}
+                className="btn-primary"
+              >
+                {barcodeActioning ? <><span className="btn-spinner" /> Saving…</> : `Log ${barcodeProduct.kcal ? `${barcodeProduct.kcal} kcal` : 'to diary'}`}
+              </button>
+              <button
+                onClick={() => applyBarcodeChoice('fridge')}
+                disabled={barcodeActioning}
+                style={{ background: 'var(--green)', color: '#fff', border: 'none', borderRadius: 14, fontSize: 17, fontWeight: 600, padding: '14px 24px', cursor: 'pointer', opacity: barcodeActioning ? 0.6 : 1 }}
+              >
+                Add to fridge
+              </button>
+              <button
+                onClick={() => applyBarcodeChoice('both')}
+                disabled={barcodeActioning}
+                style={{ background: 'var(--purple)', color: '#fff', border: 'none', borderRadius: 14, fontSize: 17, fontWeight: 600, padding: '14px 24px', cursor: 'pointer', opacity: barcodeActioning ? 0.6 : 1 }}
+              >
+                Log + add to fridge
+              </button>
+              <button
+                onClick={() => { setBarcodeProduct(null); setStage('idle') }}
+                style={{ width: '100%', background: 'none', border: 'none', color: 'var(--label2)', fontSize: 16, fontWeight: 500, cursor: 'pointer', padding: '10px 0' }}
+              >
+                Scan again
+              </button>
+            </div>
+          </>
+        )}
+
+        {/* Food photo result */}
         {stage === 'result' && analysis && (
           <>
             {/* Foods list */}
