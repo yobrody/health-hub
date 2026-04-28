@@ -1,8 +1,7 @@
 /**
  * Cloudflare Pages Function - POST /api/ai/analyze-food
- * Analyzes a food photo via OpenRouter (Gemini 2.0 Flash vision).
- * Body: { image: base64, mimeType: string, description: string }
- * Returns: { name, kcal, protein_g, carbs_g, fat_g, description, confidence }
+ * Body: { image: base64, mimeType: string, description?: string, fridge?: FridgeData | FridgeItem[] }
+ * Returns: { foods: [{name,kcal,protein_g,carbs_g,fat_g}], fridge_matches: [{name,zone,added}], confidence }
  */
 const CORS = {
   'Content-Type': 'application/json',
@@ -14,6 +13,7 @@ const CORS = {
 function json(data, status = 200) {
   return new Response(JSON.stringify(data), { status, headers: CORS })
 }
+
 export async function onRequestOptions() {
   return new Response(null, { status: 204, headers: CORS })
 }
@@ -25,18 +25,30 @@ function extractJSON(str) {
   return null
 }
 
-const PROMPT = (desc) =>
+const PROMPT = (desc, fridgeNames) =>
   `Analyze this food image${desc ? ` (user says: "${desc}")` : ''}.
 
-Return ONLY valid JSON, no markdown:
-{"name":"short food name","kcal":450,"protein_g":35,"carbs_g":40,"fat_g":12,"description":"one sentence description","confidence":"high"}
+Identify ALL distinct food items visible. For each item estimate realistic nutrition for the visible portion size.
 
-confidence: "high" if clearly visible, "medium" if partially visible, "low" if unclear.
-Be realistic about portion sizes. If no food visible, set kcal to 0.`
+${fridgeNames.length ? `Fridge contents to cross-reference: ${fridgeNames.join(', ')}` : ''}
+
+Return ONLY valid JSON, no markdown:
+{
+  "foods": [
+    {"name":"Chicken breast","kcal":280,"protein_g":52,"carbs_g":0,"fat_g":6},
+    {"name":"Brown rice","kcal":215,"protein_g":4,"carbs_g":45,"fat_g":2}
+  ],
+  "fridge_matches": ["Chicken breast","Brown rice"],
+  "confidence": "high"
+}
+
+Rules:
+- fridge_matches: only items from the fridge list that clearly match something visible in the photo
+- confidence: "high" if clearly visible, "medium" if partially visible, "low" if unclear
+- Be realistic about portion sizes
+- If no food visible, return empty foods array`
 
 export async function onRequestPost(context) {
-  const expected = context.env.HEALTH_API_KEY || 'brody-health-hub-2026'
-
   const orKey = context.env.OPENROUTER_API_KEY
   if (!orKey) return json({ error: 'OpenRouter not configured' }, 503)
 
@@ -44,8 +56,24 @@ export async function onRequestPost(context) {
   try { body = await context.request.json() }
   catch { return json({ error: 'Invalid JSON body' }, 400) }
 
-  const { image, mimeType = 'image/jpeg', description = '' } = body
+  const { image, mimeType = 'image/jpeg', description = '', fridge = null } = body
   if (!image) return json({ error: 'No image provided' }, 400)
+
+  // Build flat list of fridge items across all zones from FridgeData object
+  const fridgeItems = []
+  if (fridge) {
+    for (const zone of ['fridge', 'freezer', 'pantry', 'condiments']) {
+      const zoneItems = fridge[zone]
+      if (Array.isArray(zoneItems)) {
+        zoneItems.forEach(it => fridgeItems.push({ ...it, zone }))
+      }
+    }
+    // Also handle if fridge was passed as a flat array
+    if (Array.isArray(fridge)) {
+      fridge.forEach(it => fridgeItems.push({ zone: 'fridge', ...it }))
+    }
+  }
+  const fridgeNames = fridgeItems.map(it => it.name)
 
   try {
     const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
@@ -58,13 +86,13 @@ export async function onRequestPost(context) {
       },
       body: JSON.stringify({
         model: 'google/gemini-2.0-flash-001',
-        max_tokens: 300,
+        max_tokens: 600,
         provider: { order: ['Google'], allow_fallbacks: false },
         messages: [{
           role: 'user',
           content: [
             { type: 'image_url', image_url: { url: `data:${mimeType};base64,${image}` } },
-            { type: 'text', text: PROMPT(description) },
+            { type: 'text', text: PROMPT(description, fridgeNames) },
           ],
         }],
       }),
@@ -81,22 +109,22 @@ export async function onRequestPost(context) {
     const result = extractJSON(text)
     if (!result) throw new Error('No JSON in response')
 
+    // Resolve fridge_matches names back to full item objects with zone/added
+    const matchNames = Array.isArray(result.fridge_matches) ? result.fridge_matches : []
+    const fridge_matches = fridgeItems.filter(it =>
+      matchNames.some(n =>
+        n.toLowerCase().includes(it.name.toLowerCase()) ||
+        it.name.toLowerCase().includes(n.toLowerCase())
+      )
+    )
+
     return json({
-      name: result.name || description || 'Unknown food',
-      kcal: result.kcal || 0,
-      protein_g: result.protein_g || 0,
-      carbs_g: result.carbs_g || 0,
-      fat_g: result.fat_g || 0,
-      description: result.description || '',
+      foods: Array.isArray(result.foods) ? result.foods : [],
+      fridge_matches,
       confidence: result.confidence || 'medium',
     })
   } catch (e) {
     console.error('analyze-food error:', e)
-    return json({
-      name: description || 'Unknown food',
-      kcal: 0, protein_g: 0, carbs_g: 0, fat_g: 0,
-      description: 'Could not analyse — enter details manually',
-      confidence: 'low',
-    })
+    return json({ foods: [], fridge_matches: [], confidence: 'low' })
   }
 }
