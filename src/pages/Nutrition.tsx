@@ -29,7 +29,9 @@ function ConfidenceBadge({ confidence }: { confidence: FoodAnalysis['confidence'
   return <span style={{ fontSize: 11, fontWeight: 600, color: c.color, background: c.bg, borderRadius: 8, padding: '2px 8px' }}>{c.label}</span>
 }
 
-export default function Nutrition() {
+interface NutritionProps { onNavigate?: (tab: string) => void }
+
+export default function Nutrition({ onNavigate }: NutritionProps) {
   const [data, setData] = useState<TodayData | null>(null)
   const [history, setHistory] = useState<HistoryDay[]>([])
   const [showAdd, setShowAdd] = useState(false)
@@ -52,6 +54,18 @@ export default function Nutrition() {
   const photoInputRef = useRef<HTMLInputElement>(null)
   // Delete
   const [deleteConfirm, setDeleteConfirm] = useState<FoodEntry | null>(null)
+  // Photo diary
+  const [showDiary, setShowDiary] = useState(false)
+  const [diary, setDiary] = useState<Array<{ datetime: string; thumbnail: string; foods: Array<{ name: string; kcal: number; protein_g: number }> }>>(() => {
+    try { return JSON.parse(localStorage.getItem('photo_diary') || '[]') } catch { return [] }
+  })
+  // Refresh diary from localStorage when switching to diary view (picks up new entries from CameraSheet)
+  useEffect(() => {
+    if (showDiary) {
+      try { setDiary(JSON.parse(localStorage.getItem('photo_diary') || '[]')) } catch {}
+    }
+  }, [showDiary])
+  const [selectedPhoto, setSelectedPhoto] = useState<string | null>(null)
 
   const hour = new Date().getHours()
   const defaultMeal = hour < 11 ? 'Breakfast' : hour < 15 ? 'Lunch' : hour < 18 ? 'Snack' : 'Dinner'
@@ -203,33 +217,100 @@ export default function Nutrition() {
         {/* Header */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
           <div style={{ fontSize: 30, fontWeight: 700 }}>Nutrition</div>
-          <button className="action-pill" onClick={() => { setShowAdd(true); setScanMsg(null); setPhotoAnalysis(null) }}
-            style={{ background: 'var(--blue)', color: '#fff' }}>
-            + Add
-          </button>
+          <div style={{ display: 'flex', gap: 8 }}>
+            {onNavigate && (
+              <button className="action-pill" onClick={() => onNavigate('fridge')}
+                style={{ background: 'var(--green)', color: '#fff' }}>
+                Fridge
+              </button>
+            )}
+            <button className="action-pill" onClick={() => setShowDiary(d => !d)}
+              style={{ background: showDiary ? 'var(--blue)' : 'var(--gray6)', color: showDiary ? '#fff' : 'var(--label)' }}>
+              {showDiary ? 'Log' : 'Diary'}
+            </button>
+            {!showDiary && (
+              <button className="action-pill" onClick={() => { setShowAdd(true); setScanMsg(null); setPhotoAnalysis(null) }}
+                style={{ background: 'var(--blue)', color: '#fff' }}>
+                + Add
+              </button>
+            )}
+          </div>
         </div>
+
+        {/* Photo diary view */}
+        {showDiary && (
+          <div>
+            {diary.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '56px 24px', color: 'var(--label2)' }}>
+                <div style={{ fontSize: 48, marginBottom: 14 }}>📸</div>
+                <div style={{ fontSize: 17, fontWeight: 600, marginBottom: 6 }}>No photos yet</div>
+                <div style={{ fontSize: 14 }}>Tap the camera button to log a meal with a photo</div>
+              </div>
+            ) : (
+              diary.map((entry, i) => {
+                const dt = new Date(entry.datetime)
+                const dateLabel = dt.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })
+                const timeLabel = dt.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+                const totalKcal = entry.foods.reduce((a, f) => a + f.kcal, 0)
+                return (
+                  <div key={i} className="card" style={{ marginBottom: 12, overflow: 'hidden', padding: 0 }}>
+                    {entry.thumbnail && (
+                      <img
+                        src={entry.thumbnail}
+                        onClick={() => setSelectedPhoto(entry.thumbnail)}
+                        style={{ width: '100%', height: 160, objectFit: 'cover', display: 'block', cursor: 'pointer' }}
+                        alt="Meal photo"
+                      />
+                    )}
+                    <div style={{ padding: '10px 14px 14px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 4 }}>
+                        <div style={{ fontSize: 13, color: 'var(--label2)' }}>{dateLabel} · {timeLabel}</div>
+                        <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--blue)' }}>{totalKcal} kcal</div>
+                      </div>
+                      <div style={{ fontSize: 14, color: 'var(--label)' }}>
+                        {entry.foods.map(f => f.name).join(', ')}
+                      </div>
+                    </div>
+                  </div>
+                )
+              })
+            )}
+            {/* Full-screen photo lightbox */}
+            {selectedPhoto && (
+              <div
+                style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.92)', zIndex: 500, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                onClick={() => setSelectedPhoto(null)}
+              >
+                <img src={selectedPhoto} style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} alt="Meal" />
+                <button className="sheet-close" onClick={() => setSelectedPhoto(null)} style={{ position: 'absolute', top: 20, right: 20, background: 'rgba(255,255,255,0.15)', color: '#fff', fontSize: 22 }}>×</button>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Daily summary bar */}
-        <div className="card" style={{ padding: 16, marginBottom: 12 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10 }}>
-            <div>
-              <span style={{ fontSize: 26, fontWeight: 700 }}>{total.toLocaleString()}</span>
-              <span style={{ fontSize: 14, color: 'var(--label2)', marginLeft: 4 }}>kcal today</span>
-            </div>
-            <div style={{ textAlign: 'right' }}>
-              <div style={{ fontSize: 14, color: 'var(--label2)' }}>
-                {remaining > 0 ? `${remaining.toLocaleString()} remaining` : '\u2713 Goal reached!'}
+        {!showDiary && (
+          <div className="card" style={{ padding: 16, marginBottom: 12 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10 }}>
+              <div>
+                <span style={{ fontSize: 26, fontWeight: 700 }}>{total.toLocaleString()}</span>
+                <span style={{ fontSize: 14, color: 'var(--label2)', marginLeft: 4 }}>kcal today</span>
               </div>
-              <div style={{ fontSize: 13, color: 'var(--label3)' }}>of {goal.toLocaleString()} goal</div>
+              <div style={{ textAlign: 'right' }}>
+                <div style={{ fontSize: 14, color: 'var(--label2)' }}>
+                  {remaining > 0 ? `${remaining.toLocaleString()} remaining` : '\u2713 Goal reached!'}
+                </div>
+                <div style={{ fontSize: 13, color: 'var(--label3)' }}>of {goal.toLocaleString()} goal</div>
+              </div>
+            </div>
+            <div style={{ height: 8, background: 'var(--gray5)', borderRadius: 4, overflow: 'hidden' }}>
+              <div style={{ height: '100%', borderRadius: 4, background: pct > 1 ? 'var(--red)' : pct > 0.85 ? 'var(--orange)' : 'var(--blue)', width: `${pct * 100}%`, transition: 'width 0.6s ease, background 0.3s' }} />
             </div>
           </div>
-          <div style={{ height: 8, background: 'var(--gray5)', borderRadius: 4, overflow: 'hidden' }}>
-            <div style={{ height: '100%', borderRadius: 4, background: pct > 1 ? 'var(--red)' : pct > 0.85 ? 'var(--orange)' : 'var(--blue)', width: `${pct * 100}%`, transition: 'width 0.6s ease, background 0.3s' }} />
-          </div>
-        </div>
+        )}
 
-        {/* Meal groups */}
-        {Object.keys(byMeal).length === 0 ? (
+        {/* Meal groups + 7-day history (hidden in diary mode) */}
+        {!showDiary && Object.keys(byMeal).length === 0 ? (
           <div style={{ textAlign: 'center', padding: '48px 24px', color: 'var(--label2)', fontSize: 16 }}>
             <div style={{ fontSize: 40, marginBottom: 12 }}>🍽️</div>
             <div style={{ fontWeight: 600, marginBottom: 4 }}>Nothing logged yet</div>
@@ -265,7 +346,7 @@ export default function Nutrition() {
         )}
 
         {/* 7-day history */}
-        {history.length > 0 && (
+        {!showDiary && history.length > 0 && (
           <>
             <div className="section-label">Last 7 days</div>
             <div className="card">
@@ -431,8 +512,6 @@ export default function Nutrition() {
           </div>
         </div>
       )}
-
-      <style>{`@keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }`}</style>
 
       {barcodeProduct && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 350, display: 'flex', alignItems: 'flex-end' }}

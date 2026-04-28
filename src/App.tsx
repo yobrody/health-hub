@@ -150,7 +150,7 @@ export default function App({ onToggleTheme, theme }: Props) {
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       <div style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
         {tab === 'today'     && <Today onNavigate={setTab} onToggleTheme={onToggleTheme} themeIcon={themeIcon} />}
-        {tab === 'nutrition' && <Nutrition onNavigate={setTab} />}
+        {tab === 'nutrition' && <Nutrition onNavigate={setTab as (tab: string) => void} />}
         {tab === 'fridge'    && <Fridge />}
         {tab === 'workout'   && <Workout />}
         {tab === 'skincare'  && <Skincare />}
