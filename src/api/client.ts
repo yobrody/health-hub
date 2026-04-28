@@ -104,7 +104,31 @@ export const api = {
   // AI meals
   getMealSuggestions: () => request<{ meals: Meal[] }>('/ai/meals', { method: 'POST' }),
 
-  // AI food photo analysis (new)
+  // Multi-item food photo analysis with fridge cross-ref
+  analyzeFoodV2: async (file: File, fridgeData: FridgeData | null, description = ''): Promise<FoodAnalysisV2> => {
+    const image = await fileToBase64(file)
+    const headers = new Headers({ 'Content-Type': 'application/json' })
+    if (KEY) headers.set('X-Health-Key', KEY)
+    const res = await fetch(`${BASE}/ai/analyze-food`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ image, mimeType: file.type || 'image/jpeg', description, fridge: fridgeData }),
+    })
+    if (!res.ok) throw new Error(`AI error: ${res.status}`)
+    return res.json()
+  },
+
+  // Log fridge item usage to Airtable + KV
+  logFridgeUsage: (input: UsageLogInput) =>
+    request<{ ok: boolean; avg_days: number; sample_count: number }>(
+      '/fridge/usage-log', { method: 'POST', body: JSON.stringify(input) }
+    ),
+
+  // Get learned shelf life for named items from KV
+  getShelfLife: (items: string[]) =>
+    request<ShelfLifeMap>(`/fridge/shelf-life?items=${items.map(encodeURIComponent).join(',')}`),
+
+  // AI food photo analysis (legacy single-item)
   analyzeFood: async (file: File, description: string): Promise<FoodAnalysis> => {
     const image = await fileToBase64(file)
     const headers = new Headers({ 'Content-Type': 'application/json' })
@@ -147,6 +171,14 @@ export interface FoodAnalysis {
   name: string; kcal: number; protein_g: number; carbs_g: number; fat_g: number
   description: string; confidence: 'high' | 'medium' | 'low'
 }
+export interface FoodAnalysisV2 {
+  foods: Array<{ name: string; kcal: number; protein_g: number; carbs_g: number; fat_g: number }>
+  fridge_matches: Array<FridgeItem & { zone: string }>
+  confidence: 'high' | 'medium' | 'low'
+}
+export interface UsageLogInput { item_name: string; zone: string; date_added: string | null }
+export interface ShelfLifeMap { [item_name: string]: { avg_days: number; sample_count: number } }
+export interface DiaryEntry { datetime: string; thumbnail: string; foods: FoodAnalysisV2['foods'] }
 export interface BarcodeLookupResult {
   name: string
   kcal?: number
