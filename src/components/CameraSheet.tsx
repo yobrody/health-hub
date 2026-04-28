@@ -57,12 +57,28 @@ function inferSection(name: string): 'fridge' | 'freezer' | 'pantry' | 'condimen
   return 'fridge'
 }
 
-function saveDiaryEntry(thumbnail: string, foods: FoodAnalysisV2['foods']) {
+function saveDiaryEntry(datetime: string, thumbnail: string, foods: FoodAnalysisV2['foods']) {
   try {
     const existing: unknown[] = JSON.parse(localStorage.getItem('photo_diary') || '[]')
-    const entry = { datetime: new Date().toISOString(), thumbnail, foods }
+    const entry = { datetime, thumbnail, foods }
     localStorage.setItem('photo_diary', JSON.stringify([entry, ...existing].slice(0, 90)))
   } catch {}
+}
+
+// Upload thumbnail to R2 and update the diary entry in-place once done.
+// Falls back silently — diary already has the base64 version.
+async function uploadAndUpdateDiary(thumbnail: string, datetime: string) {
+  try {
+    const url = await api.uploadPhoto(thumbnail)
+    const existing: Array<{ datetime: string; thumbnail: string }> = JSON.parse(localStorage.getItem('photo_diary') || '[]')
+    const idx = existing.findIndex(e => e.datetime === datetime)
+    if (idx !== -1) {
+      existing[idx].thumbnail = url
+      localStorage.setItem('photo_diary', JSON.stringify(existing))
+    }
+  } catch {
+    // R2 not yet configured or network error — local base64 stays
+  }
 }
 
 export default function CameraSheet({ open, onClose, fridgeData, onFridgeUpdated }: Props) {
@@ -102,7 +118,12 @@ export default function CameraSheet({ open, onClose, fridgeData, onFridgeUpdated
       ])
       setAnalysis(result)
       setCheckedMatches(new Set(result.fridge_matches.map((m: FridgeItem & { zone: string }) => m.name)))
-      if (thumbnail && result.foods.length > 0) saveDiaryEntry(thumbnail, result.foods)
+      if (thumbnail && result.foods.length > 0) {
+        const datetime = new Date().toISOString()
+        saveDiaryEntry(datetime, thumbnail, result.foods)
+        // Fire-and-forget: replace base64 with R2 URL in background
+        uploadAndUpdateDiary(thumbnail, datetime)
+      }
       setStage('result')
     } catch {
       showToast('Analysis failed — try again', 'err')

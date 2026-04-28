@@ -118,6 +118,20 @@ export const api = {
     return res.json()
   },
 
+  // Upload photo thumbnail to R2, returns permanent URL
+  uploadPhoto: async (dataUrl: string, mime = 'image/jpeg'): Promise<string> => {
+    const headers = new Headers({ 'Content-Type': 'application/json' })
+    if (KEY) headers.set('X-Health-Key', KEY)
+    const res = await fetch(`${BASE}/photos/upload`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ image: dataUrl, mime }),
+    })
+    if (!res.ok) throw new Error(`Photo upload failed: ${res.status}`)
+    const { url } = await res.json() as { key: string; url: string }
+    return url
+  },
+
   // Log fridge item usage to Airtable + KV
   logFridgeUsage: (input: UsageLogInput) =>
     request<{ ok: boolean; avg_days: number; sample_count: number }>(
