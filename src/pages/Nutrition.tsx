@@ -309,40 +309,42 @@ export default function Nutrition({ onNavigate }: NutritionProps) {
           </div>
         )}
 
-        {/* Meal groups + 7-day history (hidden in diary mode) */}
-        {!showDiary && Object.keys(byMeal).length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '48px 24px', color: 'var(--label2)', fontSize: 16 }}>
-            <div style={{ fontSize: 40, marginBottom: 12 }}>🍽️</div>
-            <div style={{ fontWeight: 600, marginBottom: 4 }}>Nothing logged yet</div>
-            <div style={{ fontSize: 14 }}>Tap + Add to start tracking</div>
-          </div>
-        ) : (
-          MEALS.filter(m => byMeal[m]?.length).map(mealName => (
-            <div key={mealName} style={{ marginBottom: 16 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div className="section-label" style={{ marginTop: 0 }}>{mealName}</div>
-                <div style={{ fontSize: 13, color: 'var(--label2)', fontWeight: 600 }}>
-                  ~{byMeal[mealName].reduce((a, e) => a + e.kcal, 0).toLocaleString()} kcal
+        {/* Meal groups (hidden in diary mode) */}
+        {!showDiary && (
+          Object.keys(byMeal).length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '48px 24px', color: 'var(--label2)', fontSize: 16 }}>
+              <div style={{ fontSize: 40, marginBottom: 12 }}>🍽️</div>
+              <div style={{ fontWeight: 600, marginBottom: 4 }}>Nothing logged yet</div>
+              <div style={{ fontSize: 14 }}>Tap + Add to start tracking</div>
+            </div>
+          ) : (
+            MEALS.filter(m => byMeal[m]?.length).map(mealName => (
+              <div key={mealName} style={{ marginBottom: 16 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div className="section-label" style={{ marginTop: 0 }}>{mealName}</div>
+                  <div style={{ fontSize: 13, color: 'var(--label2)', fontWeight: 600 }}>
+                    ~{byMeal[mealName].reduce((a, e) => a + e.kcal, 0).toLocaleString()} kcal
+                  </div>
+                </div>
+                <div className="card">
+                  {byMeal[mealName].map((e, i) => (
+                    <div key={i} className="list-row" style={{ gap: 10 }}>
+                      <div style={{ width: 36, fontSize: 12, color: 'var(--label3)', fontWeight: 500, flexShrink: 0 }}>{e.time}</div>
+                      <div style={{ flex: 1, fontSize: 15, minWidth: 0 }}>
+                        <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {e.items.split('\n')[0].replace(/^- /, '').replace(/ \(~\d+ kcal\)/, '')}
+                        </div>
+                      </div>
+                      <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--label2)', flexShrink: 0 }}>~{e.kcal}</div>
+                      <button onClick={() => setDeleteConfirm(e)}
+                        style={{ background: 'none', border: 'none', color: 'var(--label3)', cursor: 'pointer', padding: '4px 6px', fontSize: 16, borderRadius: 8, flexShrink: 0 }}
+                        title="Delete entry">×</button>
+                    </div>
+                  ))}
                 </div>
               </div>
-              <div className="card">
-                {byMeal[mealName].map((e, i) => (
-                  <div key={i} className="list-row" style={{ gap: 10 }}>
-                    <div style={{ width: 36, fontSize: 12, color: 'var(--label3)', fontWeight: 500, flexShrink: 0 }}>{e.time}</div>
-                    <div style={{ flex: 1, fontSize: 15, minWidth: 0 }}>
-                      <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {e.items.split('\n')[0].replace(/^- /, '').replace(/ \(~\d+ kcal\)/, '')}
-                      </div>
-                    </div>
-                    <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--label2)', flexShrink: 0 }}>~{e.kcal}</div>
-                    <button onClick={() => setDeleteConfirm(e)}
-                      style={{ background: 'none', border: 'none', color: 'var(--label3)', cursor: 'pointer', padding: '4px 6px', fontSize: 16, borderRadius: 8, flexShrink: 0 }}
-                      title="Delete entry">×</button>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ))
+            ))
+          )
         )}
 
         {/* 7-day history */}
