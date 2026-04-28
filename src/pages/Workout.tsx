@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef } from 'react'
 import { api } from '../api/client'
 import type { WorkoutData, ExerciseSet } from '../api/client'
+import { showToast } from '../toast'
 import { PROGRAM, ROTATION, getNextDay } from '../program'
 import type { DayName, ProgramDay } from '../program'
 
@@ -329,6 +330,7 @@ export default function Workout() {
     setRestTimer(null)
     setFinishing(false)
     if (navigator.vibrate) navigator.vibrate([50, 50, 200])
+    showToast('Workout saved')
   }
 
   // ── LIVE WORKOUT VIEW ──────────────────────────────────────────

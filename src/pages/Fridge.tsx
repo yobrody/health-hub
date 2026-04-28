@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef } from 'react'
 import { api } from '../api/client'
 import type { FridgeData, FridgeItem, Meal, ScanResult, ScannedItem } from '../api/client'
+import { showToast } from '../toast'
 
 type Zone = 'fridge' | 'pantry' | 'condiments' | 'freezer'
 
@@ -392,22 +393,26 @@ export default function Fridge() {
 
   async function confirmRemove() {
     if (!removeModal) return
-    await api.removeFridgeItem(removeModal.name)
+    const name = removeModal.name
+    await api.removeFridgeItem(name)
     const updated = await api.getFridge()
     setData(updated)
     setRemoveModal(null)
     if (navigator.vibrate) navigator.vibrate(20)
+    showToast(`Removed ${name}`)
   }
 
   async function handleAdd(e: React.FormEvent) {
     e.preventDefault()
     if (!addName.trim()) return
-    await api.addFridgeItem(addName.trim(), addZone)
+    const name = addName.trim()
+    await api.addFridgeItem(name, addZone)
     const updated = await api.getFridge()
     setData(updated)
     setAddName('')
     setShowAdd(false)
     if (navigator.vibrate) navigator.vibrate(10)
+    showToast(`Added ${name} to ${ZONE_CONFIG[addZone].label}`)
   }
 
   return (
@@ -434,7 +439,7 @@ export default function Fridge() {
             <button onClick={() => barcodeInputRef.current?.click()} disabled={barcodeScanning}
               style={{ background: barcodeScanning ? 'var(--gray5)' : 'var(--purple)', color: '#fff',
                 border: 'none', borderRadius: 20, padding: '8px 13px', fontSize: 13, fontWeight: 600, cursor: 'pointer', opacity: barcodeScanning ? 0.7 : 1 }}>
-              {barcodeScanning ? '⏳' : '🏷️ Barcode'}
+              {barcodeScanning ? <span className="btn-spinner" /> : '🏷️ Barcode'}
             </button>
             <button onClick={() => fileInputRef.current?.click()} disabled={scanning}
               style={{ background: scanning ? 'var(--gray5)' : 'var(--green)', color: scanning ? 'var(--label2)' : '#fff',
@@ -582,7 +587,8 @@ export default function Fridge() {
       {removeModal && (
         <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:300, display:'flex', alignItems:'flex-end' }}
           onClick={e => { if (e.target === e.currentTarget) setRemoveModal(null) }}>
-          <div style={{ background:'var(--card)', borderRadius:'20px 20px 0 0', padding:'20px 20px 44px', width:'100%', animation:'slideUp 0.28s cubic-bezier(0.32,0.72,0,1)' }}>
+          <div style={{ background:'var(--card)', borderRadius:'20px 20px 0 0', padding:'20px 20px 44px', width:'100%', animation:'slideUp 0.28s cubic-bezier(0.32,0.72,0,1)', position:'relative' }}>
+            <button className="sheet-close" onClick={() => setRemoveModal(null)} style={{ position:'absolute', top:16, right:16 }}>×</button>
             <div style={{ width:36, height:5, background:'var(--gray4)', borderRadius:3, margin:'0 auto 18px' }} />
             <div style={{ fontSize:17, fontWeight:600, marginBottom:4 }}>Remove from fridge?</div>
             <div style={{ fontSize:15, color:'var(--label2)', marginBottom:24 }}>
@@ -598,7 +604,8 @@ export default function Fridge() {
       {showAdd && (
         <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.4)', zIndex:200, display:'flex', alignItems:'flex-end' }}
           onClick={e => { if (e.target === e.currentTarget) setShowAdd(false) }}>
-          <div style={{ background:'var(--card)', borderRadius:'20px 20px 0 0', padding:'20px 20px 44px', width:'100%', animation:'slideUp 0.28s cubic-bezier(0.32,0.72,0,1)' }}>
+          <div style={{ background:'var(--card)', borderRadius:'20px 20px 0 0', padding:'20px 20px 44px', width:'100%', animation:'slideUp 0.28s cubic-bezier(0.32,0.72,0,1)', position:'relative' }}>
+            <button className="sheet-close" onClick={() => setShowAdd(false)} style={{ position:'absolute', top:16, right:16 }}>×</button>
             <div style={{ width:36, height:5, background:'var(--gray4)', borderRadius:3, margin:'0 auto 16px' }} />
             <div style={{ fontSize:20, fontWeight:700, marginBottom:16 }}>Add to fridge</div>
             <form onSubmit={handleAdd}>

@@ -1,5 +1,7 @@
 :root,
 :root[data-theme='light'] {
+  --tab-bar-bg: rgba(255,255,255,0.92);
+  --tab-bar-border: rgba(60,60,67,0.15);
   --font-title: 30px;
   --font-cardTitle: 18px;
   --font-body: 15px;
@@ -27,6 +29,8 @@
 }
 
 :root[data-theme='dark'] {
+  --tab-bar-bg: rgba(28,28,30,0.92);
+  --tab-bar-border: rgba(84,84,88,0.45);
   --blue: #0A84FF;
   --blue-light: #0A84FF22;
   --green: #30D158;
@@ -149,3 +153,92 @@ input, textarea, button, select {
 .badge-red { background: #FF3B3022; color: var(--red); }
 
 ::-webkit-scrollbar { display: none; }
+
+/* ── Toast ─────────────────────────────────────────────────────────────── */
+.toast {
+  position: fixed;
+  bottom: calc(var(--tab-bar-height) + var(--safe-bottom) + 14px);
+  left: 50%;
+  transform: translateX(-50%);
+  border-radius: 22px;
+  padding: 11px 20px;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.1px;
+  z-index: 1000;
+  pointer-events: none;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+  max-width: calc(100vw - 48px);
+  text-align: center;
+  animation: toastIn 0.24s cubic-bezier(0.22,1,0.36,1) both;
+}
+.toast-exit {
+  animation: toastOut 0.2s ease forwards;
+}
+.toast-ok   { background: #1C1C1E; color: #fff; }
+.toast-err  { background: var(--red);  color: #fff; }
+.toast-info { background: var(--blue); color: #fff; }
+:root[data-theme='dark'] .toast-ok { background: #fff; color: #1C1C1E; }
+
+@keyframes toastIn {
+  from { opacity: 0; transform: translateX(-50%) translateY(10px) scale(0.95); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0)    scale(1); }
+}
+@keyframes toastOut {
+  to { opacity: 0; transform: translateX(-50%) translateY(6px) scale(0.97); }
+}
+
+/* ── Skeleton shimmer ────────────────────────────────────────────────── */
+.skeleton {
+  background: linear-gradient(90deg, var(--gray5) 25%, var(--gray4) 50%, var(--gray5) 75%);
+  background-size: 200% 100%;
+  animation: skeletonShimmer 1.4s infinite;
+  border-radius: 8px;
+}
+@keyframes skeletonShimmer {
+  from { background-position: 200% center; }
+  to   { background-position: -200% center; }
+}
+
+/* ── Sheet close button ─────────────────────────────────────────────── */
+.sheet-close {
+  width: 30px; height: 30px;
+  border-radius: 50%;
+  background: var(--gray5);
+  border: none;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--label2);
+  font-size: 17px;
+  font-weight: 400;
+  line-height: 1;
+  flex-shrink: 0;
+  transition: background 0.15s, opacity 0.15s;
+}
+.sheet-close:active { opacity: 0.7; }
+
+/* ── Theme toggle button ────────────────────────────────────────────── */
+.theme-toggle {
+  width: 32px; height: 32px;
+  border-radius: 50%;
+  background: var(--gray6);
+  border: none;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 15px;
+  flex-shrink: 0;
+  transition: background 0.15s, transform 0.15s;
+}
+.theme-toggle:active { transform: scale(0.9); }
+
+/* ── Button spinner ─────────────────────────────────────────────────── */
+.btn-spinner {
+  display: inline-block;
+  width: 14px; height: 14px;
+  border: 2px solid rgba(255,255,255,0.35);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: spinnerRot 0.65s linear infinite;
+  vertical-align: middle;
+}
+@keyframes spinnerRot { to { transform: rotate(360deg); } }

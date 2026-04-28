@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef } from 'react'
 import { api } from '../api/client'
+import { showToast } from '../toast'
 import type { FoodEntry, TodayData, HistoryDay, FoodAnalysis, BarcodeLookupResult } from '../api/client'
 
 const MEALS = ['Breakfast', 'Lunch', 'Dinner', 'Snack']
@@ -124,8 +125,9 @@ export default function Nutrition() {
       setData(updated)
       resetSheet()
       if (navigator.vibrate) navigator.vibrate(10)
-    } catch (err) {
-      console.error('Add food failed:', err)
+      showToast(`${desc} added to ${meal.toLowerCase()}`)
+    } catch {
+      showToast('Failed to save — try again', 'err')
     } finally {
       setSubmitting(false)
     }
@@ -290,12 +292,15 @@ export default function Nutrition() {
       {showAdd && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', zIndex: 200, display: 'flex', alignItems: 'flex-end' }}
           onClick={e => { if (e.target === e.currentTarget) resetSheet() }}>
-          <div style={{ background: 'var(--card)', borderRadius: '20px 20px 0 0', padding: '8px 20px 40px', width: '100%', animation: 'slideUp 0.28s cubic-bezier(0.32,0.72,0,1)', maxHeight: '92vh', overflowY: 'auto' }}>
+          <div style={{ background: 'var(--card)', borderRadius: '20px 20px 0 0', padding: 'calc(8px) 20px calc(40px + var(--safe-bottom))', width: '100%', animation: 'slideUp 0.28s cubic-bezier(0.32,0.72,0,1)', maxHeight: '92vh', overflowY: 'auto' }}>
             <div style={{ width: 36, height: 5, background: 'var(--gray4)', borderRadius: 3, margin: '8px auto 16px' }} />
 
             {/* Header row */}
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
-              <div style={{ fontSize: 20, fontWeight: 700 }}>Log Food</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <button className="sheet-close" onClick={resetSheet}>✕</button>
+                <div style={{ fontSize: 20, fontWeight: 700 }}>Log Food</div>
+              </div>
               <div style={{ display: 'flex', gap: 8 }}>
                 {/* Barcode (Chrome/Android only) */}
                 {hasBarcodeSupport && (
@@ -383,9 +388,15 @@ export default function Nutrition() {
               </div>
 
               <button type="submit" className="btn-primary" disabled={submitting || !desc || !kcal}
-                style={{ opacity: (!desc || !kcal) ? 0.5 : 1 }}>
-                {submitting ? 'Saving…' : 'Add to Log'}
+                style={{ opacity: (!desc || !kcal) ? 0.45 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+                {submitting ? (
+                  <>
+                    <span style={{ display: 'inline-block', width: 16, height: 16, border: '2px solid rgba(255,255,255,0.4)', borderTopColor: '#fff', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} />
+                    Saving…
+                  </>
+                ) : 'Add to Log'}
               </button>
+              <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
             </form>
           </div>
         </div>
@@ -395,10 +406,12 @@ export default function Nutrition() {
       {deleteConfirm && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 300, display: 'flex', alignItems: 'flex-end' }}
           onClick={e => { if (e.target === e.currentTarget) setDeleteConfirm(null) }}>
-          <div style={{ background: 'var(--card)', borderRadius: '20px 20px 0 0', padding: '20px 20px 40px', width: '100%', animation: 'slideUp 0.28s cubic-bezier(0.32,0.72,0,1)' }}>
-            <div style={{ width: 36, height: 5, background: 'var(--gray4)', borderRadius: 3, margin: '0 auto 16px' }} />
-            <div style={{ fontSize: 17, fontWeight: 600, marginBottom: 4 }}>Remove this entry?</div>
-            <div style={{ fontSize: 15, color: 'var(--label2)', marginBottom: 6 }}>
+          <div style={{ background: 'var(--card)', borderRadius: '20px 20px 0 0', padding: '20px 20px calc(40px + var(--safe-bottom))', width: '100%', animation: 'slideUp 0.28s cubic-bezier(0.32,0.72,0,1)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
+              <button className="sheet-close" onClick={() => setDeleteConfirm(null)}>✕</button>
+              <div style={{ fontSize: 17, fontWeight: 600 }}>Remove this entry?</div>
+            </div>
+            <div style={{ fontSize: 15, color: 'var(--label2)', marginBottom: 4 }}>
               {deleteConfirm.items.split('\n')[0].replace(/^- /, '').replace(/ \(~\d+ kcal\)/, '')}
             </div>
             <div style={{ fontSize: 13, color: 'var(--label3)', marginBottom: 24 }}>
@@ -406,11 +419,13 @@ export default function Nutrition() {
             </div>
             <button className="btn-destructive" style={{ width: '100%', marginBottom: 12 }}
               onClick={async () => {
+                const label = deleteConfirm.items.split('\n')[0].replace(/^- /, '').replace(/ \(~\d+ kcal\)/, '')
                 await api.deleteFood(deleteConfirm.time, deleteConfirm.meal)
                 const updated = await api.getToday()
                 setData(updated)
                 setDeleteConfirm(null)
                 if (navigator.vibrate) navigator.vibrate(20)
+                showToast(`Removed ${label}`)
               }}>Delete</button>
             <button onClick={() => setDeleteConfirm(null)} style={{ width: '100%', background: 'none', border: 'none', color: 'var(--blue)', fontSize: 17, fontWeight: 600, cursor: 'pointer', padding: 12 }}>Cancel</button>
           </div>

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api/client'
+import { showToast } from '../toast'
 import type { WeekStats, Goals, GoalsUpdateInput } from '../api/client'
 import { MEAL_PLAN, DEFAULT_SCHEDULE, PROGRAM } from '../program'
 // suppress unused import warnings for things referenced elsewhere
@@ -107,6 +108,9 @@ export default function GoalsPage() {
       setGoals(updated.goals)
       setDraft({})
       setEditing(false)
+      showToast('Goals saved')
+    } catch {
+      showToast('Failed to save goals', 'err')
     } finally { setSaving(false) }
   }
 
@@ -122,6 +126,7 @@ export default function GoalsPage() {
     setWeightInput('')
     setShowWeightInput(false)
     if (navigator.vibrate) navigator.vibrate(10)
+    showToast(`Weight logged: ${kg}kg`)
   }
 
   const loggedDays = stats?.logged_days ?? 0
@@ -202,7 +207,7 @@ export default function GoalsPage() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div>
                 <div style={{ fontSize: 16, fontWeight: 600 }}>Daily Calories</div>
-                <div style={{ fontSize: 13, color: 'var(--label2)' }}>Target 2700–3000 kcal</div>
+                <div style={{ fontSize: 13, color: 'var(--label2)' }}>Current target: {goals.calories.toLocaleString()} kcal</div>
               </div>
               {editing ? (
                 <input type="number"
@@ -221,7 +226,7 @@ export default function GoalsPage() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div>
                 <div style={{ fontSize: 16, fontWeight: 600 }}>Protein</div>
-                <div style={{ fontSize: 13, color: 'var(--label2)' }}>Target 130–150g/day</div>
+                <div style={{ fontSize: 13, color: 'var(--label2)' }}>Current target: {goals.protein}g / day</div>
               </div>
               {editing ? (
                 <input type="number"
