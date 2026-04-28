@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from 'react'
 import { api } from '../api/client'
-import type { FridgeData, FridgeItem, Meal, ScanResult, ScannedItem } from '../api/client'
+import type { FridgeData, FridgeItem, Meal, ScanResult, ScannedItem, ShelfLifeMap } from '../api/client'
 import { showToast } from '../toast'
 
 type Zone = 'fridge' | 'pantry' | 'condiments' | 'freezer'
@@ -106,15 +106,15 @@ const ZONE_CONFIG = {
   },
 }
 
-function freshnessColor(age: number, zone: Zone): string {
-  const pct = age / SHELF_LIFE[zone]
+function freshnessColor(age: number, shelfDays: number): string {
+  const pct = age / shelfDays
   if (pct >= 0.75) return 'var(--red)'
   if (pct >= 0.45) return 'var(--orange)'
   return 'var(--green)'
 }
 
 function ItemCard({
-  item, zone, qty, onTap, onInc, onDec,
+  item, zone, qty, onTap, onInc, onDec, learnedDays,
 }: {
   item: FridgeItem
   zone: Zone
@@ -122,13 +122,15 @@ function ItemCard({
   onTap: () => void
   onInc: () => void
   onDec: () => void
+  learnedDays?: { avg_days: number; sample_count: number }
 }) {
   const age = daysOld(item.added)
-  const pct = Math.min(age / SHELF_LIFE[zone], 1)
-  const fColor = freshnessColor(age, zone)
+  const shelfDays = learnedDays?.avg_days ?? SHELF_LIFE[zone]
+  const pct = Math.min(age / shelfDays, 1)
+  const fColor = freshnessColor(age, shelfDays)
   const cfg = ZONE_CONFIG[zone]
-  const isOld = age > 5
-  const isWarn = age > 3 && age <= 5
+  const isOld = pct >= 0.85
+  const isWarn = pct >= 0.55 && !isOld
   const tint = getFoodTint(item.name)
 
   return (
@@ -167,7 +169,12 @@ function ItemCard({
           <div style={{ height: 3, background: 'var(--gray5)', borderRadius: 2, overflow: 'hidden' }}>
             <div style={{ height: '100%', width: `${pct * 100}%`, background: fColor, borderRadius: 2, transition: 'width 0.5s' }} />
           </div>
-          <div style={{ fontSize: 10, color: fColor, fontWeight: 600, marginTop: 2 }}>{age}d</div>
+          <div style={{ fontSize: 10, color: fColor, fontWeight: 600, marginTop: 2, display: 'flex', justifyContent: 'center', gap: 4 }}>
+            <span>{age}d</span>
+            {learnedDays && learnedDays.sample_count >= 3 && (
+              <span style={{ color: 'var(--label3)', fontWeight: 400 }}>/ {learnedDays.avg_days}d avg</span>
+            )}
+          </div>
         </div>
       )}
       {item.store && (
@@ -181,12 +188,13 @@ function ItemCard({
   )
 }
 
-function ZoneSection({ zone, items, onRemove, getQty, onQty }: {
+function ZoneSection({ zone, items, onRemove, getQty, onQty, learnedShelfLife }: {
   zone: Zone
   items: FridgeItem[]
   onRemove: (name: string, zone: Zone) => void
   getQty: (name: string) => number
   onQty: (name: string, delta: number) => void
+  learnedShelfLife: ShelfLifeMap
 }) {
   const cfg = ZONE_CONFIG[zone]
   const totalCost = items.reduce((s, i) => s + (i.cost ?? 0), 0)
@@ -229,6 +237,7 @@ function ZoneSection({ zone, items, onRemove, getQty, onQty }: {
             onTap={() => onRemove(item.name, zone)}
             onInc={() => onQty(item.name, 1)}
             onDec={() => onQty(item.name, -1)}
+            learnedDays={learnedShelfLife[item.name]}
           />
         ))}
       </div>
@@ -238,6 +247,7 @@ function ZoneSection({ zone, items, onRemove, getQty, onQty }: {
 
 export default function Fridge() {
   const [data, setData] = useState<FridgeData>({ fridge: [], pantry: [], condiments: [], freezer: [] })
+  const [learnedShelfLife, setLearnedShelfLife] = useState<ShelfLifeMap>({})
   const [meals, setMeals] = useState<Meal[]>([])
   const [loadingMeals, setLoadingMeals] = useState(false)
   const [showMeals, setShowMeals] = useState(false)
@@ -264,7 +274,14 @@ export default function Fridge() {
     try { return JSON.parse(localStorage.getItem('fridge_qty') || '{}') } catch { return {} }
   })
 
-  useEffect(() => { api.getFridge().then(setData) }, [])
+  useEffect(() => {
+    api.getFridge().then(d => {
+      setData(d)
+      const names = (['fridge','freezer','pantry','condiments'] as Zone[])
+        .flatMap(z => d[z].map((it: FridgeItem) => it.name))
+      if (names.length) api.getShelfLife(names).then(setLearnedShelfLife).catch(() => {})
+    })
+  }, [])
   useEffect(() => {
     try { localStorage.setItem('grocery_done', JSON.stringify(groceryDone)) } catch {}
   }, [groceryDone])
@@ -514,6 +531,7 @@ export default function Fridge() {
               onRemove={(name, z) => setRemoveModal({ name, zone: z })}
               getQty={getQty}
               onQty={onQty}
+              learnedShelfLife={learnedShelfLife}
             />
           )
         })}
