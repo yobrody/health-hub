@@ -5,6 +5,8 @@ import Fridge from './pages/Fridge'
 import Workout from './pages/Workout'
 import GoalsPage from './pages/Goals'
 import Skincare from './pages/Skincare'
+import Lists from './pages/Lists'
+import Agenda from './pages/Agenda'
 import CameraSheet from './components/CameraSheet'
 import { api } from './api/client'
 import type { FridgeData } from './api/client'
@@ -12,7 +14,7 @@ import { registerToastHandler } from './toast'
 import type { Theme } from './main'
 import './App.css'
 
-type Tab = 'today' | 'nutrition' | 'fridge' | 'workout' | 'goals' | 'skincare'
+type Tab = 'today' | 'nutrition' | 'fridge' | 'workout' | 'goals' | 'skincare' | 'lists' | 'agenda'
 
 // 4 visible tabs — Fridge/Skincare accessible via navigation within pages
 const TABS: { id: Tab; label: string }[] = [
@@ -155,6 +157,8 @@ export default function App({ onToggleTheme, theme }: Props) {
         {tab === 'workout'   && <Workout />}
         {tab === 'skincare'  && <Skincare />}
         {tab === 'goals'     && <GoalsPage />}
+        {tab === 'lists'     && <Lists />}
+        {tab === 'agenda'    && <Agenda />}
       </div>
 
       {/* Tab Bar — 2 tabs | camera FAB | 2 tabs */}

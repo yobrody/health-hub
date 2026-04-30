@@ -94,7 +94,7 @@ function SkeletonHero() {
   )
 }
 
-type Tab = 'today' | 'nutrition' | 'fridge' | 'workout' | 'goals' | 'skincare'
+type Tab = 'today' | 'nutrition' | 'fridge' | 'workout' | 'goals' | 'skincare' | 'lists' | 'agenda'
 interface Props {
   onNavigate: (tab: Tab) => void
   onToggleTheme: () => void
@@ -307,7 +307,7 @@ export default function Today({ onNavigate, onToggleTheme, themeIcon }: Props) {
         )}
 
         {/* Quick action pills */}
-        <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
           {([
             { label: 'Log food',      tab: 'nutrition' as const, color: 'var(--blue)' },
             { label: 'Log workout',   tab: 'workout'   as const, color: 'var(--green)' },
@@ -323,6 +323,24 @@ export default function Today({ onNavigate, onToggleTheme, themeIcon }: Props) {
               {item.label}
             </button>
           ))}
+        </div>
+
+        {/* Personal assistant shortcuts */}
+        <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+          <button onClick={() => onNavigate('agenda')}
+            style={{ flex: 1, padding: '11px 6px', borderRadius: 12, border: 'none',
+              background: 'var(--card)', color: 'var(--blue)', fontWeight: 700, fontSize: 13,
+              cursor: 'pointer', WebkitTapHighlightColor: 'transparent',
+              boxShadow: '0 1px 4px rgba(0,0,0,0.07)' }}>
+            Today's Plan
+          </button>
+          <button onClick={() => onNavigate('lists')}
+            style={{ flex: 1, padding: '11px 6px', borderRadius: 12, border: 'none',
+              background: 'var(--card)', color: 'var(--orange)', fontWeight: 700, fontSize: 13,
+              cursor: 'pointer', WebkitTapHighlightColor: 'transparent',
+              boxShadow: '0 1px 4px rgba(0,0,0,0.07)' }}>
+            Lists
+          </button>
         </div>
 
         {/* Status strip */}

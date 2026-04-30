@@ -176,6 +176,26 @@ export const api = {
 
   // Stats
   getWeekStats: () => request<WeekStats>('/stats/week'),
+
+  // Lists (groceries, errands, etc.)
+  getList: (name: string) => request<ListData>(`/lists/${name}`),
+  addListItem: (listName: string, text: string) =>
+    request<{ ok: boolean; item: ListItemData }>(`/lists/${listName}/items`, { method: 'POST', body: JSON.stringify({ text }) }),
+  toggleListItem: (listName: string, itemId: string) =>
+    request<{ ok: boolean; item: ListItemData }>(`/lists/${listName}/items/${itemId}`, { method: 'PATCH' }),
+  deleteListItem: (listName: string, itemId: string) =>
+    request<{ ok: boolean }>(`/lists/${listName}/items/${itemId}`, { method: 'DELETE' }),
+  clearList: (listName: string) =>
+    request<{ ok: boolean }>(`/lists/${listName}`, { method: 'DELETE' }),
+
+  // Agenda
+  getAgendaToday: () => request<AgendaData>('/agenda/today'),
+  addAgendaItem: (title: string, notes?: string) =>
+    request<{ ok: boolean; item: AgendaItemData }>('/agenda', { method: 'POST', body: JSON.stringify({ title, notes }) }),
+  toggleAgendaItem: (itemId: string) =>
+    request<{ ok: boolean; item: AgendaItemData }>(`/agenda/${itemId}`, { method: 'PATCH' }),
+  deleteAgendaItem: (itemId: string) =>
+    request<{ ok: boolean }>(`/agenda/${itemId}`, { method: 'DELETE' }),
 }
 
 // ---- Types ----
@@ -220,3 +240,10 @@ export interface WeekStats {
   food_by_day: HistoryDay[]; logged_days: number; avg_kcal: number
   goal_kcal: number; workout_count: number; goal_gym_days: number
 }
+export interface ListItemData { id: string; text: string; checked: boolean; added: string }
+export interface ListData { name: string; items: ListItemData[] }
+export interface AgendaItemData {
+  id: string; title: string; notes?: string | null
+  scheduled_date: string; done: boolean; created_at: string; done_at?: string | null
+}
+export interface AgendaData { date: string; items: AgendaItemData[] }
