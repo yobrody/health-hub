@@ -283,10 +283,10 @@ export default function Fridge() {
     })
   }, [])
   useEffect(() => {
-    try { localStorage.setItem('grocery_done', JSON.stringify(groceryDone)) } catch {}
+    try { localStorage.setItem('grocery_done', JSON.stringify(groceryDone)) } catch { /* ignore quota errors */ }
   }, [groceryDone])
   useEffect(() => {
-    try { localStorage.setItem('fridge_qty', JSON.stringify(qtyMap)) } catch {}
+    try { localStorage.setItem('fridge_qty', JSON.stringify(qtyMap)) } catch { /* ignore quota errors */ }
   }, [qtyMap])
 
   function qtyKey(name: string) { return name.trim().toLowerCase() }
@@ -361,7 +361,7 @@ export default function Fridge() {
         try {
           await api.addFridgeItem(item.name, item.section, { size: item.size, cost: item.cost, store: storeName })
           added++
-        } catch {}
+        } catch { /* skip item on individual add failure */ }
       }))
       const preview = detected.slice(0, 3).map(i => i.name).join(', ')
       const more = detected.length > 3 ? ` +${detected.length - 3} more` : ''

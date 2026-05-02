@@ -62,7 +62,7 @@ function saveDiaryEntry(datetime: string, thumbnail: string, foods: FoodAnalysis
     const existing: unknown[] = JSON.parse(localStorage.getItem('photo_diary') || '[]')
     const entry = { datetime, thumbnail, foods }
     localStorage.setItem('photo_diary', JSON.stringify([entry, ...existing].slice(0, 90)))
-  } catch {}
+  } catch { /* localStorage quota or access denied */ }
 }
 
 // Upload thumbnail to R2 and update the diary entry in-place once done.
@@ -437,7 +437,8 @@ export default function CameraSheet({ open, onClose, fridgeData, onFridgeUpdated
                         checked={checkedMatches.has(m.name)}
                         onChange={e => {
                           const next = new Set(checkedMatches)
-                          e.target.checked ? next.add(m.name) : next.delete(m.name)
+                          if (e.target.checked) next.add(m.name)
+                          else next.delete(m.name)
                           setCheckedMatches(next)
                         }}
                         style={{ width: 20, height: 20, accentColor: 'var(--blue)', flexShrink: 0 }}

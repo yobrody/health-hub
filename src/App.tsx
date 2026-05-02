@@ -102,6 +102,7 @@ export default function App({ onToggleTheme, theme }: Props) {
 
   useEffect(() => {
     const done = localStorage.getItem('onboarding_done') === '1'
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- one-time onboarding flag check on mount
     if (!done) setShowOnboarding(true)
 
     api.getProfile().then(profile => {
@@ -111,7 +112,7 @@ export default function App({ onToggleTheme, theme }: Props) {
       try {
         localStorage.setItem('user_profile', JSON.stringify(profile))
         localStorage.setItem('onboarding_done', '1')
-      } catch {}
+      } catch { /* ignore quota/access errors */ }
     }).catch(() => {
       try {
         const raw = localStorage.getItem('user_profile')
@@ -121,7 +122,7 @@ export default function App({ onToggleTheme, theme }: Props) {
           if (p.calories) setCalories(String(p.calories))
           if (p.protein) setProtein(String(p.protein))
         }
-      } catch {}
+      } catch { /* ignore parse errors */ }
     })
 
     // Pre-load fridge data for camera cross-ref
@@ -141,7 +142,7 @@ export default function App({ onToggleTheme, theme }: Props) {
     try {
       localStorage.setItem('user_profile', JSON.stringify(profile))
       localStorage.setItem('onboarding_done', '1')
-    } catch {}
+    } catch { /* ignore quota/access errors */ }
     api.saveProfile(profile).catch(() => {})
     setShowOnboarding(false)
   }

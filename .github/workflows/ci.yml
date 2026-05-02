@@ -28,12 +28,9 @@ jobs:
         run: npm run build
 
   lint:
-    name: lint (advisory)
+    name: lint
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    # Advisory until existing 28 lint errors in pages/*.tsx and vite.config.ts
-    # are cleaned up. Surfaces regressions without blocking merges.
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
 

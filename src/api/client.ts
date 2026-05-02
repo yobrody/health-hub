@@ -50,7 +50,7 @@ async function lookupBarcode(barcode: string): Promise<BarcodeLookupResult | nul
         const data = await res.json() as BarcodeLookupResult
         if (data?.name) return data
       }
-    } catch {}
+    } catch { /* paid provider unreachable; fall through to OpenFoodFacts */ }
   }
 
   // Fallback for development/demo.
@@ -66,7 +66,7 @@ async function lookupBarcode(barcode: string): Promise<BarcodeLookupResult | nul
       const kcal = kcal100 ? Math.round(kcal100 * servingG / 100) : undefined
       return { name, kcal }
     }
-  } catch {}
+  } catch { /* OpenFoodFacts unreachable; barcode lookup unavailable */ }
 
   return null
 }

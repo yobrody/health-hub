@@ -57,7 +57,7 @@ function publishCoachFeed(live: LiveWorkout) {
     proteinTarget,
     grocery,
   }
-  try { localStorage.setItem('coach_feed', JSON.stringify(payload)) } catch {}
+  try { localStorage.setItem('coach_feed', JSON.stringify(payload)) } catch { /* ignore quota errors */ }
 }
 
 // Wger exercise search
@@ -67,7 +67,9 @@ async function searchExercises(query: string): Promise<string[]> {
     const res = await fetch(url)
     const data = await res.json()
     return (data.suggestions ?? []).slice(0, 8).map((s: { value: string }) => s.value)
-  } catch { return [] }
+  } catch {
+    return []
+  }
 }
 
 function RestTimer({ seconds, onSkip }: { seconds: number; onSkip: () => void }) {
@@ -224,7 +226,11 @@ export default function Workout() {
   }, [])
 
   useEffect(() => {
-    if (!exSearch) { setExResults([]); return }
+    if (!exSearch) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- clear results when query empties
+      setExResults([])
+      return
+    }
     clearTimeout(searchTimeout.current)
     searchTimeout.current = setTimeout(async () => {
       const results = await searchExercises(exSearch)
@@ -319,7 +325,11 @@ export default function Workout() {
       end_time: endTime,
       exercises: live.exercises.map(ex => ({
         name: ex.name,
-        sets: ex.sets.filter(s => s.done).map(({ done, ...rest }) => rest)
+        sets: ex.sets.filter(s => s.done).map(s => {
+          const { done, ...rest } = s
+          void done
+          return rest
+        })
       }))
     })
     const [updated, updatedPRs] = await Promise.all([api.getWorkouts(20), api.getPRs()])

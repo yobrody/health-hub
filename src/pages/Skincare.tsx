@@ -23,12 +23,12 @@ function getLog(): DayLog[] {
   try {
     const parsed = JSON.parse(localStorage.getItem('skincare_log') || '[]')
     if (Array.isArray(parsed)) return parsed
-  } catch {}
+  } catch { /* ignore corrupt JSON */ }
   return []
 }
 
 function setLog(next: DayLog[]) {
-  try { localStorage.setItem('skincare_log', JSON.stringify(next)) } catch {}
+  try { localStorage.setItem('skincare_log', JSON.stringify(next)) } catch { /* ignore quota errors */ }
 }
 
 function getStreak(days: DayLog[]): number {
@@ -68,6 +68,7 @@ export default function Skincare() {
     if (totalDoneToday < 6) return
     const key = `skin_celebrate_${today}`
     if (localStorage.getItem(key) === '1') return
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot celebration when today's checklist hits 6
     setShowCelebrate(true)
     localStorage.setItem(key, '1')
     const t = window.setTimeout(() => setShowCelebrate(false), 1800)
