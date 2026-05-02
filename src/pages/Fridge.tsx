@@ -10,27 +10,70 @@ const SHELF_LIFE: Record<Zone, number> = {
   fridge: 7, freezer: 90, pantry: 180, condiments: 365,
 }
 
+// Food emoji map. Substring match (longer keys first via the order in this
+// object \u2014 getEmoji walks Object.entries top-down). When a real-world receipt
+// surfaces an item that misses everything here, it falls back to \ud83c\udf71 \u2014 that's
+// the visual cue to come back and add a key. Recently filled gaps the user
+// hit on prod: honey, protein pudding/bar/shake, peanut butter, jam, etc.
 const FOOD_EMOJIS: Record<string, string> = {
+  // Multi-word entries first so substring matches don't fire on a more
+  // generic key (e.g. "protein pudding" before bare "protein").
+  'protein pudding': '\u{1F36E}', 'protein bar': '\u{1F36B}', 'protein shake': '\u{1F95B}',
+  'protein powder': '\u{1F4AA}', 'peanut butter': '\u{1F95C}', 'almond butter': '\u{1F95C}',
+  'olive oil': '\u{1FAD9}', 'coconut oil': '\u{1FAD8}', 'sour cream': '\u{1F95B}',
+  'greek yogurt': '\u{1F95B}', 'cottage cheese': '\u{1F9C0}', 'cream cheese': '\u{1F9C0}',
+  'orange juice': '\u{1F9C3}', 'apple juice': '\u{1F9C3}', 'sparkling water': '\u{1F4A7}',
+  'ice cream': '\u{1F368}', 'ice lolly': '\u{1F36A}', 'baked beans': '\u{1FAD8}',
+  'sweet potato': '\u{1F360}', 'red pepper': '\u{1FAD1}', 'bell pepper': '\u{1FAD1}',
+  'spring onion': '\u{1F9C5}', 'green bean': '\u{1F95C}',
+  'soy sauce': '\u{1FAD9}', 'fish sauce': '\u{1FAD9}', 'hot sauce': '\u{1F336}',
+  'maple syrup': '\u{1F36F}', 'tomato sauce': '\u{1F345}',
+  'kombucha': '\u{1F375}', 'energy drink': '\u{1F95B}',
+
+  // Single-word entries
   chicken: '\u{1F357}', beef: '\u{1F969}', salmon: '\u{1F41F}', fish: '\u{1F420}',
-  shrimp: '\u{1F990}', egg: '\u{1F95A}', eggs: '\u{1F95A}', turkey: '\u{1F983}',
-  pork: '\u{1F969}', tuna: '\u{1F41F}', ham: '\u{1F969}', bacon: '\u{1F953}',
+  shrimp: '\u{1F990}', prawn: '\u{1F990}', egg: '\u{1F95A}', eggs: '\u{1F95A}',
+  turkey: '\u{1F983}', pork: '\u{1F969}', tuna: '\u{1F41F}', ham: '\u{1F969}',
+  bacon: '\u{1F953}', steak: '\u{1F969}', lamb: '\u{1F969}', mince: '\u{1F969}',
   milk: '\u{1F95B}', cheese: '\u{1F9C0}', yoghurt: '\u{1F95B}', yogurt: '\u{1F95B}',
-  butter: '\u{1F9C8}', cream: '\u{1F95B}',
-  spinach: '\u{1F96C}', lettuce: '\u{1F96C}', kale: '\u{1F96C}',
-  broccoli: '\u{1F966}', carrot: '\u{1F955}', tomato: '\u{1F345}',
-  pepper: '\u{1FAD1}', onion: '\u{1F9C5}', garlic: '\u{1F9C4}',
-  avocado: '\u{1F951}', cucumber: '\u{1F952}', potato: '\u{1F954}',
-  corn: '\u{1F33D}', mushroom: '\u{1F344}',
+  butter: '\u{1F9C8}', cream: '\u{1F95B}', tofu: '\u{1F9C8}',
+  spinach: '\u{1F96C}', lettuce: '\u{1F96C}', kale: '\u{1F96C}', cabbage: '\u{1F96C}',
+  rocket: '\u{1F96C}', salad: '\u{1F957}',
+  broccoli: '\u{1F966}', cauliflower: '\u{1F966}', carrot: '\u{1F955}', tomato: '\u{1F345}',
+  pepper: '\u{1FAD1}', onion: '\u{1F9C5}', garlic: '\u{1F9C4}', ginger: '\u{1F9C4}',
+  avocado: '\u{1F951}', cucumber: '\u{1F952}', courgette: '\u{1F952}', zucchini: '\u{1F952}',
+  potato: '\u{1F954}', aubergine: '\u{1F346}', eggplant: '\u{1F346}',
+  corn: '\u{1F33D}', mushroom: '\u{1F344}', celery: '\u{1F33F}', leek: '\u{1F33F}',
   apple: '\u{1F34E}', banana: '\u{1F34C}', orange: '\u{1F34A}', lemon: '\u{1F34B}',
-  berry: '\u{1FAD0}', strawberry: '\u{1F353}', grape: '\u{1F347}', mango: '\u{1F96D}',
-  rice: '\u{1F35A}', pasta: '\u{1F35D}', bread: '\u{1F35E}', oat: '\u{1F33E}',
-  flour: '\u{1F33E}', quinoa: '\u{1F33E}', cereal: '\u{1F963}', biscuit: '\u{1F36A}',
-  cracker: '\u{1F36A}', nuts: '\u{1F95C}', peanut: '\u{1F95C}', hummus: '\u{1FAD9}',
-  oil: '\u{1FAD9}', sauce: '\u{1FAD9}', mayo: '\u{1FAD9}', mustard: '\u{1FAD9}',
-  ketchup: '\u{1FAD9}', soy: '\u{1FAD9}', sriracha: '\u{1F336}',
-  coffee: '\u2615', tea: '\u{1F375}', juice: '\u{1F9C3}', water: '\u{1F4A7}',
-  drink: '\u{1F964}', chocolate: '\u{1F36B}', protein: '\u{1F4AA}',
-  sausage: '\u{1F32D}',
+  lime: '\u{1F34B}', kiwi: '\u{1F95D}', pineapple: '\u{1F34D}', peach: '\u{1F351}',
+  pear: '\u{1F350}', watermelon: '\u{1F349}', melon: '\u{1F348}', cherries: '\u{1F352}',
+  cherry: '\u{1F352}', plum: '\u{1F352}',
+  berry: '\u{1FAD0}', blueberry: '\u{1FAD0}', raspberry: '\u{1FAD0}', strawberry: '\u{1F353}',
+  grape: '\u{1F347}', mango: '\u{1F96D}', coconut: '\u{1F965}',
+  rice: '\u{1F35A}', pasta: '\u{1F35D}', noodle: '\u{1F35C}', bread: '\u{1F35E}',
+  bagel: '\u{1F96F}', toast: '\u{1F35E}', wrap: '\u{1F32F}', tortilla: '\u{1F32E}',
+  oat: '\u{1F33E}', oats: '\u{1F33E}', flour: '\u{1F33E}', quinoa: '\u{1F33E}',
+  granola: '\u{1F33E}', muesli: '\u{1F33E}', cereal: '\u{1F963}',
+  biscuit: '\u{1F36A}', cookie: '\u{1F36A}', cracker: '\u{1F36A}', cake: '\u{1F370}',
+  nuts: '\u{1F95C}', peanut: '\u{1F95C}', almond: '\u{1F95C}', cashew: '\u{1F95C}',
+  walnut: '\u{1F95C}', pistachio: '\u{1F95C}',
+  hummus: '\u{1FAD9}', dip: '\u{1FAD9}', salsa: '\u{1FAD9}', guacamole: '\u{1F951}',
+  oil: '\u{1FAD9}', vinegar: '\u{1FAD9}', sauce: '\u{1FAD9}', mayo: '\u{1FAD9}',
+  mustard: '\u{1FAD9}', ketchup: '\u{1FAD9}', pesto: '\u{1FAD9}', soy: '\u{1FAD9}',
+  sriracha: '\u{1F336}', chilli: '\u{1F336}', spice: '\u{1F9C2}', salt: '\u{1F9C2}',
+  honey: '\u{1F36F}', jam: '\u{1F36F}', marmalade: '\u{1F36F}', syrup: '\u{1F36F}',
+  sugar: '\u{1F9C2}', sweetener: '\u{1F9C2}', stevia: '\u{1F33F}',
+  coffee: '\u2615', espresso: '\u2615', tea: '\u{1F375}', matcha: '\u{1F375}',
+  juice: '\u{1F9C3}', smoothie: '\u{1F964}', water: '\u{1F4A7}',
+  beer: '\u{1F37A}', wine: '\u{1F377}', soda: '\u{1F964}', cola: '\u{1F964}',
+  drink: '\u{1F964}',
+  chocolate: '\u{1F36B}', candy: '\u{1F36C}', sweet: '\u{1F36C}',
+  protein: '\u{1F4AA}', supplement: '\u{1F48A}', vitamin: '\u{1F48A}',
+  sausage: '\u{1F32D}', burger: '\u{1F354}', pizza: '\u{1F355}', sushi: '\u{1F363}',
+  jerky: '\u{1F969}', pudding: '\u{1F36E}', dessert: '\u{1F36E}',
+  pickle: '\u{1F952}', olive: '\u{1FAD2}', lentil: '\u{1FAD8}', bean: '\u{1FAD8}',
+  chickpea: '\u{1FAD8}', tinned: '\u{1F96B}', canned: '\u{1F96B}',
+  frozen: '\u{1F9CA}',
 }
 const STAPLES = ['eggs', 'milk', 'chicken', 'rice', 'yogurt', 'spinach', 'banana', 'oats']
 
@@ -83,26 +126,60 @@ function daysOld(added: string | null): number {
   } catch { return 0 }
 }
 
-const ZONE_CONFIG = {
+// Each zone gets an atmospheric "interior" feel \u2014 not just labelled cards.
+// Layered backgrounds: a base gradient (the back wall), a top highlight band
+// (light from above), and a faint shelf-line stripe (rgba lines at intervals)
+// painted via repeating-linear-gradient. Inner box-shadow adds depth so the
+// zone feels recessed instead of flat.
+type ZoneStyle = {
+  label: string
+  icon: string
+  gradient: string
+  accent: string
+  border: string
+  text: string
+  // CSS shadows applied to the zone container's outer shell.
+  shellShadow: string
+  // Background-image for the items area: shelf stripe + top highlight.
+  shelvesBg: string
+}
+const ZONE_CONFIG: Record<Zone, ZoneStyle> = {
   fridge: {
-    label: 'Refrigerator', icon: '\u{1F9CA}',
-    gradient: 'linear-gradient(135deg,#E8F4FF 0%,#F0F9FF 100%)',
-    accent: '#007AFF', border: 'rgba(0,122,255,0.14)', text: '#0062CC',
+    label: 'Fridge', icon: '\u{1F9CA}',
+    gradient: 'linear-gradient(180deg,#DCEEFF 0%,#EAF4FE 50%,#F4FAFF 100%)',
+    accent: '#007AFF', border: 'rgba(0,122,255,0.18)', text: '#0062CC',
+    shellShadow: 'inset 0 8px 18px -10px rgba(0,40,90,0.18), inset 0 -1px 0 rgba(0,0,0,0.04), 0 6px 20px rgba(0,40,90,0.06)',
+    shelvesBg:
+      'repeating-linear-gradient(180deg, transparent 0, transparent 96px, rgba(0,40,90,0.08) 96px, rgba(0,40,90,0.08) 97px),' +
+      'linear-gradient(180deg, rgba(255,255,255,0.5) 0%, transparent 60px)',
   },
   freezer: {
     label: 'Freezer', icon: '\u2744\uFE0F',
-    gradient: 'linear-gradient(135deg,#EBE8FF 0%,#F2EEFF 100%)',
-    accent: '#5856D6', border: 'rgba(88,86,214,0.14)', text: '#4240A8',
+    gradient: 'linear-gradient(180deg,#D9E4FF 0%,#E6EBFF 50%,#F0EEFF 100%)',
+    accent: '#5856D6', border: 'rgba(88,86,214,0.2)', text: '#4240A8',
+    shellShadow: 'inset 0 8px 22px -10px rgba(60,60,150,0.22), inset 0 -1px 0 rgba(255,255,255,0.4), 0 6px 20px rgba(60,60,150,0.08)',
+    shelvesBg:
+      'repeating-linear-gradient(180deg, transparent 0, transparent 96px, rgba(60,60,150,0.09) 96px, rgba(60,60,150,0.09) 97px),' +
+      'radial-gradient(ellipse at top, rgba(255,255,255,0.55) 0%, transparent 80px)',
   },
   pantry: {
     label: 'Pantry', icon: '\u{1FAD9}',
-    gradient: 'linear-gradient(135deg,#FFF8EE 0%,#FFFAEF 100%)',
-    accent: '#FF9500', border: 'rgba(255,149,0,0.14)', text: '#B86B00',
+    gradient: 'linear-gradient(180deg,#F5E6CC 0%,#F8EFD9 45%,#FBF6E8 100%)',
+    accent: '#FF9500', border: 'rgba(255,149,0,0.22)', text: '#B86B00',
+    // Wood-shelf feel: stripes are warmer/heavier than the fridge's.
+    shellShadow: 'inset 0 6px 14px -8px rgba(140,80,20,0.18), inset 0 -1px 0 rgba(120,80,20,0.08), 0 6px 20px rgba(140,80,20,0.08)',
+    shelvesBg:
+      'repeating-linear-gradient(180deg, transparent 0, transparent 96px, rgba(140,80,20,0.14) 96px, rgba(140,80,20,0.14) 97px, rgba(140,80,20,0.06) 98px, transparent 99px),' +
+      'linear-gradient(180deg, rgba(255,255,255,0.35) 0%, transparent 50px)',
   },
   condiments: {
     label: 'Condiments', icon: '\u{1F336}\uFE0F',
-    gradient: 'linear-gradient(135deg,#FFF0F0 0%,#FFF4EE 100%)',
-    accent: '#FF3B30', border: 'rgba(255,59,48,0.14)', text: '#C5261C',
+    gradient: 'linear-gradient(180deg,#FFE3DD 0%,#FFEDE5 50%,#FFF4ED 100%)',
+    accent: '#FF3B30', border: 'rgba(255,59,48,0.18)', text: '#C5261C',
+    shellShadow: 'inset 0 6px 14px -8px rgba(160,40,30,0.16), inset 0 -1px 0 rgba(255,255,255,0.4), 0 6px 20px rgba(160,40,30,0.08)',
+    shelvesBg:
+      'repeating-linear-gradient(180deg, transparent 0, transparent 96px, rgba(160,40,30,0.10) 96px, rgba(160,40,30,0.10) 97px),' +
+      'linear-gradient(180deg, rgba(255,255,255,0.45) 0%, transparent 60px)',
   },
 }
 
@@ -230,11 +307,29 @@ function ZoneSection({ zone, items, onRemove, learnedShelfLife }: {
   const warnCount = items.filter(i => { const a = daysOld(i.added); return a > 3 && a <= 5 }).length
 
   return (
-    <div style={{ background: cfg.gradient, borderRadius: 18, border: `1.5px solid ${cfg.border}`, marginBottom: 12, overflow: 'hidden' }}>
-      <div style={{ padding: '12px 14px 8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <span style={{ fontSize: 15 }}>{cfg.icon}</span>
-          <span style={{ fontSize: 12, fontWeight: 800, color: cfg.text, textTransform: 'uppercase', letterSpacing: '0.07em' }}>
+    <div style={{
+      background: cfg.gradient,
+      borderRadius: 20,
+      border: `1.5px solid ${cfg.border}`,
+      marginBottom: 14,
+      overflow: 'hidden',
+      boxShadow: cfg.shellShadow,
+      position: 'relative',
+    }}>
+      {/* Door-strip header with embossed feel — suggests the zone's "front face". */}
+      <div style={{
+        padding: '12px 14px 10px',
+        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+        background: 'linear-gradient(180deg, rgba(255,255,255,0.5), transparent)',
+        borderBottom: `1px solid ${cfg.border}`,
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{
+            fontSize: 16, lineHeight: 1, padding: '4px 6px',
+            background: 'rgba(255,255,255,0.7)', borderRadius: 8,
+            boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.9), 0 1px 2px rgba(0,0,0,0.06)',
+          }}>{cfg.icon}</span>
+          <span style={{ fontSize: 13, fontWeight: 800, color: cfg.text, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
             {cfg.label}
           </span>
           <span style={{ fontSize: 11, color: cfg.text, opacity: 0.55, fontWeight: 600 }}>({items.length})</span>
@@ -255,7 +350,15 @@ function ZoneSection({ zone, items, onRemove, learnedShelfLife }: {
           )}
         </div>
       </div>
-      <div style={{ padding: '4px 10px 12px', display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 8 }}>
+      {/* Items area — shelf stripes painted by the layered repeating-linear-gradient.
+          The 96px stride approximates the typical card height, so a stripe lands roughly
+          between rows. Items overlay them, so partial mismatches don't read as "broken". */}
+      <div style={{
+        padding: '12px 10px 14px',
+        display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 10,
+        backgroundImage: cfg.shelvesBg,
+        backgroundSize: 'auto, 100% auto',
+      }}>
         {items.map((item, i) => (
           <ItemCard
             key={i}
