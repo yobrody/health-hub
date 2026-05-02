@@ -9,6 +9,12 @@ import {
   predictNextWeight,
   type DailyTotals,
 } from '../lib/workout-progression'
+import {
+  countCompletedSets,
+  countTotalSets,
+  describeNext,
+  findNextIncompleteSet,
+} from '../lib/workout-flow'
 
 interface LiveSet extends ExerciseSet { done: boolean }
 interface LiveExercise {
@@ -32,33 +38,6 @@ interface LiveWorkout {
   // Preserve the original end_time when editing so we don't bump the workout
   // forward in the timeline on every edit.
   editingEndTime?: string
-}
-
-function parseRepRange(repRange?: string): { min: number; max: number } | null {
-  if (!repRange) return null
-  const m = repRange.match(/(\d+)\s*-\s*(\d+)/)
-  if (!m) return null
-  return { min: parseInt(m[1]), max: parseInt(m[2]) }
-}
-
-function progressionHint(ex: LiveExercise): string | null {
-  const doneSets = ex.sets.filter(s => s.done && s.weight_kg != null && s.reps != null)
-  if (doneSets.length === 0) return null
-  const rr = parseRepRange(ex.repRange)
-  if (!rr) return null
-  const allAtTop = doneSets.every(s => (s.reps ?? 0) >= rr.max)
-  const allBelowMin = doneSets.every(s => (s.reps ?? 0) < rr.min)
-  const currentWeight = doneSets[0]?.weight_kg ?? ex.prevBest?.weight_kg
-  if (!currentWeight) return null
-
-  if (allAtTop) {
-    const bump = currentWeight >= 40 ? 2.5 : 1.25
-    return `Next time: try +${bump}kg (${(currentWeight + bump).toFixed(2)}kg)`
-  }
-  if (allBelowMin) {
-    return 'Keep weight steady and build reps first'
-  }
-  return 'Progressing well — add reps before weight'
 }
 
 function publishCoachFeed(live: LiveWorkout) {
@@ -142,53 +121,6 @@ function ElapsedTimer({ startTime }: { startTime: string }) {
   return <span style={{ fontVariantNumeric: 'tabular-nums' }}>{h > 0 ? `${h}:` : ''}{String(m).padStart(2, '0')}:{String(s).padStart(2, '0')}</span>
 }
 
-function SetRow({ set, idx, onUpdate, onDone, prevSets }: {
-  set: LiveSet; idx: number
-  onUpdate: (field: 'weight_kg' | 'reps', val: number | undefined) => void
-  onDone: () => void
-  prevSets: ExerciseSet[]
-}) {
-  const hasWeight = set.weight_kg !== undefined && set.weight_kg !== null && !isNaN(set.weight_kg)
-  const hasReps = set.reps !== undefined && set.reps !== null && set.reps > 0
-  const canComplete = hasReps && hasWeight
-
-  const prevBest = prevSets[0]
-  const isPR = set.done && hasWeight && hasReps &&
-    (!prevBest?.weight_kg || (set.weight_kg ?? 0) > (prevBest.weight_kg ?? 0))
-
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 0', borderBottom: '0.5px solid var(--separator)', opacity: set.done ? 0.55 : 1, transition: 'opacity 0.3s' }}>
-      <div style={{ width: 24, fontSize: 13, color: 'var(--label2)', fontWeight: 600, textAlign: 'center' }}>{idx + 1}</div>
-
-      {prevSets[idx] && (
-        <div style={{ width: 58, fontSize: 11, color: 'var(--label3)', textAlign: 'center', lineHeight: 1.2 }}>
-          {prevSets[idx].weight_kg ?? 0}kg<br />×{prevSets[idx].reps}
-        </div>
-      )}
-
-      <input
-        type="number" inputMode="decimal" placeholder="kg"
-        style={{ flex: 1, background: 'var(--bg)', border: 'none', borderRadius: 10, padding: '10px 8px', fontSize: 17, fontWeight: 600, textAlign: 'center', color: 'var(--label)', outline: 'none', minWidth: 0 }}
-        value={set.weight_kg !== undefined ? set.weight_kg : ''}
-        onChange={e => { const v = e.target.value; onUpdate('weight_kg', v === '' ? undefined : parseFloat(v)) }}
-        disabled={set.done}
-      />
-
-      <input
-        type="number" inputMode="numeric" placeholder="reps"
-        style={{ flex: 1, background: 'var(--bg)', border: 'none', borderRadius: 10, padding: '10px 8px', fontSize: 17, fontWeight: 600, textAlign: 'center', color: 'var(--label)', outline: 'none', minWidth: 0 }}
-        value={set.reps !== undefined ? set.reps : ''}
-        onChange={e => { const v = e.target.value; onUpdate('reps', v === '' ? undefined : parseInt(v)) }}
-        disabled={set.done}
-      />
-
-      <button
-        onClick={onDone} disabled={set.done || !canComplete}
-        style={{ width: 40, height: 40, borderRadius: 20, border: 'none', flexShrink: 0, background: set.done ? 'var(--green)' : canComplete ? 'var(--blue)' : 'var(--gray5)', cursor: set.done ? 'default' : canComplete ? 'pointer' : 'default', fontSize: 16, display: 'flex', alignItems: 'center', justifyContent: 'center', color: (set.done || canComplete) ? '#fff' : 'var(--label3)', transition: 'background 0.2s' }}
-      >{set.done ? (isPR ? '🏆' : '✓') : '✓'}</button>
-    </div>
-  )
-}
 
 // Program day card for the idle screen
 function DayCard({ day, isNext, onStart }: { day: ProgramDay; isNext: boolean; onStart: () => void }) {
@@ -241,6 +173,15 @@ export default function Workout() {
   // properlyEating gates the progressive-overload bump. Computed from the most
   // recent fully-logged day's calories + protein vs the user's goals.
   const [properlyEating, setProperlyEating] = useState(false)
+  // Focus-mode pointer + phase. While `live` is set, the screen shows ONE
+  // exercise/set at a time (active or rest), not the previous all-stacked view.
+  // Editing-mode (live.editingId) skips the rest phase entirely so the user
+  // can free-navigate any set without a timer firing.
+  const [focusExIdx, setFocusExIdx] = useState(0)
+  const [focusSetIdx, setFocusSetIdx] = useState(0)
+  const [phase, setPhase] = useState<'active' | 'rest' | 'done'>('active')
+  const [showManage, setShowManage] = useState(false)
+  const repsInputRef = useRef<HTMLInputElement>(null)
   const searchTimeout = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
   useEffect(() => {
@@ -320,6 +261,11 @@ export default function Workout() {
     } else {
       setLive({ title, startTime: new Date().toISOString(), exercises: [] })
     }
+    // Always start a fresh workout at the very first set in active phase.
+    setFocusExIdx(0)
+    setFocusSetIdx(0)
+    setPhase('active')
+    setRestTimer(null)
     setSelectedDay(null)
     if (navigator.vibrate) navigator.vibrate(20)
   }
@@ -443,8 +389,12 @@ export default function Workout() {
       editingEndTime: w.end_time,
     })
     setRestTimer(null)
+    setFocusExIdx(0)
+    setFocusSetIdx(0)
+    setPhase('active')
     if (navigator.vibrate) navigator.vibrate(15)
   }
+
 
   async function deleteWorkout(w: WorkoutData) {
     if (!confirm(`Delete "${w.title}" from ${new Date(w.start_time).toLocaleDateString()}?`)) return
@@ -461,169 +411,361 @@ export default function Workout() {
 
   // ── LIVE WORKOUT VIEW ──────────────────────────────────────────
   if (live) {
-    const totalSets = live.exercises.reduce((a, ex) => a + ex.sets.filter(s => s.done).length, 0)
-    const totalVolume = live.exercises.reduce((a, ex) =>
-      a + ex.sets.filter(s => s.done && s.weight_kg !== undefined && s.reps)
-        .reduce((b, s) => b + (s.weight_kg ?? 0) * (s.reps ?? 0), 0), 0)
+    // Capture as a const so TypeScript narrows null inside nested closures
+    // (submitCurrentSet, navTo) that the type system can't flow-track through.
+    const liveNonNull = live
+    const totalDone = countCompletedSets(liveNonNull.exercises)
+    const totalCount = countTotalSets(liveNonNull.exercises)
+    const isEditing = !!liveNonNull.editingId
+    const focusEx = liveNonNull.exercises[focusExIdx]
+    const focusSet = focusEx?.sets[focusSetIdx]
+    const focusExPR = focusEx ? prs[focusEx.name] : undefined
+
+    function endRest() {
+      setRestTimer(null)
+      setPhase('active')
+      // Give iOS a moment to install the new keyboard before refocusing.
+      setTimeout(() => repsInputRef.current?.focus(), 80)
+    }
+
+    // Submit the current set: mark done, advance to the next not-yet-done set
+    // (auto-starting rest), or end the workout if nothing else remains. Used
+    // by Enter on the reps input AND the big "Log set" button.
+    function submitCurrentSet() {
+      if (!focusEx || !focusSet) return
+      // Refuse if reps is missing — weight may legitimately be 0 (bodyweight).
+      if (!focusSet.reps || focusSet.reps <= 0) return
+      const exIdx = focusExIdx
+      const setIdx = focusSetIdx
+      // Mark done in state. completeSet also auto-starts rest timer for the
+      // exercise's restSeconds, which we want here.
+      completeSet(exIdx, setIdx)
+      // Advance the focus pointer. We compute on the just-completed snapshot —
+      // findNextIncompleteSet starts at setIdx+1, so it ignores the set we
+      // just marked done even though setLive hasn't flushed yet.
+      const next = findNextIncompleteSet(liveNonNull.exercises, exIdx, setIdx)
+      if (next) {
+        setFocusExIdx(next.exerciseIdx)
+        setFocusSetIdx(next.setIdx)
+        setPhase('rest')
+      } else {
+        setRestTimer(null)
+        setPhase('done')
+      }
+    }
+
+    function navTo(direction: -1 | 1) {
+      // Free navigation across all sets (used in editing mode + while the
+      // user wants to go back and tweak a just-completed set).
+      const target = direction > 0 ? focusSetIdx + 1 : focusSetIdx - 1
+      if (direction > 0 && target < focusEx!.sets.length) {
+        setFocusSetIdx(target)
+      } else if (direction < 0 && target >= 0) {
+        setFocusSetIdx(target)
+      } else if (direction > 0 && focusExIdx + 1 < liveNonNull.exercises.length) {
+        setFocusExIdx(focusExIdx + 1); setFocusSetIdx(0)
+      } else if (direction < 0 && focusExIdx > 0) {
+        const prevEx = liveNonNull.exercises[focusExIdx - 1]
+        setFocusExIdx(focusExIdx - 1); setFocusSetIdx(Math.max(0, prevEx.sets.length - 1))
+      }
+      setPhase('active')
+    }
 
     return (
       <div className="page" style={{ background: 'var(--bg)' }}>
-        <div className="page-content" style={{ paddingBottom: restTimer !== null ? 'calc(var(--tab-bar-height) + var(--safe-bottom) + 90px)' : undefined }}>
-          {/* Live header */}
-          <div style={{ background: 'var(--blue)', borderRadius: 16, padding: '14px 16px', marginBottom: 16, color: '#fff' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div>
-                <div style={{ fontSize: 18, fontWeight: 700 }}>{live.title}</div>
-                <div style={{ fontSize: 13, opacity: 0.85, marginTop: 2 }}>
-                  <ElapsedTimer startTime={live.startTime} /> · {totalSets} sets · {Math.round(totalVolume).toLocaleString()}kg vol
+        <div className="page-content">
+          {/* Compact header — kept small so the focus card dominates the screen. */}
+          <div style={{ background: 'var(--blue)', borderRadius: 14, padding: '10px 14px', marginBottom: 12, color: '#fff' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div style={{ fontSize: 16, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{live.title}</div>
+                <div style={{ fontSize: 12, opacity: 0.85, marginTop: 1 }}>
+                  <ElapsedTimer startTime={live.startTime} /> · {totalDone}/{totalCount} sets
                 </div>
               </div>
-              <div style={{ display: 'flex', gap: 6 }}>
-                {live.editingId && (
+              <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                <button
+                  onClick={() => setShowManage(true)}
+                  aria-label="Manage exercises"
+                  style={{ background: 'rgba(255,255,255,0.18)', border: 'none', borderRadius: 20, width: 36, height: 36, color: '#fff', fontSize: 18, cursor: 'pointer' }}
+                >☰</button>
+                {isEditing && (
                   <button
-                    onClick={() => { setLive(null); setRestTimer(null) }}
-                    style={{ background: 'rgba(255,255,255,0.18)', border: 'none', borderRadius: 20, padding: '8px 12px', color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+                    onClick={() => { setLive(null); setRestTimer(null); setPhase('active') }}
+                    style={{ background: 'rgba(255,255,255,0.18)', border: 'none', borderRadius: 20, padding: '0 12px', height: 36, color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
                   >Cancel</button>
                 )}
                 <button
-                  onClick={finishWorkout} disabled={finishing || live.exercises.length === 0}
-                  style={{ background: 'rgba(255,255,255,0.25)', border: 'none', borderRadius: 20, padding: '8px 16px', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer', opacity: (finishing || live.exercises.length === 0) ? 0.5 : 1 }}
-                >{finishing ? '…' : (live.editingId ? 'Save' : 'Finish')}</button>
+                  onClick={finishWorkout}
+                  disabled={finishing || live.exercises.length === 0 || (!isEditing && totalDone === 0)}
+                  style={{ background: 'rgba(255,255,255,0.25)', border: 'none', borderRadius: 20, padding: '0 14px', height: 36, color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', opacity: (finishing || live.exercises.length === 0 || (!isEditing && totalDone === 0)) ? 0.5 : 1 }}
+                >{finishing ? '…' : (isEditing ? 'Save' : 'Finish')}</button>
               </div>
             </div>
-            {/* Eating-status badge — tells the user whether the predicted-weight rule
-                is bumping or holding today. Quiet when it's holding (red would feel
-                punishing); celebratory when it's bumping. */}
-            <div style={{ marginTop: 10, fontSize: 12, fontWeight: 600, opacity: 0.95 }}>
-              {properlyEating
-                ? '🟢 Fueled — progressive overload active'
-                : '🟡 Holding weight — eat your protein for the next bump'}
-            </div>
+            {!isEditing && (
+              <div style={{ marginTop: 8, fontSize: 11, fontWeight: 600, opacity: 0.95 }}>
+                {properlyEating
+                  ? '🟢 Fueled — progressive overload active'
+                  : '🟡 Holding weight — eat your protein for the next bump'}
+              </div>
+            )}
           </div>
 
-          {/* Exercises */}
-          {live.exercises.map((ex, exIdx) => {
-            const exPR = prs[ex.name]
-            const hasNewPR = ex.sets.some(s => s.done && s.weight_kg !== undefined && exPR && (s.weight_kg ?? 0) > exPR.weight_kg)
-            const restLabel = ex.restSeconds ? (ex.restSeconds >= 60 ? `${ex.restSeconds / 60} min` : `${ex.restSeconds}s`) : null
-            const hint = progressionHint(ex)
-
+          {/* ── ACTIVE SET CARD ── */}
+          {phase === 'active' && focusEx && focusSet && (() => {
+            const isThisSetDone = focusSet.done
+            const restLabel = focusEx.restSeconds ? (focusEx.restSeconds >= 60 ? `${focusEx.restSeconds / 60} min` : `${focusEx.restSeconds}s`) : null
             return (
-              <div key={exIdx} className="card" style={{ marginBottom: 12, padding: '0 16px' }}>
-                <div style={{ padding: '14px 0 10px', borderBottom: '0.5px solid var(--separator)' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 17, fontWeight: 700 }}>{ex.name}</div>
-                      {/* Program targets */}
-                      {ex.repRange && (
-                        <div style={{ fontSize: 12, color: 'var(--blue)', fontWeight: 600, marginTop: 3 }}>
-                          {ex.sets.length} sets · {ex.repRange} reps · {ex.rir} RIR{restLabel ? ` · ${restLabel} rest` : ''}
-                        </div>
-                      )}
-                      {ex.notes && <div style={{ fontSize: 12, color: 'var(--label3)', marginTop: 2 }}>{ex.notes}</div>}
-                      {exPR && <div style={{ fontSize: 12, color: 'var(--label2)', marginTop: 2 }}>Best: {exPR.weight_kg}kg × {exPR.reps}</div>}
-                      {hint && <div style={{ fontSize: 12, color: 'var(--green)', marginTop: 2, fontWeight: 600 }}>{hint}</div>}
+              <div className="card" style={{ padding: '20px 18px 22px', marginBottom: 12 }}>
+                {/* Prev / Exercise / Next */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                  <button
+                    onClick={() => navTo(-1)}
+                    disabled={focusExIdx === 0 && focusSetIdx === 0}
+                    aria-label="Previous set"
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 22, padding: 8, color: (focusExIdx === 0 && focusSetIdx === 0) ? 'var(--label3)' : 'var(--label)' }}
+                  >‹</button>
+                  <div style={{ textAlign: 'center', flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 21, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{focusEx.name}</div>
+                    <div style={{ fontSize: 13, color: 'var(--blue)', fontWeight: 600, marginTop: 2 }}>
+                      Set {focusSetIdx + 1} of {focusEx.sets.length}
+                      {focusEx.repRange && ` · ${focusEx.repRange} reps`}
+                      {focusEx.rir && ` · ${focusEx.rir} RIR`}
                     </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'flex-end' }}>
-                      {hasNewPR && <span className="badge badge-gold">🏆 PR!</span>}
-                      {/* Reorder controls — mobile-bulletproof tap targets. Hidden when there's
-                          only one exercise so the card stays clean. */}
+                    {focusExPR && (
+                      <div style={{ fontSize: 12, color: 'var(--label2)', marginTop: 2 }}>
+                        Best: {focusExPR.weight_kg}kg × {focusExPR.reps}{restLabel ? ` · ${restLabel} rest` : ''}
+                      </div>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => navTo(1)}
+                    disabled={focusExIdx === live.exercises.length - 1 && focusSetIdx === focusEx.sets.length - 1}
+                    aria-label="Next set"
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 22, padding: 8, color: (focusExIdx === live.exercises.length - 1 && focusSetIdx === focusEx.sets.length - 1) ? 'var(--label3)' : 'var(--label)' }}
+                  >›</button>
+                </div>
+
+                {focusEx.notes && <div style={{ fontSize: 12, color: 'var(--label3)', textAlign: 'center', marginTop: 2, marginBottom: 6 }}>{focusEx.notes}</div>}
+
+                {/* Big inputs */}
+                <div style={{ display: 'flex', gap: 12, marginTop: 18 }}>
+                  <div style={{ flex: 1, textAlign: 'center' }}>
+                    <div style={{ fontSize: 11, color: 'var(--label3)', fontWeight: 600, letterSpacing: 0.5, marginBottom: 4 }}>WEIGHT (KG)</div>
+                    <input
+                      type="number" inputMode="decimal" placeholder="—"
+                      style={{ width: '100%', background: 'var(--bg)', border: '1.5px solid var(--separator)', borderRadius: 14, padding: '14px 8px', fontSize: 30, fontWeight: 700, textAlign: 'center', color: 'var(--label)', outline: 'none' }}
+                      value={focusSet.weight_kg ?? ''}
+                      onChange={e => { const v = e.target.value; updateSet(focusExIdx, focusSetIdx, 'weight_kg', v === '' ? undefined : parseFloat(v)) }}
+                    />
+                  </div>
+                  <div style={{ flex: 1, textAlign: 'center' }}>
+                    <div style={{ fontSize: 11, color: 'var(--label3)', fontWeight: 600, letterSpacing: 0.5, marginBottom: 4 }}>REPS</div>
+                    <input
+                      ref={repsInputRef}
+                      type="number" inputMode="numeric" placeholder="—"
+                      style={{ width: '100%', background: 'var(--bg)', border: '1.5px solid var(--blue)', borderRadius: 14, padding: '14px 8px', fontSize: 30, fontWeight: 700, textAlign: 'center', color: 'var(--label)', outline: 'none' }}
+                      value={focusSet.reps ?? ''}
+                      onChange={e => { const v = e.target.value; updateSet(focusExIdx, focusSetIdx, 'reps', v === '' ? undefined : parseInt(v)) }}
+                      onKeyDown={e => { if (e.key === 'Enter' && !isThisSetDone) submitCurrentSet() }}
+                      autoFocus={!isThisSetDone}
+                    />
+                  </div>
+                </div>
+
+                {/* Submit / Done indicator */}
+                {isThisSetDone ? (
+                  <div style={{ marginTop: 18, padding: '12px 14px', background: 'var(--green)', color: '#fff', borderRadius: 14, textAlign: 'center', fontSize: 15, fontWeight: 700 }}>
+                    ✓ Logged — tap › to advance
+                  </div>
+                ) : (
+                  <button
+                    onClick={submitCurrentSet}
+                    disabled={!focusSet.reps || focusSet.reps <= 0}
+                    style={{
+                      width: '100%', marginTop: 18,
+                      background: focusSet.reps ? 'var(--blue)' : 'var(--gray5)',
+                      color: '#fff', border: 'none', borderRadius: 14, padding: '16px',
+                      fontSize: 17, fontWeight: 700, cursor: focusSet.reps ? 'pointer' : 'default',
+                    }}
+                  >Log set ↵</button>
+                )}
+
+                {/* Compact set strip — small dots showing this exercise's set status */}
+                {focusEx.sets.length > 1 && (
+                  <div style={{ display: 'flex', gap: 6, justifyContent: 'center', marginTop: 14 }}>
+                    {focusEx.sets.map((s, i) => (
+                      <button
+                        key={i}
+                        onClick={() => { setFocusSetIdx(i); setPhase('active') }}
+                        style={{
+                          width: 10, height: 10, borderRadius: '50%', border: 'none', cursor: 'pointer',
+                          background: i === focusSetIdx ? 'var(--blue)' : s.done ? 'var(--green)' : 'var(--gray4)',
+                        }}
+                        aria-label={`Go to set ${i + 1}`}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+            )
+          })()}
+
+          {/* ── REST CARD ── */}
+          {phase === 'rest' && (() => {
+            const previewBase = (() => {
+              // Show what the user is heading INTO. focusEx/focusSet point to
+              // the next set already (we advanced before flipping to rest), so
+              // describe relative to the set we just finished.
+              const fromExIdx = focusSetIdx === 0 && focusExIdx > 0 ? focusExIdx - 1 : focusExIdx
+              const fromSetIdx = focusSetIdx === 0 && focusExIdx > 0
+                ? Math.max(0, (live.exercises[focusExIdx - 1]?.sets.length ?? 1) - 1)
+                : Math.max(0, focusSetIdx - 1)
+              return describeNext(live.exercises, { exerciseIdx: fromExIdx, setIdx: fromSetIdx })
+            })()
+            return (
+              <div className="card" style={{ padding: '24px 20px 22px', marginBottom: 12, textAlign: 'center' }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--label2)', letterSpacing: 0.5, textTransform: 'uppercase', marginBottom: 8 }}>Rest</div>
+                <RestTimer
+                  key={`rest-${focusExIdx}-${focusSetIdx}-${restTimer?.seconds ?? 90}`}
+                  seconds={restTimer?.seconds ?? focusEx?.restSeconds ?? 90}
+                  onSkip={endRest}
+                />
+                <div style={{ marginTop: 14, fontSize: 14, color: 'var(--label2)' }}>
+                  {previewBase.kind === 'next-set' && (
+                    <>Next: <strong style={{ color: 'var(--label)' }}>Set {previewBase.setNumber} of {previewBase.exerciseName}</strong></>
+                  )}
+                  {previewBase.kind === 'next-exercise' && (
+                    <>Next exercise: <strong style={{ color: 'var(--label)' }}>{previewBase.exerciseName}</strong> — Set 1 of {previewBase.totalSets}</>
+                  )}
+                  {previewBase.kind === 'workout-complete' && (
+                    <strong style={{ color: 'var(--green)' }}>Workout complete</strong>
+                  )}
+                </div>
+                <button
+                  onClick={endRest}
+                  style={{ marginTop: 16, background: 'var(--blue)', color: '#fff', border: 'none', borderRadius: 14, padding: '12px 22px', fontSize: 15, fontWeight: 700, cursor: 'pointer' }}
+                >Skip rest →</button>
+              </div>
+            )
+          })()}
+
+          {/* ── DONE CARD ── */}
+          {phase === 'done' && (
+            <div className="card" style={{ padding: '28px 20px', marginBottom: 12, textAlign: 'center' }}>
+              <div style={{ fontSize: 56, marginBottom: 8 }}>🎉</div>
+              <div style={{ fontSize: 22, fontWeight: 700, marginBottom: 6 }}>Workout complete!</div>
+              <div style={{ fontSize: 14, color: 'var(--label2)' }}>
+                {totalDone}/{totalCount} sets · <ElapsedTimer startTime={live.startTime} />
+              </div>
+              <button
+                onClick={finishWorkout}
+                disabled={finishing}
+                style={{ marginTop: 22, background: 'var(--green)', color: '#fff', border: 'none', borderRadius: 14, padding: '16px 24px', fontSize: 17, fontWeight: 700, cursor: 'pointer', width: '100%', opacity: finishing ? 0.5 : 1 }}
+              >{finishing ? 'Saving…' : 'Save workout'}</button>
+            </div>
+          )}
+
+          {/* ── EMPTY-WORKOUT FALLBACK ── */}
+          {live.exercises.length === 0 && (
+            <div className="card" style={{ padding: '28px 20px', marginBottom: 12, textAlign: 'center', color: 'var(--label2)' }}>
+              <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 8 }}>No exercises yet</div>
+              <button
+                onClick={() => setShowManage(true)}
+                style={{ background: 'var(--blue)', color: '#fff', border: 'none', borderRadius: 12, padding: '10px 20px', fontSize: 14, fontWeight: 700, cursor: 'pointer' }}
+              >+ Add exercise</button>
+            </div>
+          )}
+        </div>
+
+        {/* ── MANAGE SHEET — reorder, add exercise, add set ── */}
+        {showManage && (
+          <div
+            style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 400, display: 'flex', alignItems: 'flex-end' }}
+            onClick={e => { if (e.target === e.currentTarget) { setShowManage(false); setShowExSearch(false); setExSearch('') } }}
+          >
+            <div style={{
+              background: 'var(--card)', borderRadius: '22px 22px 0 0', width: '100%',
+              padding: '16px 20px calc(32px + var(--safe-bottom))',
+              maxHeight: '88vh', overflowY: 'auto',
+            }}>
+              <div style={{ width: 36, height: 5, background: 'var(--gray4)', borderRadius: 3, margin: '0 auto 16px' }} />
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                <div style={{ fontSize: 20, fontWeight: 700 }}>Exercises</div>
+                <button onClick={() => { setShowManage(false); setShowExSearch(false); setExSearch('') }} className="sheet-close">×</button>
+              </div>
+
+              {live.exercises.length > 0 && (
+                <div className="card" style={{ marginBottom: 12 }}>
+                  {live.exercises.map((ex, exIdx) => (
+                    <div key={exIdx} className="list-row" style={{ gap: 8, borderBottom: exIdx < live.exercises.length - 1 ? '0.5px solid var(--separator)' : 'none' }}>
+                      <button
+                        onClick={() => { setFocusExIdx(exIdx); setFocusSetIdx(0); setPhase('active'); setShowManage(false) }}
+                        style={{ flex: 1, background: 'none', border: 'none', textAlign: 'left', cursor: 'pointer', padding: 0, color: 'inherit', minWidth: 0 }}
+                      >
+                        <div style={{ fontSize: 15, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ex.name}</div>
+                        <div style={{ fontSize: 12, color: 'var(--label2)', marginTop: 1 }}>
+                          {ex.sets.filter(s => s.done).length}/{ex.sets.length} sets done
+                        </div>
+                      </button>
+                      <button
+                        onClick={() => addSet(exIdx)}
+                        aria-label="Add set"
+                        style={{ background: 'var(--gray6)', border: 'none', borderRadius: 8, width: 32, height: 32, fontSize: 16, cursor: 'pointer', color: 'var(--label)' }}
+                      >+</button>
                       {live.exercises.length > 1 && (
-                        <div style={{ display: 'flex', gap: 4 }}>
+                        <>
                           <button
                             onClick={() => moveExercise(exIdx, -1)}
                             disabled={exIdx === 0}
                             aria-label="Move up"
-                            style={{
-                              width: 32, height: 32, borderRadius: 8, border: 'none',
-                              background: 'var(--gray6)', color: exIdx === 0 ? 'var(--label3)' : 'var(--label)',
-                              cursor: exIdx === 0 ? 'default' : 'pointer', fontSize: 16, fontWeight: 700,
-                              display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            }}
+                            style={{ background: 'var(--gray6)', border: 'none', borderRadius: 8, width: 32, height: 32, fontSize: 14, cursor: exIdx === 0 ? 'default' : 'pointer', color: exIdx === 0 ? 'var(--label3)' : 'var(--label)' }}
                           >↑</button>
                           <button
                             onClick={() => moveExercise(exIdx, 1)}
                             disabled={exIdx === live.exercises.length - 1}
                             aria-label="Move down"
-                            style={{
-                              width: 32, height: 32, borderRadius: 8, border: 'none',
-                              background: 'var(--gray6)',
-                              color: exIdx === live.exercises.length - 1 ? 'var(--label3)' : 'var(--label)',
-                              cursor: exIdx === live.exercises.length - 1 ? 'default' : 'pointer',
-                              fontSize: 16, fontWeight: 700,
-                              display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            }}
+                            style={{ background: 'var(--gray6)', border: 'none', borderRadius: 8, width: 32, height: 32, fontSize: 14, cursor: exIdx === live.exercises.length - 1 ? 'default' : 'pointer', color: exIdx === live.exercises.length - 1 ? 'var(--label3)' : 'var(--label)' }}
                           >↓</button>
-                        </div>
+                        </>
                       )}
                     </div>
-                  </div>
-                </div>
-
-                <div style={{ padding: '4px 0 8px' }}>
-                  {/* Column headers */}
-                  <div style={{ display: 'flex', gap: 8, padding: '6px 0 4px' }}>
-                    <div style={{ width: 24 }} />
-                    {exPR && <div style={{ width: 58, fontSize: 11, color: 'var(--label3)', textAlign: 'center' }}>prev</div>}
-                    <div style={{ flex: 1, fontSize: 11, color: 'var(--label3)', textAlign: 'center' }}>kg</div>
-                    <div style={{ flex: 1, fontSize: 11, color: 'var(--label3)', textAlign: 'center' }}>reps</div>
-                    <div style={{ width: 40 }} />
-                  </div>
-                  {ex.sets.map((set, setIdx) => (
-                    <SetRow
-                      key={setIdx} set={set} idx={setIdx}
-                      prevSets={exPR ? [{ weight_kg: exPR.weight_kg, reps: exPR.reps }] : []}
-                      onUpdate={(f, v) => updateSet(exIdx, setIdx, f, v)}
-                      onDone={() => completeSet(exIdx, setIdx)}
-                    />
                   ))}
                 </div>
+              )}
 
+              {!showExSearch ? (
                 <button
-                  onClick={() => addSet(exIdx)}
-                  style={{ width: '100%', background: 'none', border: '1.5px dashed var(--gray4)', borderRadius: 10, padding: '10px', color: 'var(--label2)', fontSize: 14, fontWeight: 600, cursor: 'pointer', marginBottom: 12 }}
-                >+ Add Set</button>
-              </div>
-            )
-          })}
-
-          {/* Add exercise */}
-          <div className="card" style={{ overflow: 'visible', marginBottom: 8 }}>
-            {!showExSearch ? (
-              <button
-                onClick={() => setShowExSearch(true)}
-                style={{ width: '100%', background: 'none', border: 'none', padding: '16px', color: 'var(--blue)', fontSize: 17, fontWeight: 600, cursor: 'pointer' }}
-              >+ Add Exercise</button>
-            ) : (
-              <div style={{ padding: 12 }}>
-                <input className="input-field" placeholder="Search exercises (e.g. bench press)" value={exSearch} onChange={e => setExSearch(e.target.value)} autoFocus />
-                {exResults.length > 0 && (
-                  <div style={{ marginTop: 8 }}>
-                    {exResults.map((r, i) => (
-                      <button key={i} className="list-row" style={{ width: '100%', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', borderRadius: 10 }} onClick={() => addExercise(r)}>
-                        <span style={{ fontSize: 15 }}>{r}</span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-                {!exSearch && (
-                  <div style={{ marginTop: 8 }}>
-                    <div style={{ fontSize: 11, color: 'var(--label3)', fontWeight: 600, padding: '6px 4px 4px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Quick add</div>
-                    {['Bench Press (Barbell)', 'Squat (Barbell)', 'Deadlift (Barbell)', 'Overhead Press (Barbell)', 'Pull-Up', 'Barbell Row', 'Dumbbell Curl', 'Tricep Pushdown'].map(ex => (
-                      <button key={ex} className="list-row" style={{ width: '100%', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left' }} onClick={() => addExercise(ex)}>
-                        <span style={{ fontSize: 15 }}>{ex}</span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-                <button onClick={() => { setShowExSearch(false); setExSearch('') }} style={{ width: '100%', background: 'none', border: 'none', color: 'var(--label2)', fontSize: 14, fontWeight: 500, padding: '10px 0', cursor: 'pointer' }}>Cancel</button>
-              </div>
-            )}
+                  onClick={() => setShowExSearch(true)}
+                  style={{ width: '100%', background: 'var(--blue)', border: 'none', borderRadius: 14, padding: '14px', color: '#fff', fontSize: 16, fontWeight: 700, cursor: 'pointer' }}
+                >+ Add exercise</button>
+              ) : (
+                <div>
+                  <input className="input-field" placeholder="Search exercises (e.g. bench press)" value={exSearch} onChange={e => setExSearch(e.target.value)} autoFocus style={{ marginBottom: 8 }} />
+                  {exResults.length > 0 && (
+                    <div className="card">
+                      {exResults.map((r, i) => (
+                        <button key={i} className="list-row" style={{ width: '100%', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left' }} onClick={() => { addExercise(r); setShowManage(false); setShowExSearch(false); setExSearch('') }}>
+                          <span style={{ fontSize: 15 }}>{r}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {!exSearch && (
+                    <div className="card">
+                      <div style={{ fontSize: 11, color: 'var(--label3)', fontWeight: 600, padding: '10px 14px 4px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Quick add</div>
+                      {['Bench Press (Barbell)', 'Squat (Barbell)', 'Deadlift (Barbell)', 'Overhead Press (Barbell)', 'Pull-Up', 'Barbell Row', 'Dumbbell Curl', 'Tricep Pushdown'].map(ex => (
+                        <button key={ex} className="list-row" style={{ width: '100%', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left' }} onClick={() => { addExercise(ex); setShowManage(false); setShowExSearch(false); setExSearch('') }}>
+                          <span style={{ fontSize: 15 }}>{ex}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  <button onClick={() => { setShowExSearch(false); setExSearch('') }} style={{ width: '100%', background: 'none', border: 'none', color: 'var(--label2)', fontSize: 14, fontWeight: 500, padding: '14px 0', cursor: 'pointer' }}>Cancel</button>
+                </div>
+              )}
+            </div>
           </div>
-        </div>
-
-        {restTimer !== null && (
-          <RestTimer key={restTimer.seconds + live.exercises.reduce((a, ex) => a + ex.sets.filter(s => s.done).length, 0)} seconds={restTimer.seconds} onSkip={() => setRestTimer(null)} />
         )}
       </div>
     )
