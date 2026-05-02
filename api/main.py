@@ -399,6 +399,45 @@ def suggest_meals(key=Depends(require_key)):
     meals = json.loads(m.group()) if m else []
     return {"meals": meals}
 
+class MealDetailInput(BaseModel):
+    name: str
+    ingredients: list[str] = []
+
+@app.post("/ai/meal-detail")
+def meal_detail(input: MealDetailInput, key=Depends(require_key)):
+    """Recipe + full macros for a single meal idea. The frontend calls this on
+    tap-to-expand so the cheap /ai/meals listing stays cheap (just names +
+    kcal estimates) and the expensive recipe generation only fires when the
+    user actually picks one."""
+    if not ANTHROPIC_KEY:
+        raise HTTPException(status_code=503, detail="ANTHROPIC_API_KEY not configured")
+    import anthropic as ac
+    client = ac.Anthropic(api_key=ANTHROPIC_KEY)
+    resp = client.messages.create(
+        model="claude-haiku-4-5-20251001",
+        max_tokens=800,
+        messages=[{"role": "user", "content": (
+            f"Recipe for: {input.name}\n"
+            f"Ingredients available: {', '.join(input.ingredients) if input.ingredients else '(none specified)'}\n\n"
+            "Return ONLY this JSON (no markdown, no commentary):\n"
+            '{"prep_minutes": 15, "cook_minutes": 20, "servings": 1, '
+            '"steps": ["Step 1...", "Step 2...", "..."], '
+            '"kcal": 620, "protein_g": 42, "carbs_g": 60, "fat_g": 22}\n\n'
+            "Rules:\n"
+            "- 4-8 short cooking steps (one sentence each, action-first)\n"
+            "- Macros are per serving\n"
+            "- Be realistic about portions (one serving for an active adult)"
+        )}]
+    )
+    raw = resp.content[0].text.strip()
+    m = re.search(r"\{[\s\S]*\}", raw)
+    if not m:
+        raise HTTPException(status_code=422, detail="Could not parse recipe response")
+    try:
+        return json.loads(m.group())
+    except json.JSONDecodeError as e:
+        raise HTTPException(status_code=422, detail=f"Invalid JSON from model: {e}")
+
 # ── WORKOUTS ──────────────────────────────────────────────────────────
 WORKOUTS_FILE = DATA_DIR / "workouts.json"
 

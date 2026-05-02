@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from 'react'
 import { api } from '../api/client'
-import type { FridgeData, FridgeItem, Meal, ScanResult, ScannedItem, ShelfLifeMap } from '../api/client'
+import type { FridgeData, FridgeItem, Meal, MealDetail, ScanResult, ScannedItem, ShelfLifeMap } from '../api/client'
 import { showToast } from '../toast'
 
 type Zone = 'fridge' | 'pantry' | 'condiments' | 'freezer'
@@ -113,15 +113,24 @@ function freshnessColor(age: number, shelfDays: number): string {
   return 'var(--green)'
 }
 
+function quantityBarColor(pct: number): string {
+  if (pct >= 0.5) return 'var(--green)'
+  if (pct >= 0.2) return 'var(--orange)'
+  return 'var(--red)'
+}
+
+function formatGrams(g: number): string {
+  // 1500 → "1.5kg"; 800 → "800g"; 0 → "0g"
+  if (g >= 1000) return `${(g / 1000).toFixed(g >= 10000 ? 0 : 1).replace(/\.0$/, '')}kg`
+  return `${Math.round(g)}g`
+}
+
 function ItemCard({
-  item, zone, qty, onTap, onInc, onDec, learnedDays,
+  item, zone, onTap, learnedDays,
 }: {
   item: FridgeItem
   zone: Zone
-  qty: number
   onTap: () => void
-  onInc: () => void
-  onDec: () => void
   learnedDays?: { avg_days: number; sample_count: number }
 }) {
   const age = daysOld(item.added)
@@ -154,11 +163,32 @@ function ItemCard({
         overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', width: '100%' }}>
         {item.name}
       </span>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 2 }}>
-        <button onClick={(e) => { e.stopPropagation(); onDec() }} style={{ border: 'none', background: 'var(--gray5)', color: 'var(--label)', width: 20, height: 20, borderRadius: 10, fontWeight: 700, cursor: 'pointer' }}>−</button>
-        <span style={{ fontSize: 11, fontWeight: 700, minWidth: 16 }}>{qty}</span>
-        <button onClick={(e) => { e.stopPropagation(); onInc() }} style={{ border: 'none', background: 'var(--blue)', color: '#fff', width: 20, height: 20, borderRadius: 10, fontWeight: 700, cursor: 'pointer' }}>+</button>
-      </div>
+      {/* Quantity health-bar — only shown when the item carries server-side
+          quantity tracking (set on receipt scan via unit_size_g/unit_count).
+          Bar fills based on remaining vs full pack. Replaces the old
+          ±1 localStorage counter the user disliked. */}
+      {(() => {
+        const hasGrams = typeof item.quantity_g === 'number' && typeof item.unit_size_g === 'number' && item.unit_size_g > 0
+        const hasCount = typeof item.quantity_count === 'number' && typeof item.unit_count === 'number' && item.unit_count > 0
+        if (!hasGrams && !hasCount) return null
+        const remaining = hasGrams ? (item.quantity_g as number) : (item.quantity_count as number)
+        const total = hasGrams ? (item.unit_size_g as number) : (item.unit_count as number)
+        const qPct = Math.max(0, Math.min(1, total > 0 ? remaining / total : 0))
+        const barColor = quantityBarColor(qPct)
+        const remainingLabel = hasGrams ? formatGrams(remaining) : `${remaining}`
+        const totalLabel = hasGrams ? formatGrams(total) : `${total}`
+        return (
+          <div style={{ width: '100%', marginTop: 4 }}>
+            <div style={{ height: 5, background: 'var(--gray5)', borderRadius: 3, overflow: 'hidden' }}>
+              <div style={{ height: '100%', width: `${qPct * 100}%`, background: barColor, borderRadius: 3, transition: 'width 0.5s, background 0.3s' }} />
+            </div>
+            <div style={{ fontSize: 10, fontWeight: 600, color: barColor, marginTop: 2, display: 'flex', justifyContent: 'center', gap: 3 }}>
+              <span>{remainingLabel}</span>
+              <span style={{ color: 'var(--label3)', fontWeight: 400 }}>/ {totalLabel}</span>
+            </div>
+          </div>
+        )
+      })()}
       {(item.size || item.cost != null) && (
         <span style={{ fontSize: 10, color: 'var(--label2)', fontWeight: 500, lineHeight: 1.2 }}>
           {[item.size, item.cost != null ? `\u00A3${item.cost.toFixed(2)}` : null].filter(Boolean).join(' \u00B7 ')}
@@ -188,12 +218,10 @@ function ItemCard({
   )
 }
 
-function ZoneSection({ zone, items, onRemove, getQty, onQty, learnedShelfLife }: {
+function ZoneSection({ zone, items, onRemove, learnedShelfLife }: {
   zone: Zone
   items: FridgeItem[]
   onRemove: (name: string, zone: Zone) => void
-  getQty: (name: string) => number
-  onQty: (name: string, delta: number) => void
   learnedShelfLife: ShelfLifeMap
 }) {
   const cfg = ZONE_CONFIG[zone]
@@ -233,10 +261,7 @@ function ZoneSection({ zone, items, onRemove, getQty, onQty, learnedShelfLife }:
             key={i}
             item={item}
             zone={zone}
-            qty={getQty(item.name)}
             onTap={() => onRemove(item.name, zone)}
-            onInc={() => onQty(item.name, 1)}
-            onDec={() => onQty(item.name, -1)}
             learnedDays={learnedShelfLife[item.name]}
           />
         ))}
@@ -251,6 +276,11 @@ export default function Fridge() {
   const [meals, setMeals] = useState<Meal[]>([])
   const [loadingMeals, setLoadingMeals] = useState(false)
   const [showMeals, setShowMeals] = useState(false)
+  // Tap-to-expand meal recipe state. mealDetails caches results so re-tapping
+  // a card doesn't re-pay the model token cost. expandedMealIdx === null when
+  // collapsed; the index corresponds to position in the meals[] array.
+  const [expandedMealIdx, setExpandedMealIdx] = useState<number | null>(null)
+  const [mealDetails, setMealDetails] = useState<Record<string, MealDetail | 'loading' | 'error'>>({})
   const [showAdd, setShowAdd] = useState(false)
   const [addName, setAddName] = useState('')
   const [addZone, setAddZone] = useState<Zone>('fridge')
@@ -270,9 +300,6 @@ export default function Fridge() {
   const [groceryDone, setGroceryDone] = useState<string[]>(() => {
     try { return JSON.parse(localStorage.getItem('grocery_done') || '[]') } catch { return [] }
   })
-  const [qtyMap, setQtyMap] = useState<Record<string, number>>(() => {
-    try { return JSON.parse(localStorage.getItem('fridge_qty') || '{}') } catch { return {} }
-  })
 
   useEffect(() => {
     api.getFridge().then(d => {
@@ -285,19 +312,9 @@ export default function Fridge() {
   useEffect(() => {
     try { localStorage.setItem('grocery_done', JSON.stringify(groceryDone)) } catch { /* ignore quota errors */ }
   }, [groceryDone])
-  useEffect(() => {
-    try { localStorage.setItem('fridge_qty', JSON.stringify(qtyMap)) } catch { /* ignore quota errors */ }
-  }, [qtyMap])
-
-  function qtyKey(name: string) { return name.trim().toLowerCase() }
-  function getQty(name: string) { return Math.max(1, qtyMap[qtyKey(name)] ?? 1) }
-  function onQty(name: string, delta: number) {
-    setQtyMap(prev => {
-      const key = qtyKey(name)
-      const next = Math.max(0, (prev[key] ?? 1) + delta)
-      return { ...prev, [key]: next }
-    })
-  }
+  // Note: legacy `fridge_qty` localStorage is no longer used. Quantity is now
+  // server-side via item.quantity_g / quantity_count and the camera Home flow
+  // decrements via /fridge/item/{name}/consume.
 
   const smartGrocery = [
     ...alertItems.map(i => i.name),
@@ -555,8 +572,6 @@ export default function Fridge() {
               zone={zone}
               items={items}
               onRemove={(name, z) => setRemoveModal({ name, zone: z })}
-              getQty={getQty}
-              onQty={onQty}
               learnedShelfLife={learnedShelfLife}
             />
           )
@@ -609,15 +624,78 @@ export default function Fridge() {
               <div className="section-label" style={{ margin: 0 }}>Meal Ideas</div>
               <button onClick={() => setShowMeals(false)} style={{ background: 'none', border: 'none', color: 'var(--label3)', cursor: 'pointer', fontSize: 20, lineHeight: 1 }}>×</button>
             </div>
-            {meals.map((m, i) => (
-              <div key={i} style={{ background: 'var(--card)', borderRadius: 16, padding: '14px 16px', marginBottom: 10 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 5 }}>
-                  <div style={{ fontSize: 15, fontWeight: 700 }}>{m.name}</div>
-                  <span className="badge badge-blue" style={{ fontSize: 11, marginLeft: 8, flexShrink: 0 }}>~{m.kcal_estimate} kcal</span>
+            {meals.map((m, i) => {
+              const isExpanded = expandedMealIdx === i
+              const detail = mealDetails[m.name]
+              const detailLoaded = detail && detail !== 'loading' && detail !== 'error'
+              const onTapMeal = () => {
+                if (isExpanded) { setExpandedMealIdx(null); return }
+                setExpandedMealIdx(i)
+                if (mealDetails[m.name] && mealDetails[m.name] !== 'error') return
+                setMealDetails(prev => ({ ...prev, [m.name]: 'loading' }))
+                api.getMealDetail(m.name, m.ingredients)
+                  .then(d => setMealDetails(prev => ({ ...prev, [m.name]: d })))
+                  .catch(() => setMealDetails(prev => ({ ...prev, [m.name]: 'error' })))
+              }
+              return (
+                <div key={i} style={{ background: 'var(--card)', borderRadius: 16, padding: '14px 16px', marginBottom: 10, cursor: 'pointer' }} onClick={onTapMeal}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 5 }}>
+                    <div style={{ fontSize: 15, fontWeight: 700, flex: 1 }}>
+                      {m.name}
+                      <span style={{ fontSize: 13, color: 'var(--label3)', fontWeight: 400, marginLeft: 6 }}>{isExpanded ? '\u25BE' : '\u25B8'}</span>
+                    </div>
+                    <span className="badge badge-blue" style={{ fontSize: 11, marginLeft: 8, flexShrink: 0 }}>~{m.kcal_estimate} kcal</span>
+                  </div>
+                  <div style={{ fontSize: 13, color: 'var(--label2)' }}>{m.ingredients.join(' \u00B7 ')}</div>
+
+                  {isExpanded && (
+                    <div style={{ marginTop: 12, paddingTop: 12, borderTop: '0.5px solid var(--separator)' }} onClick={e => e.stopPropagation()}>
+                      {detail === 'loading' && (
+                        <div style={{ fontSize: 13, color: 'var(--label2)' }}>\u23F3 Generating recipe\u2026</div>
+                      )}
+                      {detail === 'error' && (
+                        <div style={{ fontSize: 13, color: 'var(--red)' }}>Couldn't generate recipe \u2014 tap to retry</div>
+                      )}
+                      {detailLoaded && (
+                        <>
+                          {/* Macros row \u2014 real per-serving numbers from /ai/meal-detail. */}
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 6, marginBottom: 10 }}>
+                            {[
+                              { label: 'kcal',    value: detail.kcal,                color: 'var(--blue)' },
+                              { label: 'protein', value: `${detail.protein_g}g`,     color: 'var(--orange)' },
+                              { label: 'carbs',   value: `${detail.carbs_g}g`,       color: 'var(--green)' },
+                              { label: 'fat',     value: `${detail.fat_g}g`,         color: 'var(--purple)' },
+                            ].map(stat => (
+                              <div key={stat.label} style={{ background: 'var(--gray6)', borderRadius: 10, padding: '6px 4px', textAlign: 'center' }}>
+                                <div style={{ fontSize: 14, fontWeight: 700, color: stat.color }}>{stat.value}</div>
+                                <div style={{ fontSize: 10, color: 'var(--label3)', textTransform: 'uppercase', letterSpacing: 0.5 }}>{stat.label}</div>
+                              </div>
+                            ))}
+                          </div>
+
+                          {(detail.prep_minutes != null || detail.cook_minutes != null || detail.servings != null) && (
+                            <div style={{ fontSize: 12, color: 'var(--label2)', marginBottom: 10 }}>
+                              {detail.prep_minutes != null && <>{'\u23F1 '}{detail.prep_minutes}m prep</>}
+                              {detail.prep_minutes != null && detail.cook_minutes != null && ' \u00B7 '}
+                              {detail.cook_minutes != null && <>{'\u{1F373} '}{detail.cook_minutes}m cook</>}
+                              {(detail.prep_minutes != null || detail.cook_minutes != null) && detail.servings != null && ' \u00B7 '}
+                              {detail.servings != null && <>{detail.servings} serving{detail.servings === 1 ? '' : 's'}</>}
+                            </div>
+                          )}
+
+                          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--label2)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>Steps</div>
+                          <ol style={{ paddingLeft: 20, margin: 0 }}>
+                            {detail.steps.map((step, si) => (
+                              <li key={si} style={{ fontSize: 13, color: 'var(--label)', marginBottom: 6, lineHeight: 1.45 }}>{step}</li>
+                            ))}
+                          </ol>
+                        </>
+                      )}
+                    </div>
+                  )}
                 </div>
-                <div style={{ fontSize: 13, color: 'var(--label2)' }}>{m.ingredients.join(' \u00B7 ')}</div>
-              </div>
-            ))}
+              )
+            })}
           </div>
         )}
         {showMeals && loadingMeals && (
