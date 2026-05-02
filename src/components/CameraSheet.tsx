@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react'
 import { api } from '../api/client'
 import { showToast } from '../toast'
-import type { FridgeData, FoodAnalysisV2, FridgeItem, BarcodeLookupResult } from '../api/client'
+import type { FridgeData, FoodAnalysisV2, BarcodeLookupResult } from '../api/client'
 
 type Stage = 'idle' | 'analyzing' | 'result' | 'barcode'
 
@@ -35,15 +35,36 @@ async function compressThumbnail(file: File): Promise<string> {
 }
 
 async function detectBarcode(file: File): Promise<string | null> {
-  if (!('BarcodeDetector' in window)) return null
+  // 1) Native BarcodeDetector — Chrome on Android + desktop. Much faster than
+  // the JS decoder when available.
+  if ('BarcodeDetector' in window) {
+    try {
+      const BD = (window as unknown as { BarcodeDetector: new (o: object) => { detect: (b: ImageBitmap) => Promise<Array<{ rawValue: string }>> } }).BarcodeDetector
+      const detector = new BD({ formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39', 'qr_code'] })
+      const bitmap = await createImageBitmap(file)
+      const barcodes = await detector.detect(bitmap)
+      bitmap.close()
+      if (barcodes.length) return barcodes[0].rawValue
+      // No barcode found in image — don't fall through, just return null.
+      // (Falling through would double the latency on a clean miss.)
+      return null
+    } catch {
+      // Native detector errored unexpectedly — fall through to JS fallback.
+    }
+  }
+  // 2) JS fallback for iOS Safari + Firefox + older browsers. Code-split via
+  // dynamic import so the ~80KB decoder doesn't bloat first paint for users
+  // who never scan a barcode.
   try {
-    const BD = (window as unknown as { BarcodeDetector: new (o: object) => { detect: (b: ImageBitmap) => Promise<Array<{ rawValue: string }>> } }).BarcodeDetector
-    const detector = new BD({ formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39', 'qr_code'] })
-    const bitmap = await createImageBitmap(file)
-    const barcodes = await detector.detect(bitmap)
-    bitmap.close()
-    if (!barcodes.length) return null
-    return barcodes[0].rawValue
+    const { BrowserMultiFormatReader } = await import('@zxing/browser')
+    const reader = new BrowserMultiFormatReader()
+    const url = URL.createObjectURL(file)
+    try {
+      const result = await reader.decodeFromImageUrl(url)
+      return result.getText()
+    } finally {
+      URL.revokeObjectURL(url)
+    }
   } catch {
     return null
   }
@@ -81,8 +102,21 @@ async function uploadAndUpdateDiary(thumbnail: string, datetime: string) {
   }
 }
 
+type CameraMode = 'home' | 'out'
+
+const LS_CAMERA_MODE_KEY = 'camera_mode_default'
+
+function loadCameraMode(): CameraMode {
+  try {
+    const raw = localStorage.getItem(LS_CAMERA_MODE_KEY)
+    if (raw === 'home' || raw === 'out') return raw
+  } catch { /* ignore access errors */ }
+  return 'home'
+}
+
 export default function CameraSheet({ open, onClose, fridgeData, onFridgeUpdated }: Props) {
   const [stage, setStage] = useState<Stage>('idle')
+  const [mode, setMode] = useState<CameraMode>(loadCameraMode)
   const [analysis, setAnalysis] = useState<FoodAnalysisV2 | null>(null)
   const [checkedMatches, setCheckedMatches] = useState<Set<string>>(new Set())
   const [saving, setSaving] = useState(false)
@@ -91,6 +125,11 @@ export default function CameraSheet({ open, onClose, fridgeData, onFridgeUpdated
   const foodInputRef = useRef<HTMLInputElement>(null)
   const receiptInputRef = useRef<HTMLInputElement>(null)
   const barcodeInputRef = useRef<HTMLInputElement>(null)
+
+  function chooseMode(next: CameraMode) {
+    setMode(next)
+    try { localStorage.setItem(LS_CAMERA_MODE_KEY, next) } catch { /* ignore quota errors */ }
+  }
 
   function reset() {
     setStage('idle')
@@ -113,11 +152,12 @@ export default function CameraSheet({ open, onClose, fridgeData, onFridgeUpdated
     setStage('analyzing')
     try {
       const [result, thumbnail] = await Promise.all([
-        api.analyzeFoodV2(file, fridgeData),
+        api.analyzeFoodV2(file, fridgeData, '', mode),
         compressThumbnail(file),
       ])
       setAnalysis(result)
-      setCheckedMatches(new Set(result.fridge_matches.map((m: FridgeItem & { zone: string }) => m.name)))
+      // Default-check all matches the AI returned (out mode returns none anyway).
+      setCheckedMatches(new Set(result.fridge_matches.map(m => m.name)))
       if (thumbnail && result.foods.length > 0) {
         const datetime = new Date().toISOString()
         saveDiaryEntry(datetime, thumbnail, result.foods)
@@ -140,7 +180,14 @@ export default function CameraSheet({ open, onClose, fridgeData, onFridgeUpdated
       const result = await api.scanReceipt(file)
       if (result.items?.length) {
         await Promise.all(result.items.map(item =>
-          api.addFridgeItem(item.name, item.section, { size: item.size, cost: item.cost })
+          api.addFridgeItem(item.name, item.section, {
+            size: item.size,
+            cost: item.cost,
+            // Forward parsed unit fields so /fridge/item seeds quantity_g
+            // and the photo-log Home flow can decrement against it later.
+            unit_size_g: item.unit_size_g ?? null,
+            unit_count: item.unit_count ?? null,
+          })
         ))
         onFridgeUpdated()
         showToast(`Added ${result.items.length} items from receipt`)
@@ -225,19 +272,39 @@ export default function CameraSheet({ open, onClose, fridgeData, onFridgeUpdated
 
       await api.addFood({ meal, description, kcal: totalKcal, protein_g: totalProtein })
 
-      // Log usage + remove checked fridge items
-      const matched = analysis.fridge_matches.filter(m => checkedMatches.has(m.name))
-      if (matched.length) {
-        await Promise.all([
-          ...matched.map(m =>
-            api.logFridgeUsage({ item_name: m.name, zone: m.zone || 'fridge', date_added: m.added ?? null }).catch(() => {})
-          ),
-          ...matched.map(m => api.removeFridgeItem(m.name).catch(() => {})),
-        ])
-        onFridgeUpdated()
+      // Out mode never touches fridge inventory — the meal wasn't sourced from there.
+      let matchedCount = 0
+      if (mode === 'home') {
+        const matched = analysis.fridge_matches.filter(m => checkedMatches.has(m.name))
+        if (matched.length) {
+          matchedCount = matched.length
+          // Log shelf-life usage for every match (informs learned shelf-life model),
+          // and decrement quantity. Items whose quantity_g hits 0 stay in the fridge
+          // as "empty" markers — explicit removal is a separate UI action.
+          await Promise.all([
+            ...matched.map(m =>
+              api
+                .logFridgeUsage({ item_name: m.name, zone: m.zone || 'fridge', date_added: m.added ?? null })
+                .catch(() => {})
+            ),
+            ...matched.map(m => {
+              const grams = typeof m.grams_used === 'number' && m.grams_used > 0 ? m.grams_used : null
+              if (grams !== null) {
+                return api.consumeFridgeItem(m.name, { grams }).catch(() => {})
+              }
+              // No per-item grams from the model → fall back to legacy "remove on use"
+              // behaviour so the UI keeps moving when the AI under-specifies.
+              return api.removeFridgeItem(m.name).catch(() => {})
+            }),
+          ])
+          onFridgeUpdated()
+        }
       }
 
-      showToast(`Logged ${totalKcal} kcal${matched.length ? ` · removed ${matched.length} from fridge` : ''}`)
+      const fridgeNote = mode === 'home' && matchedCount
+        ? ` · used ${matchedCount} from fridge`
+        : mode === 'out' ? ' · out' : ''
+      showToast(`Logged ${totalKcal} kcal${fridgeNote}`)
       handleClose()
     } catch {
       showToast('Failed to save — try again', 'err')
@@ -250,7 +317,6 @@ export default function CameraSheet({ open, onClose, fridgeData, onFridgeUpdated
 
   const totalKcal = analysis?.foods.reduce((a, f) => a + f.kcal, 0) ?? 0
   const totalProtein = Math.round(analysis?.foods.reduce((a, f) => a + f.protein_g, 0) ?? 0)
-  const hasBarcodeSupport = typeof window !== 'undefined' && 'BarcodeDetector' in window
 
   return (
     <div
@@ -280,6 +346,46 @@ export default function CameraSheet({ open, onClose, fridgeData, onFridgeUpdated
         {/* Idle — mode picker */}
         {stage === 'idle' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {/* Home / Out toggle — controls whether Log Food decrements fridge inventory */}
+            <div style={{
+              display: 'flex',
+              background: 'var(--gray6)',
+              borderRadius: 12,
+              padding: 4,
+              gap: 4,
+              marginBottom: 4,
+            }}>
+              {(['home', 'out'] as const).map(m => (
+                <button
+                  key={m}
+                  onClick={() => chooseMode(m)}
+                  style={{
+                    flex: 1,
+                    background: mode === m ? 'var(--card)' : 'transparent',
+                    color: mode === m ? 'var(--label)' : 'var(--label2)',
+                    border: 'none',
+                    borderRadius: 9,
+                    padding: '8px 12px',
+                    fontSize: 14,
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    boxShadow: mode === m ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: 6,
+                  }}
+                >
+                  {m === 'home' ? '🏠 Home' : '🍽️ Out'}
+                </button>
+              ))}
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--label3)', marginTop: -4, marginBottom: 4, paddingLeft: 4 }}>
+              {mode === 'home'
+                ? 'Photo will deplete matching items from your fridge.'
+                : 'Photo just logs calories — fridge untouched.'}
+            </div>
+
             <button
               onClick={() => foodInputRef.current?.click()}
               style={{ background: 'var(--blue)', color: '#fff', border: 'none', borderRadius: 16, padding: '18px 20px', fontSize: 17, fontWeight: 700, cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: 14 }}
@@ -309,13 +415,11 @@ export default function CameraSheet({ open, onClose, fridgeData, onFridgeUpdated
 
             <button
               onClick={() => barcodeInputRef.current?.click()}
-              disabled={!hasBarcodeSupport}
               style={{
-                background: hasBarcodeSupport ? 'var(--purple)' : 'var(--gray4)',
+                background: 'var(--purple)',
                 color: '#fff', border: 'none', borderRadius: 16, padding: '18px 20px',
-                fontSize: 17, fontWeight: 700, cursor: hasBarcodeSupport ? 'pointer' : 'default',
+                fontSize: 17, fontWeight: 700, cursor: 'pointer',
                 textAlign: 'left', display: 'flex', alignItems: 'center', gap: 14,
-                opacity: hasBarcodeSupport ? 1 : 0.5,
               }}
             >
               <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round">
@@ -326,7 +430,7 @@ export default function CameraSheet({ open, onClose, fridgeData, onFridgeUpdated
               <div>
                 <div>Scan Barcode</div>
                 <div style={{ fontSize: 13, fontWeight: 400, opacity: 0.82, marginTop: 2 }}>
-                  {hasBarcodeSupport ? 'Log food or add to fridge' : 'Not supported on this device'}
+                  Log food or add to fridge
                 </div>
               </div>
             </button>

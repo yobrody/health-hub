@@ -359,7 +359,13 @@ export default function Fridge() {
       let added = 0
       await Promise.allSettled(detected.map(async item => {
         try {
-          await api.addFridgeItem(item.name, item.section, { size: item.size, cost: item.cost, store: storeName })
+          await api.addFridgeItem(item.name, item.section, {
+            size: item.size,
+            cost: item.cost,
+            store: storeName,
+            unit_size_g: item.unit_size_g ?? null,
+            unit_count: item.unit_count ?? null,
+          })
           added++
         } catch { /* skip item on individual add failure */ }
       }))

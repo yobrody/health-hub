@@ -71,6 +71,28 @@ def read_goals() -> dict:
     goals["gym_days"] = int(m.group(1)) if m else 4
     return goals
 
+def _fridge_meta_path() -> Path:
+    """Sidecar JSON keyed by lowercase item name carrying structured metadata
+    (unit_size_g, quantity_g, unit_count, quantity_count) that doesn't fit the
+    human-editable fridge.md format. Lives alongside fridge.md so Lucky's
+    markdown view stays unchanged."""
+    return WORKSPACE / "fridge_meta.json"
+
+def _read_fridge_meta() -> dict:
+    p = _fridge_meta_path()
+    if not p.exists():
+        return {}
+    try:
+        return json.loads(p.read_text())
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+def _write_fridge_meta(meta: dict):
+    _fridge_meta_path().write_text(json.dumps(meta, indent=2))
+
+def _meta_key(name: str) -> str:
+    return name.strip().lower()
+
 def read_fridge() -> dict:
     p = WORKSPACE / "fridge.md"
     if not p.exists():
@@ -79,6 +101,7 @@ def read_fridge() -> dict:
     result = {"fridge": [], "pantry": [], "condiments": [], "freezer": []}
     section_map = {"Fridge": "fridge", "Pantry": "pantry", "Condiments": "condiments", "Freezer": "freezer"}
     current = None
+    meta = _read_fridge_meta()
     for line in content.splitlines():
         for sec, key in section_map.items():
             if line.startswith(f"## {sec}"):
@@ -89,10 +112,19 @@ def read_fridge() -> dict:
             name_match = re.match(r"^(.*?)(?:\s*\(added (.+?)\))?$", item_text)
             name = name_match.group(1).strip() if name_match else item_text
             added = name_match.group(2) if name_match and name_match.group(2) else None
-            result[current].append({"name": name, "added": added})
+            entry = {"name": name, "added": added}
+            extra = meta.get(_meta_key(name))
+            if extra:
+                for field in ("unit_size_g", "quantity_g", "unit_count", "quantity_count"):
+                    if field in extra and extra[field] is not None:
+                        entry[field] = extra[field]
+            result[current].append(entry)
     return result
 
 def write_fridge(data: dict):
+    """Write the human-readable fridge.md AND the sidecar fridge_meta.json.
+    The markdown is the canonical inventory list (so Lucky can still edit it).
+    The JSON sidecar carries quantity_g / unit_size_g / etc. keyed by name."""
     p = WORKSPACE / "fridge.md"
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
     lines = [f"# Fridge & Pantry", f"_Last updated: {now}_", ""]
@@ -102,6 +134,7 @@ def write_fridge(data: dict):
         ("condiments", "Condiments & Sauces"),
         ("freezer", "Freezer")
     ]
+    new_meta: dict = {}
     for key, label in section_labels:
         lines.append(f"## {label}")
         items = data.get(key, [])
@@ -109,10 +142,24 @@ def write_fridge(data: dict):
             for item in items:
                 added = item.get("added", "")
                 lines.append(f"- {item['name']}" + (f" (added {added})" if added else ""))
+                # Capture structured fields for the sidecar
+                fields = {
+                    f: item[f]
+                    for f in ("unit_size_g", "quantity_g", "unit_count", "quantity_count")
+                    if f in item and item[f] is not None
+                }
+                if fields:
+                    new_meta[_meta_key(item["name"])] = fields
         else:
             lines.append("_(empty)_")
         lines.append("")
     p.write_text("\n".join(lines))
+    if new_meta:
+        _write_fridge_meta(new_meta)
+    elif _fridge_meta_path().exists():
+        # All structured fields removed (or all items deleted) — empty out the sidecar
+        # so the file doesn't drift away from reality.
+        _write_fridge_meta({})
 
 # ── FOOD ──────────────────────────────────────────────────────────────
 class FoodEntry(BaseModel):
@@ -164,12 +211,36 @@ def get_fridge(key=Depends(require_key)):
 class FridgeItem(BaseModel):
     name: str
     section: str = "fridge"
+    # Optional pack size in grams when the item is added (e.g. "1kg chicken" → 1000).
+    # When set with quantity_g unset, quantity_g defaults to unit_size_g.
+    unit_size_g: Optional[float] = None
+    # Current remaining grams. Decremented by /fridge/item/{name}/consume when meals
+    # are logged via the camera Home flow.
+    quantity_g: Optional[float] = None
+    # Discrete-unit support for things like eggs/apples (eggs: 12 → eat 2 → 10).
+    unit_count: Optional[int] = None
+    quantity_count: Optional[int] = None
 
 @app.post("/fridge/item")
 def add_fridge_item(item: FridgeItem, key=Depends(require_key)):
     data = read_fridge()
     added = date.today().strftime("%d %b")
-    data.setdefault(item.section, []).append({"name": item.name, "added": added})
+    record = {"name": item.name, "added": added}
+    if item.unit_size_g is not None:
+        record["unit_size_g"] = item.unit_size_g
+        record["quantity_g"] = (
+            item.quantity_g if item.quantity_g is not None else item.unit_size_g
+        )
+    elif item.quantity_g is not None:
+        record["quantity_g"] = item.quantity_g
+    if item.unit_count is not None:
+        record["unit_count"] = item.unit_count
+        record["quantity_count"] = (
+            item.quantity_count if item.quantity_count is not None else item.unit_count
+        )
+    elif item.quantity_count is not None:
+        record["quantity_count"] = item.quantity_count
+    data.setdefault(item.section, []).append(record)
     write_fridge(data)
     return {"ok": True}
 
@@ -188,43 +259,118 @@ def remove_fridge_item(name: str, key=Depends(require_key)):
     write_fridge(data)
     return {"ok": True}
 
+class ConsumeInput(BaseModel):
+    grams: Optional[float] = None
+    count: Optional[int] = None
+
+@app.post("/fridge/item/{name}/consume")
+def consume_fridge_item(name: str, input: ConsumeInput, key=Depends(require_key)):
+    """Decrement quantity_g and/or quantity_count for the named item.
+
+    Match is case-insensitive substring across all sections. If multiple items match,
+    the first one is consumed. When quantity hits 0 the item stays in the fridge
+    (so the user sees it's empty and can either remove or restock); the next add
+    of the same name resets quantity_g to unit_size_g.
+    """
+    if input.grams is None and input.count is None:
+        raise HTTPException(status_code=400, detail="Provide grams or count")
+    data = read_fridge()
+    name_lower = name.lower()
+    consumed = None
+    for section in data:
+        for item in data[section]:
+            if name_lower in item["name"].lower():
+                if input.grams is not None and "quantity_g" in item:
+                    item["quantity_g"] = max(0.0, item["quantity_g"] - input.grams)
+                if input.count is not None and "quantity_count" in item:
+                    item["quantity_count"] = max(0, item["quantity_count"] - input.count)
+                consumed = {
+                    "name": item["name"],
+                    "section": section,
+                    "quantity_g": item.get("quantity_g"),
+                    "quantity_count": item.get("quantity_count"),
+                }
+                break
+        if consumed:
+            break
+    if not consumed:
+        raise HTTPException(status_code=404, detail=f"Item not found")
+    write_fridge(data)
+    return {"ok": True, **consumed}
+
+class ScanInput(BaseModel):
+    image: str  # base64 (no data: prefix)
+    mimeType: Optional[str] = "image/jpeg"
+
 @app.post("/fridge/scan")
-async def scan_receipt(file: UploadFile = File(...), key=Depends(require_key)):
+async def scan_receipt(input: ScanInput, key=Depends(require_key)):
+    """Receipt scan — JSON contract matching the Cloudflare Pages Function shadow
+    at functions/api/fridge/scan.js so dev/prod/fallback all behave the same.
+
+    Returns {items: [...], store: {...}} — does NOT add to fridge automatically;
+    the client iterates and calls /fridge/item per item so that user-side
+    confirmation/edits can happen first.
+    """
     if not ANTHROPIC_KEY:
         raise HTTPException(status_code=503, detail="ANTHROPIC_API_KEY not configured")
     import anthropic as ac
-    img_bytes = await file.read()
-    b64 = base64.standard_b64encode(img_bytes).decode()
-    media_type = file.content_type or "image/jpeg"
+    media_type = input.mimeType or "image/jpeg"
     client = ac.Anthropic(api_key=ANTHROPIC_KEY)
+    prompt = (
+        "Look at this grocery store receipt. Extract the purchased food and drink items.\n\n"
+        "Return ONLY valid JSON, no markdown or explanation:\n"
+        '{"store":{"name":"store name","location":"address/area or null"},'
+        '"items":[{"name":"readable name","unit_size_g":340,"unit_count":null,"cost":1.89,"section":"fridge"}]}\n\n'
+        "Rules:\n"
+        '- name: clean readable name (e.g. "greek yogurt" not "GREEK YOG 10%")\n'
+        "- unit_size_g: pack size in grams if visible (parse '340g' → 340, '1kg' → 1000, '1.5L water' → 1500)\n"
+        "  null if not shown or not weight-based\n"
+        "- unit_count: discrete count if applicable (eggs: 6/12, apples: 4) — null otherwise\n"
+        "- cost: item price as a number — null if not visible\n"
+        '- section: "fridge"|"freezer"|"pantry"|"condiments"\n'
+        "  fridge: dairy, fresh produce, eggs, meat/fish, yogurt, juice, deli\n"
+        "  freezer: frozen meals, ice cream, frozen veg/meat\n"
+        "  pantry: canned, dry goods, snacks, coffee, tea, bread, nuts, spreads, chocolate\n"
+        "  condiments: sauces, oils, vinegar, dressings, spices\n"
+        "- INCLUDE all food and drink items\n"
+        "- SKIP non-food (foil, bags, cleaning, toiletries), totals, VAT, discounts, header rows\n"
+        '- If a name contains "/" add both as separate items'
+    )
     resp = client.messages.create(
         model="claude-sonnet-4-6",
-        max_tokens=1024,
+        max_tokens=2000,
         messages=[{"role": "user", "content": [
-            {"type": "image", "source": {"type": "base64", "media_type": media_type, "data": b64}},
-            {"type": "text", "text": (
-                "This is a grocery receipt. Extract all food/drink items purchased. "
-                "For each item, output a JSON array like: "
-                '[{"name": "Chicken breast", "section": "fridge"}, {"name": "Oats", "section": "pantry"}]. '
-                "section must be one of: fridge, pantry, condiments, freezer. "
-                "Skip non-food items. Return ONLY the JSON array, nothing else."
-            )}
+            {"type": "image", "source": {"type": "base64", "media_type": media_type, "data": input.image}},
+            {"type": "text", "text": prompt}
         ]}]
     )
     raw = resp.content[0].text.strip()
-    m = re.search(r"\[.*\]", raw, re.DOTALL)
-    if not m:
-        raise HTTPException(status_code=422, detail="Could not parse receipt items")
-    items = json.loads(m.group())
-    data = read_fridge()
-    added_date = date.today().strftime("%d %b")
-    for item in items:
-        section = item.get("section", "fridge")
-        if section not in data:
-            section = "fridge"
-        data[section].append({"name": item["name"], "added": added_date})
-    write_fridge(data)
-    return {"ok": True, "items_added": len(items), "items": items}
+    obj_match = re.search(r"\{[\s\S]*\}", raw)
+    if not obj_match:
+        raise HTTPException(status_code=422, detail="Could not parse receipt response")
+    try:
+        parsed = json.loads(obj_match.group())
+    except json.JSONDecodeError as e:
+        raise HTTPException(status_code=422, detail=f"Invalid JSON from model: {e}")
+    raw_items = parsed.get("items") or []
+    valid_sections = {"fridge", "freezer", "pantry", "condiments"}
+    items = [
+        {
+            "name": (i.get("name") or "").strip().lower(),
+            "section": i["section"] if i.get("section") in valid_sections else "fridge",
+            "unit_size_g": i.get("unit_size_g") if isinstance(i.get("unit_size_g"), (int, float)) else None,
+            "unit_count": i.get("unit_count") if isinstance(i.get("unit_count"), int) else None,
+            "cost": i.get("cost") if isinstance(i.get("cost"), (int, float)) else None,
+            # Legacy `size` string kept so the pre-units client path still works.
+            "size": (
+                f"{int(i['unit_size_g'])}g" if isinstance(i.get("unit_size_g"), (int, float))
+                else None
+            ),
+        }
+        for i in raw_items
+        if isinstance(i, dict) and i.get("name")
+    ]
+    return {"items": items, "store": parsed.get("store")}
 
 # ── MEALS AI ──────────────────────────────────────────────────────────
 @app.post("/ai/meals")
@@ -586,3 +732,103 @@ def delete_agenda_item(item_id: str, key=Depends(require_key)):
     items = [i for i in items if i["id"] != item_id]
     save_agenda(items)
     return {"ok": True}
+
+# ── HEALTHKIT SYNC ────────────────────────────────────────────────────
+# Endpoints for an iOS Shortcut that pushes Apple Health data into Health Hub.
+# Covers: body weight, active calories, workouts (incl. gym sessions). The
+# Shortcut is the only thing that knows about HealthKit — this side is
+# storage-agnostic and just appends to JSON files.
+HEALTHKIT_FILE = DATA_DIR / "healthkit.json"
+
+class HealthKitWorkout(BaseModel):
+    """A single workout / activity row from HealthKit."""
+    type: str  # e.g. "Functional Strength Training", "Walking"
+    start: str  # ISO 8601 datetime
+    duration_min: float
+    active_calories: Optional[float] = None
+    distance_km: Optional[float] = None
+
+class HealthKitPayload(BaseModel):
+    # Use any combination — the Shortcut may push partial syncs (e.g. just weight).
+    weight_kg: Optional[float] = None
+    weight_at: Optional[str] = None  # ISO datetime
+    active_calories_today: Optional[float] = None
+    resting_calories_today: Optional[float] = None
+    steps_today: Optional[int] = None
+    workouts: Optional[list[HealthKitWorkout]] = None
+
+def _read_healthkit() -> dict:
+    if not HEALTHKIT_FILE.exists():
+        return {"weight_log": [], "daily": [], "workouts": []}
+    try:
+        return json.loads(HEALTHKIT_FILE.read_text())
+    except (json.JSONDecodeError, OSError):
+        return {"weight_log": [], "daily": [], "workouts": []}
+
+def _write_healthkit(data: dict):
+    HEALTHKIT_FILE.write_text(json.dumps(data, indent=2))
+
+@app.post("/healthkit/sync")
+def healthkit_sync(payload: HealthKitPayload, key=Depends(require_key)):
+    """Append HealthKit data to healthkit.json. Idempotent on workouts (dedupe
+    by start+type) so the Shortcut can push the same window twice without
+    duplicating entries. Returns counts so the Shortcut can show a toast."""
+    store = _read_healthkit()
+
+    added = {"weight": 0, "daily": 0, "workouts": 0}
+
+    if payload.weight_kg is not None and payload.weight_at is not None:
+        store["weight_log"].append({"kg": payload.weight_kg, "at": payload.weight_at})
+        store["weight_log"] = store["weight_log"][-365:]  # cap at ~1yr
+        added["weight"] = 1
+
+    if any(v is not None for v in [payload.active_calories_today, payload.resting_calories_today, payload.steps_today]):
+        today_str = date.today().isoformat()
+        # Replace today's row if it exists (Shortcut may sync hourly); otherwise append.
+        store["daily"] = [d for d in store["daily"] if d.get("date") != today_str]
+        store["daily"].append({
+            "date": today_str,
+            "active_calories": payload.active_calories_today,
+            "resting_calories": payload.resting_calories_today,
+            "steps": payload.steps_today,
+            "synced_at": datetime.now().isoformat(),
+        })
+        store["daily"] = store["daily"][-90:]  # 90-day window
+        added["daily"] = 1
+
+    if payload.workouts:
+        existing_keys = {(w["start"], w["type"]) for w in store["workouts"]}
+        for w in payload.workouts:
+            key_pair = (w.start, w.type)
+            if key_pair in existing_keys:
+                continue
+            store["workouts"].append({
+                "type": w.type,
+                "start": w.start,
+                "duration_min": w.duration_min,
+                "active_calories": w.active_calories,
+                "distance_km": w.distance_km,
+                "synced_at": datetime.now().isoformat(),
+            })
+            existing_keys.add(key_pair)
+            added["workouts"] += 1
+        store["workouts"] = store["workouts"][-365:]
+
+    _write_healthkit(store)
+    return {"ok": True, "added": added}
+
+@app.get("/healthkit/latest")
+def healthkit_latest(key=Depends(require_key)):
+    """Returns latest synced summary so the frontend can show
+    "Last HealthKit sync: 2 hours ago" + the most recent weight/active-cal totals."""
+    store = _read_healthkit()
+    last_weight = store["weight_log"][-1] if store["weight_log"] else None
+    last_daily = store["daily"][-1] if store["daily"] else None
+    last_workout = store["workouts"][-1] if store["workouts"] else None
+    return {
+        "last_weight": last_weight,
+        "last_daily": last_daily,
+        "last_workout": last_workout,
+        "weight_count": len(store["weight_log"]),
+        "workout_count": len(store["workouts"]),
+    }

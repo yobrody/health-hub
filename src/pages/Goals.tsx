@@ -3,10 +3,16 @@ import { api } from '../api/client'
 import { showToast } from '../toast'
 import type { WeekStats, Goals, GoalsUpdateInput } from '../api/client'
 import { MEAL_PLAN, DEFAULT_SCHEDULE, PROGRAM } from '../program'
+import {
+  analyzeWeightTrend,
+  loadDirection,
+  saveDirection,
+  suggestCalorieTarget,
+  type Direction,
+  type WeightEntry,
+} from '../lib/calorie-target'
 // suppress unused import warnings for things referenced elsewhere
 void MEAL_PLAN; void DEFAULT_SCHEDULE; void PROGRAM
-
-type WeightEntry = { date: string; kg: number }
 
 function MiniBar({ value, goal, color }: { value: number; goal: number; color: string }) {
   return (
@@ -95,11 +101,34 @@ export default function GoalsPage() {
   })
   const [weightInput, setWeightInput] = useState('')
   const [showWeightInput, setShowWeightInput] = useState(false)
+  const [direction, setDirection] = useState<Direction>(() => loadDirection(localStorage))
 
   useEffect(() => {
     api.getWeekStats().then(s => setStats(s)).catch(() => setStats(null))
     api.getGoals().then(g => setGoals(g.parsed)).catch(() => {})
   }, [])
+
+  // Adaptive-target signal — derived; computed once per render. Only actionable
+  // after ≥14 days of weight logs to avoid yo-yo'ing on a single bad day.
+  const trend = analyzeWeightTrend(weights)
+  const suggestion = suggestCalorieTarget(goals.calories, trend, direction)
+
+  function pickDirection(d: Direction) {
+    setDirection(d)
+    saveDirection(localStorage, d)
+  }
+
+  async function applySuggestion() {
+    if (!suggestion.actionable) return
+    setSaving(true)
+    try {
+      const updated = await api.updateGoals({ calories: suggestion.suggested }) as { ok: boolean; goals: Goals }
+      setGoals(updated.goals)
+      showToast(`Calorie target set to ${suggestion.suggested.toLocaleString()}`)
+    } catch {
+      showToast('Failed to apply suggestion', 'err')
+    } finally { setSaving(false) }
+  }
 
   async function saveGoals() {
     setSaving(true)
@@ -198,6 +227,60 @@ export default function GoalsPage() {
               Tap + Log to start tracking your weight trend
             </div>
           )}
+
+          {/* Direction picker — drives the adaptive-target rule. Persists across sessions. */}
+          <div style={{ marginTop: 14, paddingTop: 14, borderTop: '0.5px solid var(--separator)' }}>
+            <div style={{ fontSize: 12, color: 'var(--label2)', fontWeight: 600, marginBottom: 8, letterSpacing: 0.5, textTransform: 'uppercase' }}>
+              Goal direction
+            </div>
+            <div style={{ display: 'flex', gap: 6 }}>
+              {(['gain', 'maintain', 'lose'] as const).map(d => (
+                <button
+                  key={d}
+                  onClick={() => pickDirection(d)}
+                  style={{
+                    flex: 1,
+                    background: direction === d ? 'var(--blue)' : 'var(--gray6)',
+                    color: direction === d ? '#fff' : 'var(--label2)',
+                    border: 'none', borderRadius: 10, padding: '8px 4px', fontSize: 13, fontWeight: 600, cursor: 'pointer',
+                  }}
+                >{d.charAt(0).toUpperCase() + d.slice(1)}</button>
+              ))}
+            </div>
+
+            {/* Trend summary — always shown when we have any 14-day data, even if not actionable */}
+            {trend && (
+              <div style={{ fontSize: 12, color: 'var(--label3)', marginTop: 10 }}>
+                {trend.reliable
+                  ? `Trend: ${trend.weeklyChangeKg >= 0 ? '+' : ''}${trend.weeklyChangeKg.toFixed(2)} kg/wk over ${trend.days} days`
+                  : `${trend.days} day(s) of data — need ≥14 for reliable trend`}
+              </div>
+            )}
+
+            {/* Adaptive suggestion — actionable card when the trend is in/out of band */}
+            {suggestion.actionable && (
+              <button
+                onClick={applySuggestion}
+                disabled={saving}
+                style={{
+                  width: '100%', marginTop: 10,
+                  background: 'var(--blue)', color: '#fff', border: 'none', borderRadius: 12,
+                  padding: '12px 14px', cursor: 'pointer', textAlign: 'left',
+                  display: 'flex', alignItems: 'center', gap: 10,
+                }}
+              >
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700 }}>
+                    {suggestion.deltaKcal > 0 ? '+' : ''}{suggestion.deltaKcal} kcal → {suggestion.suggested.toLocaleString()}
+                  </div>
+                  <div style={{ fontSize: 11, opacity: 0.85, marginTop: 2 }}>{suggestion.reason}</div>
+                </div>
+                <div style={{ fontSize: 12, fontWeight: 700, background: 'rgba(255,255,255,0.22)', padding: '4px 10px', borderRadius: 12 }}>
+                  Apply
+                </div>
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Nutrition goals */}

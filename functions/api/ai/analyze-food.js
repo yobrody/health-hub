@@ -1,7 +1,20 @@
 /**
  * Cloudflare Pages Function - POST /api/ai/analyze-food
- * Body: { image: base64, mimeType: string, description?: string, fridge?: FridgeData | FridgeItem[] }
- * Returns: { foods: [{name,kcal,protein_g,carbs_g,fat_g}], fridge_matches: [{name,zone,added}], confidence }
+ *
+ * Body: {
+ *   image: base64,
+ *   mimeType: string,
+ *   description?: string,
+ *   mode?: 'home' | 'out',                  // defaults to 'home' if fridge present, else 'out'
+ *   fridge?: FridgeData | FridgeItem[]       // ignored in 'out' mode
+ * }
+ *
+ * Returns: {
+ *   mode: 'home' | 'out',
+ *   foods: [{name, kcal, protein_g, carbs_g, fat_g, grams?}],
+ *   fridge_matches: [{name, zone, added, grams_used?}],   // [] when mode='out'
+ *   confidence: 'high' | 'medium' | 'low'
+ * }
  */
 const CORS = {
   'Content-Type': 'application/json',
@@ -25,27 +38,50 @@ function extractJSON(str) {
   return null
 }
 
-const PROMPT = (desc, fridgeNames) =>
-  `Analyze this food image${desc ? ` (user says: "${desc}")` : ''}.
+const HOME_PROMPT = (desc, fridgeNames) => `Analyze this home-made meal photo${desc ? ` (user says: "${desc}")` : ''}.
 
-Identify ALL distinct food items visible. For each item estimate realistic nutrition for the visible portion size.
+Identify ALL distinct food items visible. Estimate realistic nutrition AND grams for the visible portion of each item.
 
-${fridgeNames.length ? `Fridge contents to cross-reference: ${fridgeNames.join(', ')}` : ''}
+${fridgeNames.length ? `User's fridge/pantry contents: ${fridgeNames.join(', ')}` : 'No fridge inventory provided.'}
+
+For each food on the plate that appears to come from the fridge list, also estimate how many grams of that fridge item were used.
 
 Return ONLY valid JSON, no markdown:
 {
   "foods": [
-    {"name":"Chicken breast","kcal":280,"protein_g":52,"carbs_g":0,"fat_g":6},
-    {"name":"Brown rice","kcal":215,"protein_g":4,"carbs_g":45,"fat_g":2}
+    {"name":"Chicken breast","kcal":280,"protein_g":52,"carbs_g":0,"fat_g":6,"grams":150},
+    {"name":"Brown rice","kcal":215,"protein_g":4,"carbs_g":45,"fat_g":2,"grams":120}
   ],
-  "fridge_matches": ["Chicken breast","Brown rice"],
+  "fridge_matches": [
+    {"name":"chicken breast","grams_used":150},
+    {"name":"brown rice","grams_used":120}
+  ],
   "confidence": "high"
 }
 
 Rules:
-- fridge_matches: only items from the fridge list that clearly match something visible in the photo
+- grams: visible portion weight in grams (raw/cooked, whichever is on the plate)
+- fridge_matches: only items from the fridge list that clearly match something visible. Use the EXACT name from the fridge list.
+- grams_used: estimated raw/dry grams of the fridge item that went into this dish (a 150g cooked chicken portion ≈ 200g raw)
 - confidence: "high" if clearly visible, "medium" if partially visible, "low" if unclear
-- Be realistic about portion sizes
+- If no food visible, return empty foods array and empty fridge_matches`
+
+const OUT_PROMPT = (desc) => `Analyze this restaurant / takeaway / out-and-about food photo${desc ? ` (user says: "${desc}")` : ''}.
+
+This food was NOT made from the user's fridge — they're eating out. Identify ALL distinct food items visible and estimate realistic nutrition + grams for the portion shown.
+
+Return ONLY valid JSON, no markdown:
+{
+  "foods": [
+    {"name":"Chicken katsu curry","kcal":820,"protein_g":42,"carbs_g":86,"fat_g":34,"grams":480}
+  ],
+  "confidence": "high"
+}
+
+Rules:
+- grams: estimated total weight of the dish in grams as served
+- confidence: "high" if clearly visible, "medium" if partially visible, "low" if unclear
+- Be realistic about restaurant portions (often larger than home-cooked)
 - If no food visible, return empty foods array`
 
 export async function onRequestPost(context) {
@@ -56,7 +92,7 @@ export async function onRequestPost(context) {
   try { body = await context.request.json() }
   catch { return json({ error: 'Invalid JSON body' }, 400) }
 
-  const { image, mimeType = 'image/jpeg', description = '', fridge = null } = body
+  const { image, mimeType = 'image/jpeg', description = '', fridge = null, mode } = body
   if (!image) return json({ error: 'No image provided' }, 400)
 
   // Build flat list of fridge items across all zones from FridgeData object
@@ -68,12 +104,19 @@ export async function onRequestPost(context) {
         zoneItems.forEach(it => fridgeItems.push({ ...it, zone }))
       }
     }
-    // Also handle if fridge was passed as a flat array
     if (Array.isArray(fridge)) {
       fridge.forEach(it => fridgeItems.push({ zone: 'fridge', ...it }))
     }
   }
   const fridgeNames = fridgeItems.map(it => it.name)
+
+  // If caller didn't specify mode, infer: fridge present → home, otherwise → out.
+  const effectiveMode = mode === 'home' || mode === 'out'
+    ? mode
+    : (fridgeItems.length > 0 ? 'home' : 'out')
+  const promptText = effectiveMode === 'home'
+    ? HOME_PROMPT(description, fridgeNames)
+    : OUT_PROMPT(description)
 
   try {
     const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
@@ -86,13 +129,13 @@ export async function onRequestPost(context) {
       },
       body: JSON.stringify({
         model: 'google/gemini-2.0-flash-001',
-        max_tokens: 600,
+        max_tokens: 800,
         provider: { order: ['Google'], allow_fallbacks: false },
         messages: [{
           role: 'user',
           content: [
             { type: 'image_url', image_url: { url: `data:${mimeType};base64,${image}` } },
-            { type: 'text', text: PROMPT(description, fridgeNames) },
+            { type: 'text', text: promptText },
           ],
         }],
       }),
@@ -109,22 +152,35 @@ export async function onRequestPost(context) {
     const result = extractJSON(text)
     if (!result) throw new Error('No JSON in response')
 
-    // Resolve fridge_matches names back to full item objects with zone/added
-    const matchNames = Array.isArray(result.fridge_matches) ? result.fridge_matches : []
-    const fridge_matches = fridgeItems.filter(it =>
-      matchNames.some(n =>
-        n.toLowerCase().includes(it.name.toLowerCase()) ||
-        it.name.toLowerCase().includes(n.toLowerCase())
-      )
-    )
+    const foods = Array.isArray(result.foods) ? result.foods : []
+    let fridge_matches = []
+    if (effectiveMode === 'home') {
+      // Resolve match names back to full item objects, attaching grams_used
+      const rawMatches = Array.isArray(result.fridge_matches) ? result.fridge_matches : []
+      fridge_matches = rawMatches
+        .map(m => {
+          // Match can be a string (back-compat) or {name, grams_used}
+          const name = typeof m === 'string' ? m : m?.name
+          const grams_used = typeof m === 'object' && typeof m?.grams_used === 'number' ? m.grams_used : null
+          if (!name) return null
+          const item = fridgeItems.find(it =>
+            it.name.toLowerCase().includes(name.toLowerCase()) ||
+            name.toLowerCase().includes(it.name.toLowerCase())
+          )
+          if (!item) return null
+          return { ...item, grams_used }
+        })
+        .filter(Boolean)
+    }
 
     return json({
-      foods: Array.isArray(result.foods) ? result.foods : [],
+      mode: effectiveMode,
+      foods,
       fridge_matches,
       confidence: result.confidence || 'medium',
     })
   } catch (e) {
     console.error('analyze-food error:', e)
-    return json({ foods: [], fridge_matches: [], confidence: 'low' })
+    return json({ mode: effectiveMode, foods: [], fridge_matches: [], confidence: 'low' })
   }
 }

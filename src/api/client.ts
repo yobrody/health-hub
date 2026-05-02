@@ -84,10 +84,17 @@ export const api = {
 
   // Fridge
   getFridge: () => request<FridgeData>('/fridge'),
-  addFridgeItem: (name: string, section: string, meta?: { size?: string | null; cost?: number | null; store?: string | null }) =>
+  addFridgeItem: (name: string, section: string, meta?: AddFridgeItemMeta) =>
     request('/fridge/item', { method: 'POST', body: JSON.stringify({ name, section, ...meta }) }),
   removeFridgeItem: (name: string) =>
     request(`/fridge/item/${encodeURIComponent(name)}`, { method: 'DELETE' }),
+  // Atomic decrement of a fridge item's remaining grams or count. Used when a
+  // Home meal is logged via camera so the fridge inventory stays current.
+  consumeFridgeItem: (name: string, input: { grams?: number; count?: number }) =>
+    request<{ ok: boolean; name: string; section: string; quantity_g: number | null; quantity_count: number | null }>(
+      `/fridge/item/${encodeURIComponent(name)}/consume`,
+      { method: 'POST', body: JSON.stringify(input) },
+    ),
   scanReceipt: async (file: File): Promise<ScanResult> => {
     const image = await fileToBase64(file)
     const headers = new Headers({ 'Content-Type': 'application/json' })
@@ -104,15 +111,30 @@ export const api = {
   // AI meals
   getMealSuggestions: () => request<{ meals: Meal[] }>('/ai/meals', { method: 'POST' }),
 
-  // Multi-item food photo analysis with fridge cross-ref
-  analyzeFoodV2: async (file: File, fridgeData: FridgeData | null, description = ''): Promise<FoodAnalysisV2> => {
+  // Multi-item food photo analysis. Mode = "home" cross-references the user's
+  // fridge inventory and returns per-item grams_used for depletion. Mode = "out"
+  // skips the fridge entirely — used for restaurant / takeaway / unknown meals.
+  analyzeFoodV2: async (
+    file: File,
+    fridgeData: FridgeData | null,
+    description = '',
+    mode: 'home' | 'out' = 'home',
+  ): Promise<FoodAnalysisV2> => {
     const image = await fileToBase64(file)
     const headers = new Headers({ 'Content-Type': 'application/json' })
     if (KEY) headers.set('X-Health-Key', KEY)
     const res = await fetch(`${BASE}/ai/analyze-food`, {
       method: 'POST',
       headers,
-      body: JSON.stringify({ image, mimeType: file.type || 'image/jpeg', description, fridge: fridgeData }),
+      body: JSON.stringify({
+        image,
+        mimeType: file.type || 'image/jpeg',
+        description,
+        mode,
+        // Only ship the fridge payload when the user opted into home mode —
+        // saves bytes and stops the model getting confused on an out meal.
+        fridge: mode === 'home' ? fridgeData : null,
+      }),
     })
     if (!res.ok) throw new Error(`AI error: ${res.status}`)
     return res.json()
@@ -199,15 +221,32 @@ export const api = {
 }
 
 // ---- Types ----
-export interface ScannedItem { name: string; size: string | null; cost: number | null; section: string }
+export interface AddFridgeItemMeta {
+  size?: string | null
+  cost?: number | null
+  store?: string | null
+  unit_size_g?: number | null
+  quantity_g?: number | null
+  unit_count?: number | null
+  quantity_count?: number | null
+}
+export interface ScannedItem {
+  name: string
+  size: string | null
+  unit_size_g?: number | null
+  unit_count?: number | null
+  cost: number | null
+  section: string
+}
 export interface ScanResult { items?: ScannedItem[]; store?: { name: string; location: string | null } | null; error?: string; raw?: string }
 export interface FoodAnalysis {
   name: string; kcal: number; protein_g: number; carbs_g: number; fat_g: number
   description: string; confidence: 'high' | 'medium' | 'low'
 }
 export interface FoodAnalysisV2 {
-  foods: Array<{ name: string; kcal: number; protein_g: number; carbs_g: number; fat_g: number }>
-  fridge_matches: Array<FridgeItem & { zone: string }>
+  mode?: 'home' | 'out'
+  foods: Array<{ name: string; kcal: number; protein_g: number; carbs_g: number; fat_g: number; grams?: number }>
+  fridge_matches: Array<FridgeItem & { zone: string; grams_used?: number | null }>
   confidence: 'high' | 'medium' | 'low'
 }
 export interface UsageLogInput { item_name: string; zone: string; date_added: string | null }
@@ -228,7 +267,20 @@ export interface Goals { calories: number; protein: number; gym_days: number }
 export interface GoalsResponse { content: string; parsed: Goals }
 export interface GoalsUpdateInput { calories?: number; protein?: number; gym_days?: number; notes?: string }
 export interface FridgeData { fridge: FridgeItem[]; pantry: FridgeItem[]; condiments: FridgeItem[]; freezer: FridgeItem[] }
-export interface FridgeItem { name: string; added: string | null; size?: string | null; cost?: number | null; store?: string | null }
+export interface FridgeItem {
+  name: string
+  added: string | null
+  size?: string | null
+  cost?: number | null
+  store?: string | null
+  // Pack size + remaining quantity used by the photo-log Home flow to decrement
+  // inventory as meals are eaten. Both unit_size_* are set when the item is added
+  // (typically from the receipt scan). quantity_* tracks what's left.
+  unit_size_g?: number | null
+  quantity_g?: number | null
+  unit_count?: number | null
+  quantity_count?: number | null
+}
 export interface Meal { name: string; ingredients: string[]; kcal_estimate: number }
 export interface ExerciseSet { weight_kg?: number; reps?: number; duration_seconds?: number }
 export interface ExerciseData { name: string; sets: ExerciseSet[] }

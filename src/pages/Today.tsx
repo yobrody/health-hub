@@ -4,6 +4,7 @@ import { showToast } from '../toast'
 import type { TodayData, WeekStats, FridgeData } from '../api/client'
 import { PROGRAM, getNextDay } from '../program'
 import type { DayName } from '../program'
+import { loadProducts, lowStockProducts } from '../lib/skincare-products'
 
 function CalorieRing({ current, goal }: { current: number; goal: number }) {
   const r = 54
@@ -206,6 +207,10 @@ export default function Today({ onNavigate, onToggleTheme, themeIcon }: Props) {
       }).slice(0, 3)
   })()
 
+  // Skincare products under 14 days remaining at current pace. Read each render —
+  // products are localStorage-only, no backend round trip, so this is cheap.
+  const lowStockSkincare = lowStockProducts(loadProducts(localStorage)).slice(0, 3)
+
   useEffect(() => {
     if (!data || total < goals.calories * 0.95) return
     const todayKey = new Date().toISOString().slice(0, 10)
@@ -371,6 +376,22 @@ export default function Today({ onNavigate, onToggleTheme, themeIcon }: Props) {
               <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--orange)' }}>Use these soon</div>
               <div style={{ fontSize: 12, color: 'var(--label2)', marginTop: 1 }}>
                 {staleFridgeItems.map(i => i.name).join(' · ')}
+              </div>
+            </div>
+            <span style={{ fontSize: 13, color: 'var(--label3)' }}>❯</span>
+          </button>
+        )}
+
+        {/* Skincare low-stock alert — surfaces products under 14 days remaining
+            so the user can reorder before they actually run out. Tap routes to
+            Skincare where the manager sheet has the per-product Reorder button. */}
+        {lowStockSkincare.length > 0 && (
+          <button onClick={() => onNavigate('skincare')} style={{ width: '100%', background: 'none', border: '1px solid rgba(255,149,0,0.35)', borderRadius: 14, padding: '10px 14px', marginBottom: 12, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 10, textAlign: 'left', WebkitTapHighlightColor: 'transparent' }}>
+            <span style={{ fontSize: 20 }}>📦</span>
+            <div style={{ flex: 1 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--orange)' }}>Skincare running low</div>
+              <div style={{ fontSize: 12, color: 'var(--label2)', marginTop: 1 }}>
+                {lowStockSkincare.map(p => p.name).join(' · ')}
               </div>
             </div>
             <span style={{ fontSize: 13, color: 'var(--label3)' }}>❯</span>
