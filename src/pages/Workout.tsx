@@ -1,9 +1,14 @@
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useMemo, useState, useRef } from 'react'
 import { api } from '../api/client'
 import type { WorkoutData, ExerciseSet } from '../api/client'
 import { showToast } from '../toast'
 import { PROGRAM, ROTATION, getNextDay } from '../program'
 import type { DayName, ProgramDay } from '../program'
+import {
+  isProperlyEating,
+  predictNextWeight,
+  type DailyTotals,
+} from '../lib/workout-progression'
 
 interface LiveSet extends ExerciseSet { done: boolean }
 interface LiveExercise {
@@ -222,12 +227,44 @@ export default function Workout() {
   const [showExSearch, setShowExSearch] = useState(false)
   const [finishing, setFinishing] = useState(false)
   const [selectedDay, setSelectedDay] = useState<DayName | null>(null)
+  // properlyEating gates the progressive-overload bump. Computed from the most
+  // recent fully-logged day's calories + protein vs the user's goals.
+  const [properlyEating, setProperlyEating] = useState(false)
   const searchTimeout = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
   useEffect(() => {
     api.getWorkouts(20).then(setWorkouts)
     api.getPRs().then(setPRs)
+    // Fetch nutrition signal for the predicted-weight rule. Failure is silent —
+    // we just default to "not properly eating" and weight bumps are suppressed,
+    // which is the safer fallback than over-predicting on missing data.
+    Promise.all([api.getFoodHistory(7), api.getGoals()])
+      .then(([history, goalsResp]) => {
+        const totals: DailyTotals[] = (history ?? []).map(d => ({
+          date: d.date,
+          total_kcal: d.total_kcal,
+          // Note: HistoryDay doesn't currently expose protein totals — when the
+          // backend adds it, isProperlyEating will start gating on protein too.
+          total_protein_g: undefined,
+          logged: d.logged,
+        }))
+        setProperlyEating(isProperlyEating(totals, goalsResp.parsed))
+      })
+      .catch(() => setProperlyEating(false))
   }, [])
+
+  // Last-session sets per exercise — the "did all reps hit?" signal for predictNextWeight.
+  // Walks the workouts list newest-first and records the first occurrence of each exercise.
+  const lastSetsByExercise = useMemo(() => {
+    const map: Record<string, ExerciseSet[]> = {}
+    const newestFirst = [...workouts].sort((a, b) => b.start_time.localeCompare(a.start_time))
+    for (const w of newestFirst) {
+      for (const ex of w.exercises) {
+        if (!(ex.name in map)) map[ex.name] = ex.sets
+      }
+    }
+    return map
+  }, [workouts])
 
   useEffect(() => {
     if (!exSearch) {
@@ -254,9 +291,16 @@ export default function Workout() {
     if (day) {
       const exercises: LiveExercise[] = day.exercises.map(ex => {
         const pr = prs[ex.name]
+        const prevSets = lastSetsByExercise[ex.name]
+        const predicted = predictNextWeight({
+          prevBest: pr ? { weight_kg: pr.weight_kg, reps: pr.reps } : null,
+          prevSets,
+          repRange: ex.repRange,
+          properlyEating,
+        })
         const sets: LiveSet[] = Array.from({ length: ex.sets }, () => ({
-          weight_kg: pr?.weight_kg,
-          reps: pr?.reps,
+          weight_kg: predicted.weight_kg,
+          reps: predicted.reps,
           done: false,
         }))
         return { name: ex.name, sets, prevBest: pr, repRange: ex.repRange, rir: ex.rir, restSeconds: ex.restSeconds, notes: ex.notes }
@@ -272,10 +316,17 @@ export default function Workout() {
   function addExercise(name: string) {
     if (!live) return
     const pr = prs[name]
+    const prevSets = lastSetsByExercise[name]
+    const predicted = predictNextWeight({
+      prevBest: pr ? { weight_kg: pr.weight_kg, reps: pr.reps } : null,
+      prevSets,
+      // Custom-added exercises don't carry program rep range — predictor falls back to baseline.
+      properlyEating,
+    })
     const defaultSets: LiveSet[] = [
-      { weight_kg: pr?.weight_kg, reps: pr?.reps, done: false },
-      { weight_kg: pr?.weight_kg, reps: pr?.reps, done: false },
-      { weight_kg: pr?.weight_kg, reps: pr?.reps, done: false },
+      { weight_kg: predicted.weight_kg, reps: predicted.reps, done: false },
+      { weight_kg: predicted.weight_kg, reps: predicted.reps, done: false },
+      { weight_kg: predicted.weight_kg, reps: predicted.reps, done: false },
     ]
     setLive(w => w ? { ...w, exercises: [...w.exercises, { name, sets: defaultSets, prevBest: pr }] } : w)
     setExSearch('')
@@ -317,6 +368,19 @@ export default function Workout() {
       exercises[exIdx] = { ...exercises[exIdx], sets: [...exercises[exIdx].sets, { weight_kg: lastSet?.weight_kg, reps: lastSet?.reps, done: false }] }
       return { ...w, exercises }
     })
+  }
+
+  function moveExercise(exIdx: number, direction: -1 | 1) {
+    setLive(w => {
+      if (!w) return w
+      const target = exIdx + direction
+      if (target < 0 || target >= w.exercises.length) return w
+      const next = [...w.exercises]
+      const [item] = next.splice(exIdx, 1)
+      next.splice(target, 0, item)
+      return { ...w, exercises: next }
+    })
+    if (navigator.vibrate) navigator.vibrate(8)
   }
 
   async function finishWorkout() {
@@ -371,6 +435,14 @@ export default function Workout() {
                 style={{ background: 'rgba(255,255,255,0.25)', border: 'none', borderRadius: 20, padding: '8px 16px', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer', opacity: (finishing || live.exercises.length === 0) ? 0.5 : 1 }}
               >{finishing ? '…' : 'Finish'}</button>
             </div>
+            {/* Eating-status badge — tells the user whether the predicted-weight rule
+                is bumping or holding today. Quiet when it's holding (red would feel
+                punishing); celebratory when it's bumping. */}
+            <div style={{ marginTop: 10, fontSize: 12, fontWeight: 600, opacity: 0.95 }}>
+              {properlyEating
+                ? '🟢 Fueled — progressive overload active'
+                : '🟡 Holding weight — eat your protein for the next bump'}
+            </div>
           </div>
 
           {/* Exercises */}
@@ -383,8 +455,8 @@ export default function Workout() {
             return (
               <div key={exIdx} className="card" style={{ marginBottom: 12, padding: '0 16px' }}>
                 <div style={{ padding: '14px 0 10px', borderBottom: '0.5px solid var(--separator)' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                    <div style={{ flex: 1 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: 17, fontWeight: 700 }}>{ex.name}</div>
                       {/* Program targets */}
                       {ex.repRange && (
@@ -396,7 +468,39 @@ export default function Workout() {
                       {exPR && <div style={{ fontSize: 12, color: 'var(--label2)', marginTop: 2 }}>Best: {exPR.weight_kg}kg × {exPR.reps}</div>}
                       {hint && <div style={{ fontSize: 12, color: 'var(--green)', marginTop: 2, fontWeight: 600 }}>{hint}</div>}
                     </div>
-                    {hasNewPR && <span className="badge badge-gold">🏆 PR!</span>}
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'flex-end' }}>
+                      {hasNewPR && <span className="badge badge-gold">🏆 PR!</span>}
+                      {/* Reorder controls — mobile-bulletproof tap targets. Hidden when there's
+                          only one exercise so the card stays clean. */}
+                      {live.exercises.length > 1 && (
+                        <div style={{ display: 'flex', gap: 4 }}>
+                          <button
+                            onClick={() => moveExercise(exIdx, -1)}
+                            disabled={exIdx === 0}
+                            aria-label="Move up"
+                            style={{
+                              width: 32, height: 32, borderRadius: 8, border: 'none',
+                              background: 'var(--gray6)', color: exIdx === 0 ? 'var(--label3)' : 'var(--label)',
+                              cursor: exIdx === 0 ? 'default' : 'pointer', fontSize: 16, fontWeight: 700,
+                              display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            }}
+                          >↑</button>
+                          <button
+                            onClick={() => moveExercise(exIdx, 1)}
+                            disabled={exIdx === live.exercises.length - 1}
+                            aria-label="Move down"
+                            style={{
+                              width: 32, height: 32, borderRadius: 8, border: 'none',
+                              background: 'var(--gray6)',
+                              color: exIdx === live.exercises.length - 1 ? 'var(--label3)' : 'var(--label)',
+                              cursor: exIdx === live.exercises.length - 1 ? 'default' : 'pointer',
+                              fontSize: 16, fontWeight: 700,
+                              display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            }}
+                          >↓</button>
+                        </div>
+                      )}
+                    </div>
                   </div>
                 </div>
 
