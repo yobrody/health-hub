@@ -55,43 +55,19 @@ function publishCoachFeed(live: LiveWorkout) {
   try { localStorage.setItem('coach_feed', JSON.stringify(payload)) } catch { /* ignore quota errors */ }
 }
 
-// Exercise icon + gradient — keeps the active card visual without adding image
-// assets. Matches by substring against the exercise name; falls back to a
-// barbell. Add new entries here as your program adds new movements.
-function getExerciseEmoji(name: string): string {
+// Subtle muscle-group accent. One desaturated colour per group, no rainbow
+// gradients. Used as a thin top-stripe on the active card, not as a full
+// background — the gym view should feel calm, not a workout app from 2014.
+function getExerciseAccent(name: string): string {
   const n = name.toLowerCase()
-  if (n.includes('bench') || n.includes('press') && n.includes('chest')) return '🏋️'
-  if (n.includes('squat') || n.includes('leg press')) return '🦵'
-  if (n.includes('deadlift') || n.includes('rdl')) return '🔱'
-  if (n.includes('overhead') || n.includes('shoulder press') || n.includes('ohp')) return '💪'
-  if (n.includes('pull') && (n.includes('up') || n.includes('-up'))) return '🤸'
-  if (n.includes('row') || n.includes('lat pulldown')) return '🚣'
-  if (n.includes('curl') || n.includes('bicep')) return '💪'
-  if (n.includes('tricep') || n.includes('pushdown') || n.includes('dip')) return '✋'
-  if (n.includes('press')) return '🏋️'
-  if (n.includes('run') || n.includes('cardio') || n.includes('cycle')) return '🏃'
-  if (n.includes('core') || n.includes('abs') || n.includes('plank')) return '🔥'
-  return '🏋️'
-}
-
-function getExerciseGradient(name: string): string {
-  const n = name.toLowerCase()
-  if (n.includes('squat') || n.includes('leg') || n.includes('deadlift')) {
-    return 'linear-gradient(135deg, #34C759 0%, #30B0C7 100%)' // green → teal: legs
-  }
-  if (n.includes('bench') || n.includes('press') || n.includes('chest')) {
-    return 'linear-gradient(135deg, #FF3B30 0%, #FF9500 100%)' // red → orange: push
-  }
-  if (n.includes('pull') || n.includes('row') || n.includes('lat')) {
-    return 'linear-gradient(135deg, #5856D6 0%, #AF52DE 100%)' // indigo → purple: pull
-  }
-  if (n.includes('curl') || n.includes('tricep') || n.includes('bicep')) {
-    return 'linear-gradient(135deg, #FF9500 0%, #FFCC00 100%)' // orange → yellow: arms
-  }
-  if (n.includes('run') || n.includes('cardio') || n.includes('cycle')) {
-    return 'linear-gradient(135deg, #007AFF 0%, #5AC8FA 100%)' // blue: cardio
-  }
-  return 'linear-gradient(135deg, #007AFF 0%, #AF52DE 100%)'
+  if (n.includes('squat') || n.includes('leg') || n.includes('deadlift') || n.includes('rdl')) return '#5B7C99' // legs — slate blue
+  if (n.includes('bench') || n.includes('chest') || (n.includes('press') && !n.includes('overhead') && !n.includes('shoulder') && !n.includes('leg'))) return '#8C5A5A' // push — muted brick
+  if (n.includes('overhead') || n.includes('shoulder') || n.includes('ohp')) return '#7A6E8A' // shoulders — muted plum
+  if (n.includes('pull') || n.includes('row') || n.includes('lat')) return '#5C7A6F' // pull — sage
+  if (n.includes('curl') || n.includes('tricep') || n.includes('bicep') || n.includes('pushdown')) return '#8A7A55' // arms — bronze
+  if (n.includes('run') || n.includes('cardio') || n.includes('cycle')) return '#5A7A8A' // cardio — steel
+  if (n.includes('core') || n.includes('abs') || n.includes('plank')) return '#7A5A6E' // core — dusty rose
+  return '#5E6877' // neutral graphite
 }
 
 // Wger exercise search
@@ -147,11 +123,11 @@ function RestTimerInline({ seconds, onComplete }: { seconds: number; onComplete:
   const pct = Math.max(0, remaining / seconds)
   return (
     <div>
-      <div style={{ fontSize: 72, fontWeight: 800, letterSpacing: '-2px', fontVariantNumeric: 'tabular-nums', lineHeight: 1.05 }}>
+      <div style={{ fontSize: 64, fontWeight: 700, letterSpacing: '-2px', fontVariantNumeric: 'tabular-nums', lineHeight: 1.05, color: 'var(--label)' }}>
         {mins}:{secs}
       </div>
-      <div style={{ height: 6, background: 'rgba(255,255,255,0.25)', borderRadius: 3, overflow: 'hidden', maxWidth: 240, margin: '14px auto 0' }}>
-        <div style={{ height: '100%', width: `${pct * 100}%`, background: 'rgba(255,255,255,0.95)', borderRadius: 3, transition: 'width 1s linear' }} />
+      <div style={{ height: 4, background: 'var(--gray5)', borderRadius: 2, overflow: 'hidden', maxWidth: 220, margin: '12px auto 0' }}>
+        <div style={{ height: '100%', width: `${pct * 100}%`, background: 'var(--blue)', borderRadius: 2, transition: 'width 1s linear' }} />
       </div>
     </div>
   )
@@ -167,12 +143,11 @@ function RestTimerInline({ seconds, onComplete }: { seconds: number; onComplete:
  *   - Swipe left across the card (gym-friendly when hands are full)
  */
 function ActiveSetCard({
-  gradient, emoji, exerciseName, setNumber, totalSets,
+  accent, exerciseName, setNumber, totalSets,
   weight, reps, isDone,
   onWeight, onReps, onSubmit, onSwipe, repsInputRef,
 }: {
-  gradient: string
-  emoji: string
+  accent: string
   exerciseName: string
   setNumber: number
   totalSets: number
@@ -218,62 +193,60 @@ function ActiveSetCard({
         swipeStartX.current = null; swipeStartY.current = null
       }}
       style={{
-        background: gradient,
-        borderRadius: 24,
-        padding: '28px 22px 24px',
+        background: 'var(--card)',
+        borderRadius: 22,
+        padding: '0',
         marginTop: 8,
-        color: '#fff',
-        boxShadow: '0 12px 36px rgba(0,0,0,0.18)',
+        color: 'var(--label)',
+        boxShadow: '0 4px 18px rgba(0,0,0,0.06), 0 0 0 1px var(--separator)',
         position: 'relative',
         overflow: 'hidden',
       }}
     >
-      {/* Hero — emoji + name + set N of M */}
-      <div style={{ textAlign: 'center', marginBottom: 22 }}>
-        <div style={{
-          fontSize: 56, lineHeight: 1, marginBottom: 10,
-          filter: 'drop-shadow(0 4px 14px rgba(0,0,0,0.22))',
-        }}>{emoji}</div>
-        <div style={{ fontSize: 24, fontWeight: 800, letterSpacing: '-0.5px', textShadow: '0 1px 2px rgba(0,0,0,0.15)' }}>
+      {/* Subtle accent strip — the only colour cue. Replaces the previous
+          full-card vivid gradient. */}
+      <div style={{ height: 4, background: accent, opacity: 0.85 }} />
+      <div style={{ padding: '22px 22px 20px' }}>
+      {/* Header — exercise name + set marker. No emoji. */}
+      <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginBottom: 22, gap: 12 }}>
+        <div style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.4px', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {exerciseName}
         </div>
-        <div style={{ fontSize: 13, fontWeight: 600, opacity: 0.92, marginTop: 4, letterSpacing: 0.5 }}>
-          SET {setNumber} / {totalSets}
+        <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--label2)', letterSpacing: 0.7, flexShrink: 0 }}>
+          {setNumber} / {totalSets}
         </div>
       </div>
 
-      {/* Weight pill — tap to expand +/- controls. Default shows the predicted
-          value; user only interacts when they want to change. */}
+      {/* Weight pill — tap to expand +/- controls. Calm chips, no glass blur. */}
       <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 18 }}>
         {!showWeightEdit ? (
           <button
             onClick={() => setShowWeightEdit(true)}
             style={{
-              background: 'rgba(255,255,255,0.18)', border: 'none', borderRadius: 22,
-              color: '#fff', padding: '10px 18px', fontSize: 16, fontWeight: 700,
-              cursor: 'pointer', backdropFilter: 'blur(8px)',
-              WebkitBackdropFilter: 'blur(8px)',
+              background: 'var(--gray6)', border: '1px solid var(--separator)', borderRadius: 22,
+              color: 'var(--label)', padding: '9px 18px', fontSize: 15, fontWeight: 600,
+              cursor: 'pointer',
             }}
           >{weight !== undefined ? `${weight}kg` : 'Set weight'} ▾</button>
         ) : (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'rgba(255,255,255,0.95)', borderRadius: 22, padding: '4px 6px' }}>
-            <button onClick={() => bumpWeight(-2.5)} style={{ background: 'none', border: 'none', fontSize: 18, fontWeight: 700, cursor: 'pointer', color: 'var(--label)', width: 36, height: 36, borderRadius: 18 }}>−2.5</button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'var(--gray6)', border: '1px solid var(--separator)', borderRadius: 22, padding: '4px 6px' }}>
+            <button onClick={() => bumpWeight(-2.5)} style={{ background: 'none', border: 'none', fontSize: 16, fontWeight: 600, cursor: 'pointer', color: 'var(--label)', width: 40, height: 32, borderRadius: 16 }} aria-label="Subtract 2.5kg">−2.5</button>
             <input
               type="number" inputMode="decimal"
               value={weight ?? ''}
               onChange={e => { const v = e.target.value; onWeight(v === '' ? undefined : parseFloat(v)) }}
-              style={{ width: 80, background: 'none', border: 'none', outline: 'none', fontSize: 20, fontWeight: 800, textAlign: 'center', color: 'var(--label)' }}
+              style={{ width: 70, background: 'var(--card)', border: '1px solid var(--separator)', borderRadius: 14, outline: 'none', fontSize: 18, fontWeight: 700, textAlign: 'center', color: 'var(--label)', height: 32 }}
               placeholder="kg"
             />
-            <button onClick={() => bumpWeight(2.5)} style={{ background: 'none', border: 'none', fontSize: 18, fontWeight: 700, cursor: 'pointer', color: 'var(--label)', width: 36, height: 36, borderRadius: 18 }}>+2.5</button>
-            <button onClick={() => setShowWeightEdit(false)} style={{ background: 'var(--blue)', color: '#fff', border: 'none', borderRadius: 18, padding: '6px 12px', fontSize: 13, fontWeight: 700, marginLeft: 4, cursor: 'pointer' }}>Done</button>
+            <button onClick={() => bumpWeight(2.5)} style={{ background: 'none', border: 'none', fontSize: 16, fontWeight: 600, cursor: 'pointer', color: 'var(--label)', width: 40, height: 32, borderRadius: 16 }} aria-label="Add 2.5kg">+2.5</button>
+            <button onClick={() => setShowWeightEdit(false)} style={{ background: 'var(--blue)', color: '#fff', border: 'none', borderRadius: 16, padding: '6px 12px', fontSize: 13, fontWeight: 600, marginLeft: 2, cursor: 'pointer', height: 32 }}>Done</button>
           </div>
         )}
       </div>
 
-      {/* The one input the user actually fills in */}
-      <div style={{ background: 'rgba(255,255,255,0.95)', borderRadius: 18, padding: '18px 16px 20px', marginBottom: 16 }}>
-        <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--label3)', textAlign: 'center', letterSpacing: 1.5, marginBottom: 4 }}>REPS</div>
+      {/* The one input the user actually fills in. Big numerals, on-card. */}
+      <div style={{ background: 'var(--gray6)', borderRadius: 16, padding: '16px 14px 18px', marginBottom: 14 }}>
+        <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--label2)', textAlign: 'center', letterSpacing: 1.5, marginBottom: 2 }}>REPS</div>
         <input
           ref={repsInputRef}
           type="number" inputMode="numeric"
@@ -294,28 +267,124 @@ function ActiveSetCard({
       {/* Big submit. Disabled until reps > 0; isDone path shows a green confirm. */}
       {isDone ? (
         <div style={{
-          background: 'rgba(255,255,255,0.95)', color: 'var(--green)',
-          borderRadius: 18, padding: '16px', textAlign: 'center', fontSize: 16, fontWeight: 800,
-        }}>✓ Logged · resting next</div>
+          background: 'rgba(52,199,89,0.12)', color: 'var(--green)',
+          borderRadius: 16, padding: '14px', textAlign: 'center', fontSize: 15, fontWeight: 700,
+        }}>Logged · rest now</div>
       ) : (
         <button
           onClick={onSubmit}
           disabled={!reps || reps <= 0}
           style={{
             width: '100%',
-            background: 'rgba(255,255,255,0.95)',
-            color: !reps || reps <= 0 ? 'rgba(0,0,0,0.3)' : 'var(--label)',
-            border: 'none', borderRadius: 18,
-            padding: '18px',
-            fontSize: 17, fontWeight: 800, letterSpacing: 0.3,
+            background: !reps || reps <= 0 ? 'var(--gray5)' : 'var(--blue)',
+            color: !reps || reps <= 0 ? 'var(--label3)' : '#fff',
+            border: 'none', borderRadius: 14,
+            padding: '15px',
+            fontSize: 16, fontWeight: 700, letterSpacing: 0.2,
             cursor: !reps || reps <= 0 ? 'default' : 'pointer',
-            transition: 'opacity 0.2s',
+            transition: 'background 0.15s',
           }}
-        >Log set →</button>
+        >Log set</button>
       )}
+      </div>
+    </div>
+  )
+}
 
-      <div style={{ marginTop: 10, fontSize: 11, textAlign: 'center', opacity: 0.75, fontWeight: 500 }}>
-        Tip: swipe left to log
+// 8-week consistency calendar. Cells = days, blue if a workout fell on that day.
+// Most-recent week is on the right; days are M T W T F S S top-to-bottom on each
+// column. Tap a cell to see what was done.
+function ConsistencyCalendar({ workouts }: { workouts: WorkoutData[] }) {
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const weeks = 8
+  // Map ISO date → workout, newest wins on duplicates
+  const byDate = new Map<string, WorkoutData>()
+  for (const w of workouts) {
+    const k = w.start_time.slice(0, 10)
+    byDate.set(k, w)
+  }
+
+  // Build columns oldest → newest. Each column is a week starting Monday.
+  const dayOfWeek = (today.getDay() + 6) % 7 // 0 = Mon
+  const startOfThisWeek = new Date(today)
+  startOfThisWeek.setDate(today.getDate() - dayOfWeek)
+
+  const cols: { date: Date; iso: string; workout?: WorkoutData; future: boolean }[][] = []
+  for (let w = weeks - 1; w >= 0; w--) {
+    const monday = new Date(startOfThisWeek)
+    monday.setDate(startOfThisWeek.getDate() - 7 * w)
+    const col: typeof cols[number] = []
+    for (let d = 0; d < 7; d++) {
+      const date = new Date(monday)
+      date.setDate(monday.getDate() + d)
+      const iso = date.toISOString().slice(0, 10)
+      col.push({ date, iso, workout: byDate.get(iso), future: date > today })
+    }
+    cols.push(col)
+  }
+
+  const totalSessions = workouts.filter(w => {
+    const d = new Date(w.start_time)
+    const cutoff = new Date(today); cutoff.setDate(today.getDate() - weeks * 7)
+    return d >= cutoff
+  }).length
+
+  // Current streak — consecutive weeks with ≥1 workout, walking back from this week.
+  let streak = 0
+  for (let w = 0; w < weeks; w++) {
+    const monday = new Date(startOfThisWeek)
+    monday.setDate(startOfThisWeek.getDate() - 7 * w)
+    const sunday = new Date(monday); sunday.setDate(monday.getDate() + 6)
+    const has = workouts.some(wk => {
+      const d = new Date(wk.start_time)
+      return d >= monday && d <= sunday
+    })
+    if (has) streak++
+    else if (w > 0) break
+    else break // current week empty → streak 0
+  }
+
+  return (
+    <div style={{ marginBottom: 16 }}>
+      <div className="section-label" style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', marginTop: 8 }}>
+        <span>Consistency</span>
+        <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--label2)', textTransform: 'none', letterSpacing: 0 }}>
+          {totalSessions} session{totalSessions === 1 ? '' : 's'} · last {weeks} weeks{streak > 0 && ` · ${streak}wk streak`}
+        </span>
+      </div>
+      <div className="card" style={{ padding: '14px 12px' }}>
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+          {/* Day-of-week labels */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 3, fontSize: 9, color: 'var(--label3)', fontWeight: 600 }}>
+            {['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((d, i) => (
+              <div key={i} style={{ height: 13, display: 'flex', alignItems: 'center' }}>{d}</div>
+            ))}
+          </div>
+          {/* Week columns */}
+          <div style={{ flex: 1, display: 'flex', gap: 3, justifyContent: 'space-between' }}>
+            {cols.map((col, ci) => (
+              <div key={ci} style={{ display: 'flex', flexDirection: 'column', gap: 3, flex: 1 }}>
+                {col.map(cell => (
+                  <div
+                    key={cell.iso}
+                    title={cell.workout ? `${cell.workout.title} on ${cell.iso}` : cell.iso}
+                    style={{
+                      height: 13, borderRadius: 3,
+                      background: cell.future
+                        ? 'transparent'
+                        : cell.workout
+                          ? 'var(--blue)'
+                          : 'var(--gray5)',
+                      opacity: cell.future ? 0.3 : 1,
+                      border: cell.iso === today.toISOString().slice(0, 10) ? '1.5px solid var(--blue)' : 'none',
+                    }}
+                  />
+                ))}
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
     </div>
   )
@@ -659,10 +728,7 @@ export default function Workout() {
       <div
         className="page"
         style={{
-          background: phase === 'active' && focusEx
-            ? `radial-gradient(circle at top, ${getExerciseGradient(focusEx.name)} 0%, transparent 60%), var(--bg)`
-            : 'var(--bg)',
-          transition: 'background 0.5s',
+          background: 'var(--bg)',
         }}
       >
         <div className="page-content" style={{ paddingTop: 8 }}>
@@ -700,31 +766,48 @@ export default function Workout() {
           {/* ── ACTIVE: hero card with exercise visual + reps focus ── */}
           {phase === 'active' && focusEx && focusSet && (() => {
             const isThisSetDone = focusSet.done
-            const gradient = getExerciseGradient(focusEx.name)
-            const emoji = getExerciseEmoji(focusEx.name)
+            const accent = getExerciseAccent(focusEx.name)
             const handleSwipe = (dx: number) => {
               if (dx < -80 && !isThisSetDone && (focusSet.reps ?? 0) > 0) {
-                // Swipe left = log set (gym-friendly: thumb swipe across screen)
                 submitCurrentSet()
               }
             }
             return (
-              <ActiveSetCard
-                key={`${focusExIdx}-${focusSetIdx}`}
-                gradient={gradient}
-                emoji={emoji}
-                exerciseName={focusEx.name}
-                setNumber={focusSetIdx + 1}
-                totalSets={focusEx.sets.length}
-                weight={focusSet.weight_kg}
-                reps={focusSet.reps}
-                isDone={isThisSetDone}
-                onWeight={(v) => updateSet(focusExIdx, focusSetIdx, 'weight_kg', v)}
-                onReps={(v) => updateSet(focusExIdx, focusSetIdx, 'reps', v)}
-                onSubmit={submitCurrentSet}
-                onSwipe={handleSwipe}
-                repsInputRef={repsInputRef}
-              />
+              <>
+                <ActiveSetCard
+                  key={`${focusExIdx}-${focusSetIdx}`}
+                  accent={accent}
+                  exerciseName={focusEx.name}
+                  setNumber={focusSetIdx + 1}
+                  totalSets={focusEx.sets.length}
+                  weight={focusSet.weight_kg}
+                  reps={focusSet.reps}
+                  isDone={isThisSetDone}
+                  onWeight={(v) => updateSet(focusExIdx, focusSetIdx, 'weight_kg', v)}
+                  onReps={(v) => updateSet(focusExIdx, focusSetIdx, 'reps', v)}
+                  onSubmit={submitCurrentSet}
+                  onSwipe={handleSwipe}
+                  repsInputRef={repsInputRef}
+                />
+                {/* Programme guidance — moved out of the active card so the card
+                    stays focused on the inputs. Only shown when the program
+                    actually carries guidance for this exercise. */}
+                {(focusEx.repRange || focusEx.rir || focusEx.prevBest) && (
+                  <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap', fontSize: 12, color: 'var(--label2)' }}>
+                    {focusEx.repRange && (
+                      <span style={{ background: 'var(--card)', borderRadius: 8, padding: '5px 10px', fontWeight: 600 }}>Target {focusEx.repRange}</span>
+                    )}
+                    {focusEx.rir && (
+                      <span style={{ background: 'var(--card)', borderRadius: 8, padding: '5px 10px', fontWeight: 600 }}>{focusEx.rir} RIR</span>
+                    )}
+                    {focusEx.prevBest && (
+                      <span style={{ background: 'var(--card)', borderRadius: 8, padding: '5px 10px', fontWeight: 600 }}>
+                        Best {focusEx.prevBest.weight_kg}kg × {focusEx.prevBest.reps}
+                      </span>
+                    )}
+                  </div>
+                )}
+              </>
             )
           })()}
 
@@ -737,35 +820,38 @@ export default function Workout() {
             const previewBase = describeNext(liveNonNull.exercises, { exerciseIdx: fromExIdx, setIdx: fromSetIdx })
             return (
               <div style={{
-                background: focusEx ? `linear-gradient(135deg, ${getExerciseGradient(focusEx.name)})` : 'var(--blue)',
+                background: 'var(--card)',
                 borderRadius: 22,
-                padding: '36px 24px 28px',
+                padding: '0',
                 marginTop: 8,
-                color: '#fff',
                 textAlign: 'center',
-                boxShadow: '0 8px 30px rgba(0,0,0,0.12)',
+                boxShadow: '0 4px 18px rgba(0,0,0,0.06), 0 0 0 1px var(--separator)',
+                overflow: 'hidden',
               }}>
-                <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1.5, textTransform: 'uppercase', opacity: 0.85, marginBottom: 10 }}>Rest</div>
-                <RestTimerInline
-                  key={`rest-${focusExIdx}-${focusSetIdx}-${restTimer?.seconds ?? 90}`}
-                  seconds={restTimer?.seconds ?? focusEx?.restSeconds ?? 90}
-                  onComplete={endRest}
-                />
-                <div style={{ marginTop: 14, fontSize: 15, opacity: 0.95 }}>
-                  {previewBase.kind === 'next-set' && (
-                    <>Next: <strong>Set {previewBase.setNumber} of {previewBase.exerciseName}</strong></>
-                  )}
-                  {previewBase.kind === 'next-exercise' && (
-                    <>Next exercise: <strong>{previewBase.exerciseName}</strong> · Set 1 of {previewBase.totalSets}</>
-                  )}
-                  {previewBase.kind === 'workout-complete' && (
-                    <strong>Workout complete</strong>
-                  )}
+                <div style={{ height: 4, background: focusEx ? getExerciseAccent(focusEx.name) : 'var(--gray3)', opacity: 0.85 }} />
+                <div style={{ padding: '32px 22px 24px' }}>
+                  <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 1.5, textTransform: 'uppercase', color: 'var(--label2)', marginBottom: 10 }}>Rest</div>
+                  <RestTimerInline
+                    key={`rest-${focusExIdx}-${focusSetIdx}-${restTimer?.seconds ?? 90}`}
+                    seconds={restTimer?.seconds ?? focusEx?.restSeconds ?? 90}
+                    onComplete={endRest}
+                  />
+                  <div style={{ marginTop: 14, fontSize: 14, color: 'var(--label2)' }}>
+                    {previewBase.kind === 'next-set' && (
+                      <>Next: <strong style={{ color: 'var(--label)' }}>Set {previewBase.setNumber} of {previewBase.exerciseName}</strong></>
+                    )}
+                    {previewBase.kind === 'next-exercise' && (
+                      <>Up next: <strong style={{ color: 'var(--label)' }}>{previewBase.exerciseName}</strong> · Set 1 of {previewBase.totalSets}</>
+                    )}
+                    {previewBase.kind === 'workout-complete' && (
+                      <strong style={{ color: 'var(--label)' }}>Workout complete</strong>
+                    )}
+                  </div>
+                  <button
+                    onClick={endRest}
+                    style={{ marginTop: 18, background: 'var(--blue)', color: '#fff', border: 'none', borderRadius: 14, padding: '12px 28px', fontSize: 15, fontWeight: 600, cursor: 'pointer', minWidth: 160 }}
+                  >Skip rest</button>
                 </div>
-                <button
-                  onClick={endRest}
-                  style={{ marginTop: 22, background: 'rgba(255,255,255,0.95)', color: 'var(--label)', border: 'none', borderRadius: 16, padding: '14px 32px', fontSize: 16, fontWeight: 700, cursor: 'pointer', minWidth: 180 }}
-                >Skip rest →</button>
               </div>
             )
           })()}
@@ -773,36 +859,37 @@ export default function Workout() {
           {/* ── DONE ── */}
           {phase === 'done' && (
             <div style={{
-              background: 'linear-gradient(135deg, #34C759 0%, #5AC8FA 100%)',
+              background: 'var(--card)',
               borderRadius: 22,
-              padding: '40px 24px',
+              padding: '0',
               marginTop: 8,
-              color: '#fff',
               textAlign: 'center',
-              boxShadow: '0 8px 30px rgba(0,0,0,0.12)',
+              boxShadow: '0 4px 18px rgba(0,0,0,0.06), 0 0 0 1px var(--separator)',
+              overflow: 'hidden',
             }}>
-              <div style={{ fontSize: 64, marginBottom: 10 }}>🎉</div>
-              <div style={{ fontSize: 24, fontWeight: 800, marginBottom: 6 }}>Workout complete</div>
-              <div style={{ fontSize: 14, opacity: 0.9 }}>
-                {totalDone}/{totalCount} sets · <ElapsedTimer startTime={liveNonNull.startTime} />
+              <div style={{ height: 4, background: 'var(--green)', opacity: 0.85 }} />
+              <div style={{ padding: '36px 24px 28px' }}>
+                <div style={{ fontSize: 22, fontWeight: 700, marginBottom: 6, letterSpacing: '-0.4px' }}>Workout complete</div>
+                <div style={{ fontSize: 13, color: 'var(--label2)' }}>
+                  {totalDone}/{totalCount} sets · <ElapsedTimer startTime={liveNonNull.startTime} />
+                </div>
+                <button
+                  onClick={finishWorkout}
+                  disabled={finishing}
+                  style={{ marginTop: 22, background: 'var(--blue)', color: '#fff', border: 'none', borderRadius: 14, padding: '13px 32px', fontSize: 15, fontWeight: 600, cursor: 'pointer', minWidth: 200, opacity: finishing ? 0.5 : 1 }}
+                >{finishing ? 'Saving…' : 'Save workout'}</button>
               </div>
-              <button
-                onClick={finishWorkout}
-                disabled={finishing}
-                style={{ marginTop: 24, background: 'rgba(255,255,255,0.95)', color: 'var(--label)', border: 'none', borderRadius: 16, padding: '14px 32px', fontSize: 16, fontWeight: 700, cursor: 'pointer', minWidth: 220, opacity: finishing ? 0.5 : 1 }}
-              >{finishing ? 'Saving…' : 'Save workout'}</button>
             </div>
           )}
 
           {/* ── EMPTY workout fallback ── */}
           {liveNonNull.exercises.length === 0 && (
-            <div style={{ padding: '40px 20px', textAlign: 'center' }}>
-              <div style={{ fontSize: 56, marginBottom: 8 }}>🏋️</div>
-              <div style={{ fontSize: 17, fontWeight: 600, marginBottom: 16, color: 'var(--label2)' }}>No exercises yet</div>
+            <div style={{ padding: '36px 20px', textAlign: 'center' }}>
+              <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 16, color: 'var(--label2)' }}>No exercises yet</div>
               <button
                 onClick={() => setShowManage(true)}
-                style={{ background: 'var(--blue)', color: '#fff', border: 'none', borderRadius: 14, padding: '12px 24px', fontSize: 15, fontWeight: 700, cursor: 'pointer' }}
-              >+ Add exercise</button>
+                style={{ background: 'var(--blue)', color: '#fff', border: 'none', borderRadius: 14, padding: '12px 24px', fontSize: 15, fontWeight: 600, cursor: 'pointer' }}
+              >Add exercise</button>
             </div>
           )}
         </div>
@@ -827,8 +914,8 @@ export default function Workout() {
               {!isEditing && (
                 <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 12, padding: '8px 12px', borderRadius: 10, background: properlyEating ? 'rgba(52,199,89,0.12)' : 'rgba(255,149,0,0.12)', color: properlyEating ? 'var(--green)' : 'var(--orange)' }}>
                   {properlyEating
-                    ? '🟢 Fueled — progressive overload active today'
-                    : '🟡 Holding weight — eat your protein for the next bump'}
+                    ? 'Fueled — progressive overload active today'
+                    : 'Holding weight — hit your protein target for the next bump'}
                 </div>
               )}
 
@@ -840,7 +927,9 @@ export default function Workout() {
                         onClick={() => { setFocusExIdx(exIdx); setFocusSetIdx(0); setPhase('active'); setShowManage(false) }}
                         style={{ flex: 1, background: 'none', border: 'none', textAlign: 'left', cursor: 'pointer', padding: 0, color: 'inherit', minWidth: 0, display: 'flex', alignItems: 'center', gap: 10 }}
                       >
-                        <span style={{ fontSize: 22 }}>{getExerciseEmoji(ex.name)}</span>
+                        {/* Muscle-group accent dot replaces the emoji. Same visual job
+                            (group at-a-glance) without the cartoony feel. */}
+                        <span style={{ width: 8, height: 8, borderRadius: 4, background: getExerciseAccent(ex.name), flexShrink: 0 }} />
                         <div style={{ minWidth: 0 }}>
                           <div style={{ fontSize: 15, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ex.name}</div>
                           <div style={{ fontSize: 12, color: 'var(--label2)', marginTop: 1 }}>
@@ -948,6 +1037,11 @@ export default function Workout() {
           style={{ width: '100%', background: 'none', border: '1.5px dashed var(--gray4)', borderRadius: 14, padding: '13px', color: 'var(--label2)', fontSize: 15, fontWeight: 600, cursor: 'pointer', marginTop: 12, marginBottom: 8 }}
         >+ Custom Workout</button>
 
+        {/* Consistency calendar — last 8 weeks at a glance. Each cell is a day,
+            filled if a workout was logged. Reads from the loaded workouts list,
+            no extra fetch. Brody asked for "see your consistency". */}
+        <ConsistencyCalendar workouts={workouts} />
+
         {/* PRs */}
         {Object.keys(prs).length > 0 && (
           <>
@@ -957,7 +1051,7 @@ export default function Workout() {
                 <div key={ex} style={{ background: 'var(--card)', borderRadius: 12, padding: '10px 14px', minWidth: 140, flex: '1 1 140px' }}>
                   <div style={{ fontSize: 12, color: 'var(--label2)', marginBottom: 4 }}>{ex}</div>
                   <div style={{ fontSize: 18, fontWeight: 700 }}>{pr.weight_kg}kg <span style={{ fontSize: 14, fontWeight: 400 }}>× {pr.reps}</span></div>
-                  <div className="badge badge-gold" style={{ marginTop: 4 }}>🏆 PR</div>
+                  <div style={{ marginTop: 4, fontSize: 11, fontWeight: 700, color: '#B8860B', background: '#FFD70033', borderRadius: 8, padding: '2px 7px', display: 'inline-block' }}>PR</div>
                 </div>
               ))}
             </div>

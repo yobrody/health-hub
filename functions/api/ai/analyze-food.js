@@ -38,7 +38,18 @@ function extractJSON(str) {
   return null
 }
 
-const HOME_PROMPT = (desc, fridgeNames) => `Analyze this home-made meal photo${desc ? ` (user says: "${desc}")` : ''}.
+// CRITICAL: the model must REFUSE to invent food when the image is empty,
+// dark, blurry, or non-food. Past failure mode: black screen → "chicken katsu
+// curry". The IMAGE GUARD rules below + an empty-array escape hatch fix that.
+const IMAGE_GUARD = `IMAGE QUALITY GUARD — read this BEFORE identifying anything:
+- If the image is mostly black, dark, blurry, blank, a screen capture, a UI screenshot, a wall, or otherwise contains NO recognisable food: return {"foods":[],"fridge_matches":[],"confidence":"low"}. DO NOT guess.
+- If you would have to invent details to fill the JSON, return empty foods.
+- If the image has NO food but does have something else (a person, a logo, text, a pet, a building): return empty foods.
+- Only invent a meal name if the food is clearly visible. "Maybe chicken curry" → empty foods.`
+
+const HOME_PROMPT = (desc, fridgeNames) => `${IMAGE_GUARD}
+
+Analyze this home-made meal photo${desc ? ` (user says: "${desc}")` : ''}.
 
 Identify ALL distinct food items visible. Estimate realistic nutrition AND grams for the visible portion of each item.
 
@@ -64,9 +75,11 @@ Rules:
 - fridge_matches: only items from the fridge list that clearly match something visible. Use the EXACT name from the fridge list.
 - grams_used: estimated raw/dry grams of the fridge item that went into this dish (a 150g cooked chicken portion ≈ 200g raw)
 - confidence: "high" if clearly visible, "medium" if partially visible, "low" if unclear
-- If no food visible, return empty foods array and empty fridge_matches`
+- Empty/non-food images: return empty foods + empty fridge_matches + "low" confidence — see IMAGE QUALITY GUARD above.`
 
-const OUT_PROMPT = (desc) => `Analyze this restaurant / takeaway / out-and-about food photo${desc ? ` (user says: "${desc}")` : ''}.
+const OUT_PROMPT = (desc) => `${IMAGE_GUARD}
+
+Analyze this restaurant / takeaway / out-and-about food photo${desc ? ` (user says: "${desc}")` : ''}.
 
 This food was NOT made from the user's fridge — they're eating out. Identify ALL distinct food items visible and estimate realistic nutrition + grams for the portion shown.
 
@@ -82,7 +95,7 @@ Rules:
 - grams: estimated total weight of the dish in grams as served
 - confidence: "high" if clearly visible, "medium" if partially visible, "low" if unclear
 - Be realistic about restaurant portions (often larger than home-cooked)
-- If no food visible, return empty foods array`
+- Empty/non-food images: return empty foods + "low" confidence — see IMAGE QUALITY GUARD above.`
 
 export async function onRequestPost(context) {
   const orKey = context.env.OPENROUTER_API_KEY

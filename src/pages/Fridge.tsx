@@ -143,43 +143,39 @@ type ZoneStyle = {
   // Background-image for the items area: shelf stripe + top highlight.
   shelvesBg: string
 }
+// Calmed-down zone styling \u2014 keeps the at-a-glance "this is the fridge / this
+// is the pantry" cue via a thin coloured top stripe, but drops the painted
+// gradient backgrounds + faux shelf lines that read as cluttered. Cards now
+// sit on the regular --card surface with one accent line. Same metaphor,
+// quieter execution.
 const ZONE_CONFIG: Record<Zone, ZoneStyle> = {
   fridge: {
-    label: 'Fridge', icon: '\u{1F9CA}',
-    gradient: 'linear-gradient(180deg,#DCEEFF 0%,#EAF4FE 50%,#F4FAFF 100%)',
-    accent: '#007AFF', border: 'rgba(0,122,255,0.18)', text: '#0062CC',
-    shellShadow: 'inset 0 8px 18px -10px rgba(0,40,90,0.18), inset 0 -1px 0 rgba(0,0,0,0.04), 0 6px 20px rgba(0,40,90,0.06)',
-    shelvesBg:
-      'repeating-linear-gradient(180deg, transparent 0, transparent 96px, rgba(0,40,90,0.08) 96px, rgba(0,40,90,0.08) 97px),' +
-      'linear-gradient(180deg, rgba(255,255,255,0.5) 0%, transparent 60px)',
+    label: 'Fridge', icon: '',
+    gradient: 'var(--card)',
+    accent: '#5A8FBF', border: 'var(--separator)', text: 'var(--label)',
+    shellShadow: '0 1px 0 var(--separator), 0 4px 14px rgba(0,0,0,0.04)',
+    shelvesBg: 'none',
   },
   freezer: {
-    label: 'Freezer', icon: '\u2744\uFE0F',
-    gradient: 'linear-gradient(180deg,#D9E4FF 0%,#E6EBFF 50%,#F0EEFF 100%)',
-    accent: '#5856D6', border: 'rgba(88,86,214,0.2)', text: '#4240A8',
-    shellShadow: 'inset 0 8px 22px -10px rgba(60,60,150,0.22), inset 0 -1px 0 rgba(255,255,255,0.4), 0 6px 20px rgba(60,60,150,0.08)',
-    shelvesBg:
-      'repeating-linear-gradient(180deg, transparent 0, transparent 96px, rgba(60,60,150,0.09) 96px, rgba(60,60,150,0.09) 97px),' +
-      'radial-gradient(ellipse at top, rgba(255,255,255,0.55) 0%, transparent 80px)',
+    label: 'Freezer', icon: '',
+    gradient: 'var(--card)',
+    accent: '#7A7CB5', border: 'var(--separator)', text: 'var(--label)',
+    shellShadow: '0 1px 0 var(--separator), 0 4px 14px rgba(0,0,0,0.04)',
+    shelvesBg: 'none',
   },
   pantry: {
-    label: 'Pantry', icon: '\u{1FAD9}',
-    gradient: 'linear-gradient(180deg,#F5E6CC 0%,#F8EFD9 45%,#FBF6E8 100%)',
-    accent: '#FF9500', border: 'rgba(255,149,0,0.22)', text: '#B86B00',
-    // Wood-shelf feel: stripes are warmer/heavier than the fridge's.
-    shellShadow: 'inset 0 6px 14px -8px rgba(140,80,20,0.18), inset 0 -1px 0 rgba(120,80,20,0.08), 0 6px 20px rgba(140,80,20,0.08)',
-    shelvesBg:
-      'repeating-linear-gradient(180deg, transparent 0, transparent 96px, rgba(140,80,20,0.14) 96px, rgba(140,80,20,0.14) 97px, rgba(140,80,20,0.06) 98px, transparent 99px),' +
-      'linear-gradient(180deg, rgba(255,255,255,0.35) 0%, transparent 50px)',
+    label: 'Pantry', icon: '',
+    gradient: 'var(--card)',
+    accent: '#A0823C', border: 'var(--separator)', text: 'var(--label)',
+    shellShadow: '0 1px 0 var(--separator), 0 4px 14px rgba(0,0,0,0.04)',
+    shelvesBg: 'none',
   },
   condiments: {
-    label: 'Condiments', icon: '\u{1F336}\uFE0F',
-    gradient: 'linear-gradient(180deg,#FFE3DD 0%,#FFEDE5 50%,#FFF4ED 100%)',
-    accent: '#FF3B30', border: 'rgba(255,59,48,0.18)', text: '#C5261C',
-    shellShadow: 'inset 0 6px 14px -8px rgba(160,40,30,0.16), inset 0 -1px 0 rgba(255,255,255,0.4), 0 6px 20px rgba(160,40,30,0.08)',
-    shelvesBg:
-      'repeating-linear-gradient(180deg, transparent 0, transparent 96px, rgba(160,40,30,0.10) 96px, rgba(160,40,30,0.10) 97px),' +
-      'linear-gradient(180deg, rgba(255,255,255,0.45) 0%, transparent 60px)',
+    label: 'Condiments', icon: '',
+    gradient: 'var(--card)',
+    accent: '#A05A5A', border: 'var(--separator)', text: 'var(--label)',
+    shellShadow: '0 1px 0 var(--separator), 0 4px 14px rgba(0,0,0,0.04)',
+    shelvesBg: 'none',
   },
 }
 
@@ -221,20 +217,18 @@ function ItemCard({
 
   return (
     <button className="tap-lift" onClick={onTap} style={{
-      background: isOld ? '#FFF0EE' : isWarn ? '#FFFAEE' : 'var(--card)',
-      border: `1.5px solid ${isOld ? 'rgba(255,59,48,0.22)' : isWarn ? 'rgba(255,149,0,0.2)' : cfg.border}`,
-      borderRadius: 16, padding: '10px 8px 8px',
+      background: isOld ? 'rgba(255,59,48,0.07)' : isWarn ? 'rgba(255,149,0,0.07)' : 'var(--gray6)',
+      border: `1px solid ${isOld ? 'rgba(255,59,48,0.22)' : isWarn ? 'rgba(255,149,0,0.22)' : 'transparent'}`,
+      borderRadius: 12, padding: '10px 6px 8px',
       display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3,
       cursor: 'pointer', textAlign: 'center', width: '100%', minWidth: 0,
-      boxShadow: '0 4px 10px rgba(0,0,0,0.06), inset 0 1px 0 rgba(255,255,255,0.6)',
       WebkitTapHighlightColor: 'transparent', position: 'relative',
     }}>
-      {isOld && <div style={{ position:'absolute', top:-7, right:-7, background:'var(--red)', color:'#fff', borderRadius:8, fontSize:9, fontWeight:700, padding:'2px 5px' }}>OLD</div>}
-      {isWarn && !isOld && <div style={{ position:'absolute', top:-7, right:-7, background:'var(--orange)', color:'#fff', borderRadius:8, fontSize:9, fontWeight:700, padding:'2px 5px' }}>SOON</div>}
+      {isOld && <div style={{ position:'absolute', top:-6, right:-6, background:'var(--red)', color:'#fff', borderRadius:6, fontSize:9, fontWeight:700, padding:'1px 5px' }}>OLD</div>}
+      {isWarn && !isOld && <div style={{ position:'absolute', top:-6, right:-6, background:'var(--orange)', color:'#fff', borderRadius:6, fontSize:9, fontWeight:700, padding:'1px 5px' }}>SOON</div>}
       <span style={{
-        fontSize: 26, lineHeight: 1.1, padding: '2px 6px', borderRadius: 12,
-        background: `linear-gradient(180deg, rgba(255,255,255,0.95), ${tint})`,
-        boxShadow: 'inset 0 1px 2px rgba(255,255,255,0.8), 0 1px 3px rgba(0,0,0,0.08)',
+        fontSize: 26, lineHeight: 1.1, padding: '2px 4px',
+        background: tint, borderRadius: 10,
       }}>{getEmoji(item.name)}</span>
       <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--label)', lineHeight: 1.3,
         overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', width: '100%' }}>
@@ -309,55 +303,41 @@ function ZoneSection({ zone, items, onRemove, learnedShelfLife }: {
   return (
     <div style={{
       background: cfg.gradient,
-      borderRadius: 20,
-      border: `1.5px solid ${cfg.border}`,
-      marginBottom: 14,
+      borderRadius: 16,
+      border: `1px solid ${cfg.border}`,
+      marginBottom: 12,
       overflow: 'hidden',
       boxShadow: cfg.shellShadow,
-      position: 'relative',
     }}>
-      {/* Door-strip header with embossed feel — suggests the zone's "front face". */}
+      {/* Thin accent stripe — the only colour cue per zone. */}
+      <div style={{ height: 3, background: cfg.accent, opacity: 0.85 }} />
       <div style={{
-        padding: '12px 14px 10px',
+        padding: '10px 14px 8px',
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        background: 'linear-gradient(180deg, rgba(255,255,255,0.5), transparent)',
-        borderBottom: `1px solid ${cfg.border}`,
       }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <span style={{
-            fontSize: 16, lineHeight: 1, padding: '4px 6px',
-            background: 'rgba(255,255,255,0.7)', borderRadius: 8,
-            boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.9), 0 1px 2px rgba(0,0,0,0.06)',
-          }}>{cfg.icon}</span>
-          <span style={{ fontSize: 13, fontWeight: 800, color: cfg.text, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+          <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--label)', letterSpacing: '-0.1px' }}>
             {cfg.label}
           </span>
-          <span style={{ fontSize: 11, color: cfg.text, opacity: 0.55, fontWeight: 600 }}>({items.length})</span>
+          <span style={{ fontSize: 11, color: 'var(--label3)', fontWeight: 500 }}>{items.length}</span>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           {(oldCount + warnCount) > 0 && (
             <span style={{ fontSize: 10, fontWeight: 700,
-              color: oldCount > 0 ? 'var(--red)' : 'var(--orange)',
-              background: oldCount > 0 ? '#FF3B3020' : '#FF950020',
-              borderRadius: 8, padding: '2px 7px' }}>
+              color: oldCount > 0 ? 'var(--red)' : 'var(--orange)' }}>
               {oldCount + warnCount} expiring
             </span>
           )}
           {totalCost > 0 && (
-            <span style={{ fontSize: 12, fontWeight: 700, color: cfg.text }}>
+            <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--label2)' }}>
               {'£'}{totalCost.toFixed(2)}
             </span>
           )}
         </div>
       </div>
-      {/* Items area — shelf stripes painted by the layered repeating-linear-gradient.
-          The 96px stride approximates the typical card height, so a stripe lands roughly
-          between rows. Items overlay them, so partial mismatches don't read as "broken". */}
       <div style={{
-        padding: '12px 10px 14px',
-        display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 10,
-        backgroundImage: cfg.shelvesBg,
-        backgroundSize: 'auto, 100% auto',
+        padding: '4px 10px 12px',
+        display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 8,
       }}>
         {items.map((item, i) => (
           <ItemCard
@@ -424,10 +404,10 @@ export default function Fridge() {
     ...STAPLES.filter(staple => !allItems.some(i => i.name.toLowerCase().includes(staple))),
   ].filter((v, i, a) => a.indexOf(v) === i).slice(0, 10)
 
-  // Adds expiring items + recommended staples to the persistent shopping list
-  // (Lists page \u2192 Shopping tab). Replaces the previous navigator.share flow,
-  // which silently failed in iOS PWA standalone mode for some users. Fetching
-  // the existing list first keeps duplicates out so repeated taps are safe.
+  // Adds expiring items + recommended staples to the persistent shopping list.
+  // Uses the global toast (always visible at the bottom) instead of the inline
+  // scanStatus banner that the user reported as "doesn't work" \u2014 the banner
+  // was below the fold on long fridge views, so taps appeared to do nothing.
   async function shareShoppingList() {
     const candidates = [
       ...alertItems.map(i => i.name),
@@ -435,27 +415,23 @@ export default function Fridge() {
     ].filter((v, i, a) => a.indexOf(v) === i)
 
     if (candidates.length === 0) {
-      setScanStatus('Fridge is well stocked \u2014 nothing to add')
-      setTimeout(() => setScanStatus(null), 2500)
+      showToast('Fridge is well stocked \u2014 nothing to add', 'info')
       return
     }
 
-    setScanStatus('Adding to shopping list\u2026')
     try {
       const existing = await api.getList('shopping').catch(() => ({ items: [] as { text: string }[] }))
       const have = new Set(existing.items.map(i => i.text.toLowerCase().trim()))
       const fresh = candidates.filter(name => !have.has(name.toLowerCase().trim()))
       if (fresh.length === 0) {
-        setScanStatus('Already on your shopping list')
-        setTimeout(() => setScanStatus(null), 2500)
+        showToast('Already on your shopping list', 'info')
         return
       }
       await Promise.allSettled(fresh.map(name => api.addListItem('shopping', name)))
-      setScanStatus(`\u2713 Added ${fresh.length} to shopping list`)
-      setTimeout(() => setScanStatus(null), 3500)
+      showToast(`Added ${fresh.length} to shopping list`)
+      if (navigator.vibrate) navigator.vibrate(15)
     } catch {
-      setScanStatus('Failed to update shopping list')
-      setTimeout(() => setScanStatus(null), 3000)
+      showToast('Failed to update shopping list', 'err')
     }
   }
 

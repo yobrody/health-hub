@@ -240,10 +240,19 @@ export default function Today({ onNavigate, onToggleTheme, themeIcon }: Props) {
           <button
             className="theme-toggle"
             onClick={onToggleTheme}
-            title="Toggle theme"
+            title="Toggle theme (light / dark / auto)"
+            aria-label={`Theme: ${themeIcon === 'auto' ? 'auto' : themeIcon === '☀' ? 'light' : 'dark'}`}
             style={{ marginTop: 4 }}
           >
-            {themeIcon}
+            {themeIcon === 'auto' ? (
+              // Half-filled circle = "auto / system follows OS"
+              <svg width="16" height="16" viewBox="0 0 24 24" aria-hidden="true">
+                <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" strokeWidth="2" />
+                <path d="M12 3a9 9 0 0 0 0 18z" fill="currentColor" />
+              </svg>
+            ) : (
+              <span style={{ fontSize: 16, lineHeight: 1 }}>{themeIcon}</span>
+            )}
           </button>
         </div>
 
@@ -311,69 +320,42 @@ export default function Today({ onNavigate, onToggleTheme, themeIcon }: Props) {
           </div>
         )}
 
-        {/* Quick action pills */}
-        <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-          {([
-            { label: 'Log food',      tab: 'nutrition' as const, color: 'var(--blue)' },
-            { label: 'Log workout',   tab: 'workout'   as const, color: 'var(--green)' },
-            { label: 'Check fridge',  tab: 'fridge'    as const, color: 'var(--purple)' },
-          ]).map(item => (
-            <button key={item.tab} onClick={() => onNavigate(item.tab)}
-              style={{ flex: 1, padding: '11px 6px', borderRadius: 12, border: 'none',
-                background: 'var(--card)', color: item.color, fontWeight: 700, fontSize: 13,
-                cursor: 'pointer', WebkitTapHighlightColor: 'transparent',
-                boxShadow: '0 1px 4px rgba(0,0,0,0.07)', transition: 'opacity 0.12s' }}
-              onTouchStart={e => (e.currentTarget.style.opacity = '0.7')}
-              onTouchEnd={e => (e.currentTarget.style.opacity = '1')}>
-              {item.label}
-            </button>
-          ))}
-        </div>
-
-        {/* Personal assistant shortcuts */}
-        <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-          <button onClick={() => onNavigate('agenda')}
-            style={{ flex: 1, padding: '11px 6px', borderRadius: 12, border: 'none',
-              background: 'var(--card)', color: 'var(--blue)', fontWeight: 700, fontSize: 13,
-              cursor: 'pointer', WebkitTapHighlightColor: 'transparent',
-              boxShadow: '0 1px 4px rgba(0,0,0,0.07)' }}>
-            Today's Plan
+        {/* Status strip — today at a glance. Replaces three rows of pill buttons
+            with one compact card grouping the four most-checked stats. Each tile
+            navigates on tap and shows current vs target so a glance is enough. */}
+        <div className="card" style={{ padding: 6, marginBottom: 12, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4 }}>
+          {/* Workouts this week */}
+          <button onClick={() => onNavigate('workout')} style={{ background: 'transparent', border: 'none', borderRadius: 12, padding: '12px 12px', cursor: 'pointer', textAlign: 'left', WebkitTapHighlightColor: 'transparent' }}>
+            <div style={{ fontSize: 11, color: 'var(--label2)', fontWeight: 600, marginBottom: 4, letterSpacing: 0.4 }}>WORKOUTS</div>
+            <div style={{ fontSize: 20, fontWeight: 700, color: weekStats && weekStats.workout_count >= weekStats.goal_gym_days ? 'var(--green)' : 'var(--label)', letterSpacing: '-0.5px' }}>
+              {weekStats?.workout_count ?? '—'}<span style={{ fontSize: 13, fontWeight: 500, color: 'var(--label2)' }}> / {weekStats?.goal_gym_days ?? goals.gym_days}</span>
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--label3)', marginTop: 2 }}>this week</div>
           </button>
-          <button onClick={() => onNavigate('lists')}
-            style={{ flex: 1, padding: '11px 6px', borderRadius: 12, border: 'none',
-              background: 'var(--card)', color: 'var(--orange)', fontWeight: 700, fontSize: 13,
-              cursor: 'pointer', WebkitTapHighlightColor: 'transparent',
-              boxShadow: '0 1px 4px rgba(0,0,0,0.07)' }}>
-            Lists
+          {/* Plan items today */}
+          <button onClick={() => onNavigate('agenda')} style={{ background: 'transparent', border: 'none', borderRadius: 12, padding: '12px 12px', cursor: 'pointer', textAlign: 'left', WebkitTapHighlightColor: 'transparent' }}>
+            <div style={{ fontSize: 11, color: 'var(--label2)', fontWeight: 600, marginBottom: 4, letterSpacing: 0.4 }}>TODAY'S PLAN</div>
+            <div style={{ fontSize: 20, fontWeight: 700, letterSpacing: '-0.5px' }}>
+              <span style={{ color: 'var(--blue)' }}>tap</span>
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--label3)', marginTop: 2 }}>view agenda</div>
           </button>
-          {/* Goals lives here now that Fridge took its bottom-nav slot. */}
-          <button onClick={() => onNavigate('goals')}
-            style={{ flex: 1, padding: '11px 6px', borderRadius: 12, border: 'none',
-              background: 'var(--card)', color: 'var(--green)', fontWeight: 700, fontSize: 13,
-              cursor: 'pointer', WebkitTapHighlightColor: 'transparent',
-              boxShadow: '0 1px 4px rgba(0,0,0,0.07)' }}>
-            Goals
+          {/* Skincare AM/PM */}
+          <button onClick={() => onNavigate('skincare')} style={{ background: 'transparent', border: 'none', borderRadius: 12, padding: '12px 12px', cursor: 'pointer', textAlign: 'left', WebkitTapHighlightColor: 'transparent' }}>
+            <div style={{ fontSize: 11, color: 'var(--label2)', fontWeight: 600, marginBottom: 4, letterSpacing: 0.4 }}>SKINCARE</div>
+            <div style={{ fontSize: 15, fontWeight: 700 }}>
+              <span style={{ color: skincareStatus.am ? 'var(--green)' : 'var(--label3)' }}>AM {skincareStatus.am ? '✓' : '○'}</span>
+              <span style={{ margin: '0 8px', color: 'var(--label3)' }}>·</span>
+              <span style={{ color: skincareStatus.pm ? 'var(--green)' : 'var(--label3)' }}>PM {skincareStatus.pm ? '✓' : '○'}</span>
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--label3)', marginTop: 2 }}>routine</div>
           </button>
-        </div>
-
-        {/* Status strip */}
-        <div className="card" style={{ padding: '12px 14px', marginBottom: 12 }}>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button onClick={() => onNavigate('workout')} style={{ flex: 1, background: 'var(--gray6)', border: 'none', borderRadius: 10, padding: '10px 12px', cursor: 'pointer', textAlign: 'left', WebkitTapHighlightColor: 'transparent' }}>
-              <div style={{ fontSize: 11, color: 'var(--label2)', fontWeight: 600, marginBottom: 3 }}>WORKOUTS</div>
-              <div style={{ fontSize: 18, fontWeight: 700, color: weekStats && weekStats.workout_count >= weekStats.goal_gym_days ? 'var(--green)' : 'var(--label)' }}>
-                {weekStats?.workout_count ?? '—'}<span style={{ fontSize: 13, fontWeight: 500, color: 'var(--label2)' }}>/{weekStats?.goal_gym_days ?? goals.gym_days} this wk</span>
-              </div>
-            </button>
-            <button onClick={() => onNavigate('skincare')} style={{ flex: 1, background: 'var(--gray6)', border: 'none', borderRadius: 10, padding: '10px 12px', cursor: 'pointer', textAlign: 'left', WebkitTapHighlightColor: 'transparent' }}>
-              <div style={{ fontSize: 11, color: 'var(--label2)', fontWeight: 600, marginBottom: 3 }}>SKINCARE</div>
-              <div style={{ fontSize: 15, fontWeight: 700 }}>
-                <span style={{ color: skincareStatus.am ? 'var(--green)' : 'var(--label3)' }}>AM {skincareStatus.am ? '✓' : '○'}</span>
-                <span style={{ margin: '0 6px', color: 'var(--label3)' }}>·</span>
-                <span style={{ color: skincareStatus.pm ? 'var(--green)' : 'var(--label3)' }}>PM {skincareStatus.pm ? '✓' : '○'}</span>
-              </div>
-            </button>
-          </div>
+          {/* Lists / shopping */}
+          <button onClick={() => onNavigate('lists')} style={{ background: 'transparent', border: 'none', borderRadius: 12, padding: '12px 12px', cursor: 'pointer', textAlign: 'left', WebkitTapHighlightColor: 'transparent' }}>
+            <div style={{ fontSize: 11, color: 'var(--label2)', fontWeight: 600, marginBottom: 4, letterSpacing: 0.4 }}>LISTS</div>
+            <div style={{ fontSize: 20, fontWeight: 700, letterSpacing: '-0.5px', color: 'var(--orange)' }}>tap</div>
+            <div style={{ fontSize: 11, color: 'var(--label3)', marginTop: 2 }}>shopping & more</div>
+          </button>
         </div>
 
         {/* Fridge alert */}

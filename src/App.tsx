@@ -155,7 +155,11 @@ export default function App({ onToggleTheme, theme }: Props) {
     setShowOnboarding(false)
   }
 
-  const themeIcon = theme === 'dark' ? '☀️' : theme === 'light' ? '🌙' : '✦'
+  // Three states cycle: light → dark → system → light. Auto state shown as a
+  // half-filled circle SVG (rendered by Today's header) so it reads as "auto"
+  // not as a stray dot. Keeping a string here for the type contract — Today
+  // checks for the literal 'auto' to render the SVG.
+  const themeIcon = theme === 'dark' ? '☀' : theme === 'light' ? '☾' : 'auto'
 
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>

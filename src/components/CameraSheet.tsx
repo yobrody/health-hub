@@ -3,7 +3,7 @@ import { api } from '../api/client'
 import { showToast } from '../toast'
 import type { FridgeData, FoodAnalysisV2, BarcodeLookupResult } from '../api/client'
 
-type Stage = 'idle' | 'analyzing' | 'result' | 'barcode'
+type Stage = 'idle' | 'mode-pick' | 'analyzing' | 'result' | 'barcode'
 
 interface Props {
   open: boolean
@@ -114,12 +114,67 @@ function loadCameraMode(): CameraMode {
   return 'home'
 }
 
+// Geolocation → reverse-geocode the nearest restaurant for "out" mode logs.
+// Tries the device GPS, then asks OpenStreetMap Nominatim for the closest place.
+// Returns null on any failure — the call site treats null as "no restaurant
+// info" and just logs without it.
+async function captureRestaurantContext(): Promise<{ name?: string; address?: string } | null> {
+  try {
+    if (!navigator.geolocation) return null
+    const pos = await new Promise<GeolocationPosition | null>((resolve) => {
+      const t = setTimeout(() => resolve(null), 4000)
+      navigator.geolocation.getCurrentPosition(
+        p => { clearTimeout(t); resolve(p) },
+        () => { clearTimeout(t); resolve(null) },
+        { enableHighAccuracy: false, timeout: 4000, maximumAge: 60_000 },
+      )
+    })
+    if (!pos) return null
+    const { latitude: lat, longitude: lon } = pos.coords
+    // Nominatim's free reverse endpoint. No key needed; we identify via referer.
+    const url = `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lon}&zoom=18&addressdetails=1`
+    const res = await fetch(url, { headers: { 'Accept': 'application/json' } })
+    if (!res.ok) return null
+    const data = await res.json() as {
+      name?: string
+      display_name?: string
+      address?: { restaurant?: string; cafe?: string; fast_food?: string; pub?: string; bar?: string; road?: string; suburb?: string; city?: string; postcode?: string }
+    }
+    const name = data.name
+      || data.address?.restaurant
+      || data.address?.cafe
+      || data.address?.fast_food
+      || data.address?.pub
+      || data.address?.bar
+    const addr = [data.address?.road, data.address?.suburb, data.address?.city].filter(Boolean).join(', ') || undefined
+    if (!name && !addr) return null
+    return { name, address: addr }
+  } catch {
+    return null
+  }
+}
+
+// Refuse to log foods identified from a black/empty/very-low-info photo. We
+// can't access raw pixels here cheaply, but we can guard against the obvious
+// hallucination signal: model returned foods + low confidence + tiny grams,
+// or returned foods + 0 kcal across the board. Real photos almost never hit
+// this combination.
+function looksLikeHallucination(analysis: FoodAnalysisV2): boolean {
+  if (!analysis.foods.length) return false
+  const totalKcal = analysis.foods.reduce((a, f) => a + (f.kcal || 0), 0)
+  const totalGrams = analysis.foods.reduce((a, f) => a + (f.grams || 0), 0)
+  if (totalKcal === 0) return true
+  if (analysis.confidence === 'low' && totalGrams < 30) return true
+  return false
+}
+
 export default function CameraSheet({ open, onClose, fridgeData, onFridgeUpdated }: Props) {
   const [stage, setStage] = useState<Stage>('idle')
   const [mode, setMode] = useState<CameraMode>(loadCameraMode)
   const [analysis, setAnalysis] = useState<FoodAnalysisV2 | null>(null)
   const [checkedMatches, setCheckedMatches] = useState<Set<string>>(new Set())
   const [saving, setSaving] = useState(false)
+  const [restaurantContext, setRestaurantContext] = useState<{ name?: string; address?: string } | null>(null)
   const [barcodeProduct, setBarcodeProduct] = useState<BarcodeLookupResult | null>(null)
   const [barcodeActioning, setBarcodeActioning] = useState(false)
   const foodInputRef = useRef<HTMLInputElement>(null)
@@ -129,6 +184,15 @@ export default function CameraSheet({ open, onClose, fridgeData, onFridgeUpdated
   function chooseMode(next: CameraMode) {
     setMode(next)
     try { localStorage.setItem(LS_CAMERA_MODE_KEY, next) } catch { /* ignore quota errors */ }
+    // For Out mode we kick off restaurant detection now (background) so the
+    // result page already has it when the photo comes back. Home doesn't need it.
+    if (next === 'out') {
+      captureRestaurantContext().then(setRestaurantContext).catch(() => {})
+    } else {
+      setRestaurantContext(null)
+    }
+    // Trigger camera immediately after mode pick — one tap closer to logging.
+    setTimeout(() => foodInputRef.current?.click(), 60)
   }
 
   function reset() {
@@ -136,6 +200,7 @@ export default function CameraSheet({ open, onClose, fridgeData, onFridgeUpdated
     setAnalysis(null)
     setCheckedMatches(new Set())
     setSaving(false)
+    setRestaurantContext(null)
     setBarcodeProduct(null)
     setBarcodeActioning(false)
   }
@@ -155,6 +220,19 @@ export default function CameraSheet({ open, onClose, fridgeData, onFridgeUpdated
         api.analyzeFoodV2(file, fridgeData, '', mode),
         compressThumbnail(file),
       ])
+      // Refuse to silently log a hallucinated meal from a blank/black photo.
+      // The user said: "took a photo of a black screen and it identified the
+      // food as chicken katsu curry". This is the guard.
+      if (looksLikeHallucination(result)) {
+        showToast("Couldn't identify food — try a clearer photo", 'err')
+        setStage('idle')
+        return
+      }
+      if (result.foods.length === 0) {
+        showToast('No food detected — try another angle', 'info')
+        setStage('idle')
+        return
+      }
       setAnalysis(result)
       // Default-check all matches the AI returned (out mode returns none anyway).
       setCheckedMatches(new Set(result.fridge_matches.map(m => m.name)))
@@ -266,7 +344,13 @@ export default function CameraSheet({ open, onClose, fridgeData, onFridgeUpdated
     try {
       const totalKcal = analysis.foods.reduce((a, f) => a + f.kcal, 0)
       const totalProtein = Math.round(analysis.foods.reduce((a, f) => a + f.protein_g, 0))
-      const description = analysis.foods.map(f => f.name).join(', ')
+      const foodLine = analysis.foods.map(f => f.name).join(', ')
+      // Out-mode logs include the restaurant if we got it. Pattern is:
+      //   "Chicken katsu curry, miso soup @ Wagamama"
+      // so it surfaces naturally in the today log + history.
+      const description = mode === 'out' && restaurantContext?.name
+        ? `${foodLine} @ ${restaurantContext.name}`
+        : foodLine
       const h = new Date().getHours()
       const meal = h < 11 ? 'Breakfast' : h < 15 ? 'Lunch' : h < 18 ? 'Snack' : 'Dinner'
 
@@ -303,7 +387,9 @@ export default function CameraSheet({ open, onClose, fridgeData, onFridgeUpdated
 
       const fridgeNote = mode === 'home' && matchedCount
         ? ` · used ${matchedCount} from fridge`
-        : mode === 'out' ? ' · out' : ''
+        : mode === 'out'
+          ? restaurantContext?.name ? ` · ${restaurantContext.name}` : ' · eating out'
+          : ''
       showToast(`Logged ${totalKcal} kcal${fridgeNote}`)
       handleClose()
     } catch {
@@ -343,51 +429,13 @@ export default function CameraSheet({ open, onClose, fridgeData, onFridgeUpdated
         <input ref={receiptInputRef} type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={handleReceiptPhoto} />
         <input ref={barcodeInputRef} type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={handleBarcodePhoto} />
 
-        {/* Idle — mode picker */}
+        {/* Idle — three actions. Home/Out lives only inside Log Food now,
+            because that's the only flow it actually changes (receipt + barcode
+            don't decrement fridge inventory based on it). */}
         {stage === 'idle' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-            {/* Home / Out toggle — controls whether Log Food decrements fridge inventory */}
-            <div style={{
-              display: 'flex',
-              background: 'var(--gray6)',
-              borderRadius: 12,
-              padding: 4,
-              gap: 4,
-              marginBottom: 4,
-            }}>
-              {(['home', 'out'] as const).map(m => (
-                <button
-                  key={m}
-                  onClick={() => chooseMode(m)}
-                  style={{
-                    flex: 1,
-                    background: mode === m ? 'var(--card)' : 'transparent',
-                    color: mode === m ? 'var(--label)' : 'var(--label2)',
-                    border: 'none',
-                    borderRadius: 9,
-                    padding: '8px 12px',
-                    fontSize: 14,
-                    fontWeight: 600,
-                    cursor: 'pointer',
-                    boxShadow: mode === m ? '0 1px 3px rgba(0,0,0,0.08)' : 'none',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: 6,
-                  }}
-                >
-                  {m === 'home' ? '🏠 Home' : '🍽️ Out'}
-                </button>
-              ))}
-            </div>
-            <div style={{ fontSize: 12, color: 'var(--label3)', marginTop: -4, marginBottom: 4, paddingLeft: 4 }}>
-              {mode === 'home'
-                ? 'Photo will deplete matching items from your fridge.'
-                : 'Photo just logs calories — fridge untouched.'}
-            </div>
-
             <button
-              onClick={() => foodInputRef.current?.click()}
+              onClick={() => setStage('mode-pick')}
               style={{ background: 'var(--blue)', color: '#fff', border: 'none', borderRadius: 16, padding: '18px 20px', fontSize: 17, fontWeight: 700, cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: 14 }}
             >
               <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round">
@@ -433,6 +481,41 @@ export default function CameraSheet({ open, onClose, fridgeData, onFridgeUpdated
                   Log food or add to fridge
                 </div>
               </div>
+            </button>
+          </div>
+        )}
+
+        {/* Mode pick — only inside the Log Food flow. Tapping a tile chooses
+            the mode, kicks off restaurant geolocation if Out, and immediately
+            opens the camera. The whole step takes one tap. */}
+        {stage === 'mode-pick' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div style={{ fontSize: 14, color: 'var(--label2)', marginBottom: 2 }}>
+              Where are you eating?
+            </div>
+            <button
+              onClick={() => chooseMode('home')}
+              style={{ background: 'var(--card)', border: '1px solid var(--separator)', borderRadius: 16, padding: '16px 18px', cursor: 'pointer', textAlign: 'left' }}
+            >
+              <div style={{ fontSize: 17, fontWeight: 700, color: 'var(--label)' }}>At home</div>
+              <div style={{ fontSize: 13, color: 'var(--label2)', marginTop: 3 }}>
+                AI checks your fridge → depletes matching items as you eat them.
+              </div>
+            </button>
+            <button
+              onClick={() => chooseMode('out')}
+              style={{ background: 'var(--card)', border: '1px solid var(--separator)', borderRadius: 16, padding: '16px 18px', cursor: 'pointer', textAlign: 'left' }}
+            >
+              <div style={{ fontSize: 17, fontWeight: 700, color: 'var(--label)' }}>Eating out</div>
+              <div style={{ fontSize: 13, color: 'var(--label2)', marginTop: 3 }}>
+                Just logs calories. We'll tag the restaurant from your location.
+              </div>
+            </button>
+            <button
+              onClick={() => setStage('idle')}
+              style={{ width: '100%', background: 'none', border: 'none', color: 'var(--label2)', fontSize: 15, fontWeight: 500, cursor: 'pointer', padding: '6px 0' }}
+            >
+              Cancel
             </button>
           </div>
         )}
@@ -502,6 +585,29 @@ export default function CameraSheet({ open, onClose, fridgeData, onFridgeUpdated
         {/* Food photo result */}
         {stage === 'result' && analysis && (
           <>
+            {/* Mode + restaurant chip — quick context recap, also makes it clear
+                where the AI thinks you are. Tap the restaurant name to clear it
+                if Nominatim guessed a neighbouring building. */}
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' }}>
+              <span style={{ background: 'var(--gray6)', borderRadius: 16, padding: '4px 10px', fontSize: 12, fontWeight: 600, color: 'var(--label2)' }}>
+                {mode === 'home' ? 'At home' : 'Eating out'}
+              </span>
+              {mode === 'out' && restaurantContext?.name && (
+                <button
+                  onClick={() => setRestaurantContext(null)}
+                  style={{ background: 'rgba(10,132,255,0.12)', color: 'var(--blue)', border: 'none', borderRadius: 16, padding: '4px 10px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
+                  title="Tap to clear if this is wrong"
+                >
+                  {restaurantContext.name} ×
+                </button>
+              )}
+              {mode === 'out' && !restaurantContext?.name && (
+                <span style={{ color: 'var(--label3)', fontSize: 12 }}>
+                  No location — log untagged
+                </span>
+              )}
+            </div>
+
             {/* Foods list */}
             <div style={{ marginBottom: 16 }}>
               <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--label2)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Identified</div>
