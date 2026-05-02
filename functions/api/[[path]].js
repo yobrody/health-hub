@@ -77,15 +77,23 @@ export async function onRequest(context) {
     let body = {}
     try { body = await context.request.json() } catch {}
 
-    const { name, section, size = null, cost = null, store = null } = body
+    const {
+      name, section,
+      size = null, cost = null, store = null,
+      unit_size_g = null, quantity_g = null,
+      unit_count = null, quantity_count = null,
+    } = body
 
-    // Forward to VPS with only the fields it expects
+    // Forward to VPS with the fields the FastAPI model accepts
     let vpsStatus, vpsBody
     try {
       const vpsRes = await fetch(targetUrl, {
         method: 'POST',
         headers: reqHeaders,
-        body: JSON.stringify({ name, section }),
+        body: JSON.stringify({
+          name, section,
+          unit_size_g, quantity_g, unit_count, quantity_count,
+        }),
       })
       vpsStatus = vpsRes.status
       vpsBody = await vpsRes.text()

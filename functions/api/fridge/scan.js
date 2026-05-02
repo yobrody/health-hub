@@ -40,11 +40,13 @@ function extractJSON(str) {
 const PROMPT = `Look at this grocery store receipt. Extract the purchased food and drink items.
 
 Return ONLY valid JSON — no markdown, no explanation:
-{"store":{"name":"store name","location":"address/area on receipt or null"},"items":[{"name":"readable name","size":"package size or null","cost":1.89,"section":"fridge"}]}
+{"store":{"name":"store name","location":"address/area on receipt or null"},"items":[{"name":"readable name","unit_size_g":340,"unit_count":null,"size":"340g","cost":1.89,"section":"fridge"}]}
 
 Rules:
 - name: clean readable name (e.g. "greek yogurt" not "GREEK YOG 10%", "peanut butter" not "PNT BTR 340G")
-- size: package size if visible on receipt (e.g. "340g", "1L") — null if not shown
+- unit_size_g: pack size in grams as a NUMBER (parse "340g" → 340, "1kg" → 1000, "1.5L" → 1500). null if not shown or not weight-based.
+- unit_count: discrete count if it makes more sense than weight (eggs: 6 or 12, apples: 4). null otherwise.
+- size: human-readable package size string (e.g. "340g", "1L", "12 eggs") — null if not shown.
 - cost: item price as a number (e.g. 2.25) — null if not visible
 - section: one of "fridge", "freezer", "pantry", "condiments"
   - fridge: dairy, fresh produce, eggs, fresh meat/fish, yogurt, juice, deli
@@ -117,7 +119,9 @@ export async function onRequestPost(context) {
         .filter(i => i?.name)
         .map(i => ({
           name: i.name.toLowerCase().trim(),
-          size: i.size || null,
+          size: i.size || (typeof i.unit_size_g === 'number' ? `${i.unit_size_g}g` : null),
+          unit_size_g: typeof i.unit_size_g === 'number' && i.unit_size_g > 0 ? i.unit_size_g : null,
+          unit_count: Number.isInteger(i.unit_count) && i.unit_count > 0 ? i.unit_count : null,
           cost: typeof i.cost === 'number' ? i.cost : null,
           section: ['fridge','freezer','pantry','condiments'].includes(i.section) ? i.section : 'fridge',
         }))

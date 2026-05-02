@@ -164,12 +164,36 @@ def get_fridge(key=Depends(require_key)):
 class FridgeItem(BaseModel):
     name: str
     section: str = "fridge"
+    # Optional pack size in grams when the item is added (e.g. "1kg chicken" → 1000).
+    # When set with quantity_g unset, quantity_g defaults to unit_size_g.
+    unit_size_g: Optional[float] = None
+    # Current remaining grams. Decremented by /fridge/item/{name}/consume when meals
+    # are logged via the camera Home flow.
+    quantity_g: Optional[float] = None
+    # Discrete-unit support for things like eggs/apples (eggs: 12 → eat 2 → 10).
+    unit_count: Optional[int] = None
+    quantity_count: Optional[int] = None
 
 @app.post("/fridge/item")
 def add_fridge_item(item: FridgeItem, key=Depends(require_key)):
     data = read_fridge()
     added = date.today().strftime("%d %b")
-    data.setdefault(item.section, []).append({"name": item.name, "added": added})
+    record = {"name": item.name, "added": added}
+    if item.unit_size_g is not None:
+        record["unit_size_g"] = item.unit_size_g
+        record["quantity_g"] = (
+            item.quantity_g if item.quantity_g is not None else item.unit_size_g
+        )
+    elif item.quantity_g is not None:
+        record["quantity_g"] = item.quantity_g
+    if item.unit_count is not None:
+        record["unit_count"] = item.unit_count
+        record["quantity_count"] = (
+            item.quantity_count if item.quantity_count is not None else item.unit_count
+        )
+    elif item.quantity_count is not None:
+        record["quantity_count"] = item.quantity_count
+    data.setdefault(item.section, []).append(record)
     write_fridge(data)
     return {"ok": True}
 
@@ -188,43 +212,118 @@ def remove_fridge_item(name: str, key=Depends(require_key)):
     write_fridge(data)
     return {"ok": True}
 
+class ConsumeInput(BaseModel):
+    grams: Optional[float] = None
+    count: Optional[int] = None
+
+@app.post("/fridge/item/{name}/consume")
+def consume_fridge_item(name: str, input: ConsumeInput, key=Depends(require_key)):
+    """Decrement quantity_g and/or quantity_count for the named item.
+
+    Match is case-insensitive substring across all sections. If multiple items match,
+    the first one is consumed. When quantity hits 0 the item stays in the fridge
+    (so the user sees it's empty and can either remove or restock); the next add
+    of the same name resets quantity_g to unit_size_g.
+    """
+    if input.grams is None and input.count is None:
+        raise HTTPException(status_code=400, detail="Provide grams or count")
+    data = read_fridge()
+    name_lower = name.lower()
+    consumed = None
+    for section in data:
+        for item in data[section]:
+            if name_lower in item["name"].lower():
+                if input.grams is not None and "quantity_g" in item:
+                    item["quantity_g"] = max(0.0, item["quantity_g"] - input.grams)
+                if input.count is not None and "quantity_count" in item:
+                    item["quantity_count"] = max(0, item["quantity_count"] - input.count)
+                consumed = {
+                    "name": item["name"],
+                    "section": section,
+                    "quantity_g": item.get("quantity_g"),
+                    "quantity_count": item.get("quantity_count"),
+                }
+                break
+        if consumed:
+            break
+    if not consumed:
+        raise HTTPException(status_code=404, detail=f"Item not found")
+    write_fridge(data)
+    return {"ok": True, **consumed}
+
+class ScanInput(BaseModel):
+    image: str  # base64 (no data: prefix)
+    mimeType: Optional[str] = "image/jpeg"
+
 @app.post("/fridge/scan")
-async def scan_receipt(file: UploadFile = File(...), key=Depends(require_key)):
+async def scan_receipt(input: ScanInput, key=Depends(require_key)):
+    """Receipt scan — JSON contract matching the Cloudflare Pages Function shadow
+    at functions/api/fridge/scan.js so dev/prod/fallback all behave the same.
+
+    Returns {items: [...], store: {...}} — does NOT add to fridge automatically;
+    the client iterates and calls /fridge/item per item so that user-side
+    confirmation/edits can happen first.
+    """
     if not ANTHROPIC_KEY:
         raise HTTPException(status_code=503, detail="ANTHROPIC_API_KEY not configured")
     import anthropic as ac
-    img_bytes = await file.read()
-    b64 = base64.standard_b64encode(img_bytes).decode()
-    media_type = file.content_type or "image/jpeg"
+    media_type = input.mimeType or "image/jpeg"
     client = ac.Anthropic(api_key=ANTHROPIC_KEY)
+    prompt = (
+        "Look at this grocery store receipt. Extract the purchased food and drink items.\n\n"
+        "Return ONLY valid JSON, no markdown or explanation:\n"
+        '{"store":{"name":"store name","location":"address/area or null"},'
+        '"items":[{"name":"readable name","unit_size_g":340,"unit_count":null,"cost":1.89,"section":"fridge"}]}\n\n'
+        "Rules:\n"
+        '- name: clean readable name (e.g. "greek yogurt" not "GREEK YOG 10%")\n'
+        "- unit_size_g: pack size in grams if visible (parse '340g' → 340, '1kg' → 1000, '1.5L water' → 1500)\n"
+        "  null if not shown or not weight-based\n"
+        "- unit_count: discrete count if applicable (eggs: 6/12, apples: 4) — null otherwise\n"
+        "- cost: item price as a number — null if not visible\n"
+        '- section: "fridge"|"freezer"|"pantry"|"condiments"\n'
+        "  fridge: dairy, fresh produce, eggs, meat/fish, yogurt, juice, deli\n"
+        "  freezer: frozen meals, ice cream, frozen veg/meat\n"
+        "  pantry: canned, dry goods, snacks, coffee, tea, bread, nuts, spreads, chocolate\n"
+        "  condiments: sauces, oils, vinegar, dressings, spices\n"
+        "- INCLUDE all food and drink items\n"
+        "- SKIP non-food (foil, bags, cleaning, toiletries), totals, VAT, discounts, header rows\n"
+        '- If a name contains "/" add both as separate items'
+    )
     resp = client.messages.create(
         model="claude-sonnet-4-6",
-        max_tokens=1024,
+        max_tokens=2000,
         messages=[{"role": "user", "content": [
-            {"type": "image", "source": {"type": "base64", "media_type": media_type, "data": b64}},
-            {"type": "text", "text": (
-                "This is a grocery receipt. Extract all food/drink items purchased. "
-                "For each item, output a JSON array like: "
-                '[{"name": "Chicken breast", "section": "fridge"}, {"name": "Oats", "section": "pantry"}]. '
-                "section must be one of: fridge, pantry, condiments, freezer. "
-                "Skip non-food items. Return ONLY the JSON array, nothing else."
-            )}
+            {"type": "image", "source": {"type": "base64", "media_type": media_type, "data": input.image}},
+            {"type": "text", "text": prompt}
         ]}]
     )
     raw = resp.content[0].text.strip()
-    m = re.search(r"\[.*\]", raw, re.DOTALL)
-    if not m:
-        raise HTTPException(status_code=422, detail="Could not parse receipt items")
-    items = json.loads(m.group())
-    data = read_fridge()
-    added_date = date.today().strftime("%d %b")
-    for item in items:
-        section = item.get("section", "fridge")
-        if section not in data:
-            section = "fridge"
-        data[section].append({"name": item["name"], "added": added_date})
-    write_fridge(data)
-    return {"ok": True, "items_added": len(items), "items": items}
+    obj_match = re.search(r"\{[\s\S]*\}", raw)
+    if not obj_match:
+        raise HTTPException(status_code=422, detail="Could not parse receipt response")
+    try:
+        parsed = json.loads(obj_match.group())
+    except json.JSONDecodeError as e:
+        raise HTTPException(status_code=422, detail=f"Invalid JSON from model: {e}")
+    raw_items = parsed.get("items") or []
+    valid_sections = {"fridge", "freezer", "pantry", "condiments"}
+    items = [
+        {
+            "name": (i.get("name") or "").strip().lower(),
+            "section": i["section"] if i.get("section") in valid_sections else "fridge",
+            "unit_size_g": i.get("unit_size_g") if isinstance(i.get("unit_size_g"), (int, float)) else None,
+            "unit_count": i.get("unit_count") if isinstance(i.get("unit_count"), int) else None,
+            "cost": i.get("cost") if isinstance(i.get("cost"), (int, float)) else None,
+            # Legacy `size` string kept so the pre-units client path still works.
+            "size": (
+                f"{int(i['unit_size_g'])}g" if isinstance(i.get("unit_size_g"), (int, float))
+                else None
+            ),
+        }
+        for i in raw_items
+        if isinstance(i, dict) and i.get("name")
+    ]
+    return {"items": items, "store": parsed.get("store")}
 
 # ── MEALS AI ──────────────────────────────────────────────────────────
 @app.post("/ai/meals")
