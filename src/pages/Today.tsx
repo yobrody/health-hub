@@ -346,6 +346,14 @@ export default function Today({ onNavigate, onToggleTheme, themeIcon }: Props) {
               boxShadow: '0 1px 4px rgba(0,0,0,0.07)' }}>
             Lists
           </button>
+          {/* Goals lives here now that Fridge took its bottom-nav slot. */}
+          <button onClick={() => onNavigate('goals')}
+            style={{ flex: 1, padding: '11px 6px', borderRadius: 12, border: 'none',
+              background: 'var(--card)', color: 'var(--green)', fontWeight: 700, fontSize: 13,
+              cursor: 'pointer', WebkitTapHighlightColor: 'transparent',
+              boxShadow: '0 1px 4px rgba(0,0,0,0.07)' }}>
+            Goals
+          </button>
         </div>
 
         {/* Status strip */}

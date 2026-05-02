@@ -399,6 +399,45 @@ def suggest_meals(key=Depends(require_key)):
     meals = json.loads(m.group()) if m else []
     return {"meals": meals}
 
+class MealDetailInput(BaseModel):
+    name: str
+    ingredients: list[str] = []
+
+@app.post("/ai/meal-detail")
+def meal_detail(input: MealDetailInput, key=Depends(require_key)):
+    """Recipe + full macros for a single meal idea. The frontend calls this on
+    tap-to-expand so the cheap /ai/meals listing stays cheap (just names +
+    kcal estimates) and the expensive recipe generation only fires when the
+    user actually picks one."""
+    if not ANTHROPIC_KEY:
+        raise HTTPException(status_code=503, detail="ANTHROPIC_API_KEY not configured")
+    import anthropic as ac
+    client = ac.Anthropic(api_key=ANTHROPIC_KEY)
+    resp = client.messages.create(
+        model="claude-haiku-4-5-20251001",
+        max_tokens=800,
+        messages=[{"role": "user", "content": (
+            f"Recipe for: {input.name}\n"
+            f"Ingredients available: {', '.join(input.ingredients) if input.ingredients else '(none specified)'}\n\n"
+            "Return ONLY this JSON (no markdown, no commentary):\n"
+            '{"prep_minutes": 15, "cook_minutes": 20, "servings": 1, '
+            '"steps": ["Step 1...", "Step 2...", "..."], '
+            '"kcal": 620, "protein_g": 42, "carbs_g": 60, "fat_g": 22}\n\n'
+            "Rules:\n"
+            "- 4-8 short cooking steps (one sentence each, action-first)\n"
+            "- Macros are per serving\n"
+            "- Be realistic about portions (one serving for an active adult)"
+        )}]
+    )
+    raw = resp.content[0].text.strip()
+    m = re.search(r"\{[\s\S]*\}", raw)
+    if not m:
+        raise HTTPException(status_code=422, detail="Could not parse recipe response")
+    try:
+        return json.loads(m.group())
+    except json.JSONDecodeError as e:
+        raise HTTPException(status_code=422, detail=f"Invalid JSON from model: {e}")
+
 # ── WORKOUTS ──────────────────────────────────────────────────────────
 WORKOUTS_FILE = DATA_DIR / "workouts.json"
 
@@ -438,6 +477,30 @@ def save_workout(workout: Workout, key=Depends(require_key)):
     workouts.append(w)
     save_workouts(workouts)
     return {"ok": True, "id": w["id"]}
+
+@app.patch("/workouts/{workout_id}")
+def update_workout(workout_id: str, workout: Workout, key=Depends(require_key)):
+    """Replace a finished workout in place. Used when the user opens a saved
+    workout to fix sets, change weight, etc. — the id stays stable so PRs
+    derived from the workout don't lose their lineage."""
+    workouts = load_workouts()
+    for i, w in enumerate(workouts):
+        if w.get("id") == workout_id:
+            updated = workout.dict()
+            updated["id"] = workout_id
+            workouts[i] = updated
+            save_workouts(workouts)
+            return {"ok": True, "id": workout_id}
+    raise HTTPException(status_code=404, detail="Workout not found")
+
+@app.delete("/workouts/{workout_id}")
+def delete_workout(workout_id: str, key=Depends(require_key)):
+    workouts = load_workouts()
+    next_workouts = [w for w in workouts if w.get("id") != workout_id]
+    if len(next_workouts) == len(workouts):
+        raise HTTPException(status_code=404, detail="Workout not found")
+    save_workouts(next_workouts)
+    return {"ok": True}
 
 @app.get("/workouts/prs")
 def get_prs(key=Depends(require_key)):

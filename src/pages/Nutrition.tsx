@@ -223,9 +223,12 @@ export default function Nutrition({ onNavigate }: NutritionProps) {
                 Fridge
               </button>
             )}
+            {/* Toggle between today's meal log (default) and the photo gallery
+                of meals logged via the camera. Label always shows where you'll
+                go on tap, not the current state — matching iOS app conventions. */}
             <button className="action-pill" onClick={() => setShowDiary(d => !d)}
               style={{ background: showDiary ? 'var(--blue)' : 'var(--gray6)', color: showDiary ? '#fff' : 'var(--label)' }}>
-              {showDiary ? 'Log' : 'Diary'}
+              {showDiary ? '📋 Log' : '📸 Photos'}
             </button>
             {!showDiary && (
               <button className="action-pill" onClick={() => { setShowAdd(true); setScanMsg(null); setPhotoAnalysis(null) }}
@@ -242,8 +245,11 @@ export default function Nutrition({ onNavigate }: NutritionProps) {
             {diary.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '56px 24px', color: 'var(--label2)' }}>
                 <div style={{ fontSize: 48, marginBottom: 14 }}>📸</div>
-                <div style={{ fontSize: 17, fontWeight: 600, marginBottom: 6 }}>No photos yet</div>
-                <div style={{ fontSize: 14 }}>Tap the camera button to log a meal with a photo</div>
+                <div style={{ fontSize: 17, fontWeight: 600, marginBottom: 6 }}>No meal photos yet</div>
+                <div style={{ fontSize: 14, lineHeight: 1.5 }}>
+                  Photos of meals you log via the camera button appear here.<br />
+                  Tap <span style={{ fontWeight: 700 }}>📋 Log</span> above to see today's meal totals.
+                </div>
               </div>
             ) : (
               diary.map((entry, i) => {

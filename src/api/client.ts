@@ -108,8 +108,12 @@ export const api = {
     return res.json()
   },
 
-  // AI meals
+  // AI meals — cheap listing of names + kcal estimates
   getMealSuggestions: () => request<{ meals: Meal[] }>('/ai/meals', { method: 'POST' }),
+  // Detailed recipe + full macros for a single meal idea. Called on tap-to-expand
+  // so we don't pay the recipe-generation token cost for ideas the user ignores.
+  getMealDetail: (name: string, ingredients: string[]) =>
+    request<MealDetail>('/ai/meal-detail', { method: 'POST', body: JSON.stringify({ name, ingredients }) }),
 
   // Multi-item food photo analysis. Mode = "home" cross-references the user's
   // fridge inventory and returns per-item grams_used for depletion. Mode = "out"
@@ -183,7 +187,12 @@ export const api = {
   getWorkouts: (limit = 30) =>
     request<WorkoutData[] | { value: WorkoutData[] }>(`/workouts?limit=${limit}`).then(unwrap),
   saveWorkout: (workout: WorkoutInput) =>
-    request('/workouts', { method: 'POST', body: JSON.stringify(workout) }),
+    request<{ ok: boolean; id: string }>('/workouts', { method: 'POST', body: JSON.stringify(workout) }),
+  // Replace a finished workout in place — same id, new contents.
+  updateWorkout: (id: string, workout: WorkoutInput) =>
+    request<{ ok: boolean; id: string }>(`/workouts/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(workout) }),
+  deleteWorkout: (id: string) =>
+    request<{ ok: boolean }>(`/workouts/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   getPRs: () => request<Record<string, PR>>('/workouts/prs'),
 
   // Goals
@@ -282,6 +291,16 @@ export interface FridgeItem {
   quantity_count?: number | null
 }
 export interface Meal { name: string; ingredients: string[]; kcal_estimate: number }
+export interface MealDetail {
+  prep_minutes?: number
+  cook_minutes?: number
+  servings?: number
+  steps: string[]
+  kcal: number
+  protein_g: number
+  carbs_g: number
+  fat_g: number
+}
 export interface ExerciseSet { weight_kg?: number; reps?: number; duration_seconds?: number }
 export interface ExerciseData { name: string; sets: ExerciseSet[] }
 export interface WorkoutData { id: string; title: string; start_time: string; end_time: string; exercises: ExerciseData[] }
