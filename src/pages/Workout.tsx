@@ -1073,6 +1073,7 @@ export default function Workout() {
                   <div key={w.id || i} className="list-row" style={{ gap: 10 }}>
                     <button
                       onClick={() => loadWorkoutForEdit(w)}
+                      title="Tap to edit this workout"
                       style={{ flex: 1, background: 'none', border: 'none', textAlign: 'left', cursor: 'pointer', padding: 0, color: 'inherit' }}
                     >
                       <div style={{ fontSize: 15, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -1080,13 +1081,14 @@ export default function Workout() {
                         {isProgramDay && <span className="badge badge-blue" style={{ fontSize: 10 }}>{(PROGRAM as Record<string, ProgramDay>)[w.title]?.focus}</span>}
                       </div>
                       <div style={{ fontSize: 13, color: 'var(--label2)', marginTop: 2 }}>
-                        {start.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })} · {mins} min
+                        {start.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })} · {mins} min · {w.exercises.length} exercises · {Math.round(vol).toLocaleString()}kg
                       </div>
                     </button>
-                    <div style={{ textAlign: 'right' }}>
-                      <div style={{ fontSize: 14, fontWeight: 600 }}>{w.exercises.length} exercises</div>
-                      <div style={{ fontSize: 12, color: 'var(--label2)' }}>{Math.round(vol).toLocaleString()}kg vol</div>
-                    </div>
+                    <button
+                      onClick={() => loadWorkoutForEdit(w)}
+                      aria-label="Edit workout"
+                      style={{ background: 'var(--gray6)', border: 'none', color: 'var(--label2)', cursor: 'pointer', padding: '6px 10px', fontSize: 12, fontWeight: 600, borderRadius: 14, flexShrink: 0 }}
+                    >Edit</button>
                     <button
                       onClick={() => deleteWorkout(w)}
                       aria-label="Delete workout"

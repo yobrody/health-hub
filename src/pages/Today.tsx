@@ -112,6 +112,10 @@ export default function Today({ onNavigate, onToggleTheme, themeIcon }: Props) {
   const [nextWorkout, setNextWorkout] = useState<DayName>('Upper A')
   const [weekStats, setWeekStats] = useState<WeekStats | null>(null)
   const [fridgeData, setFridgeData] = useState<FridgeData | null>(null)
+  // Actual counts for the 2x2 status grid — replaces the placeholder "tap"
+  // so each tile shows real state at a glance.
+  const [agendaCount, setAgendaCount] = useState<{ open: number; total: number } | null>(null)
+  const [shoppingCount, setShoppingCount] = useState<number | null>(null)
   const [showCelebrate, setShowCelebrate] = useState(false)
   const [displayName, setDisplayName] = useState('Brody')
   const inputRef = useRef<HTMLInputElement>(null)
@@ -128,6 +132,12 @@ export default function Today({ onNavigate, onToggleTheme, themeIcon }: Props) {
 
     api.getWeekStats().then(setWeekStats).catch(() => {})
     api.getFridge().then(setFridgeData).catch(() => {})
+    api.getAgendaToday()
+      .then(d => setAgendaCount({ open: d.items.filter(i => !i.done).length, total: d.items.length }))
+      .catch(() => {})
+    api.getList('shopping')
+      .then(d => setShoppingCount(d.items.filter(i => !i.checked).length))
+      .catch(() => {})
     api.getWorkouts(20).then(workouts => {
       const recentTitles = [...workouts].reverse().map(w => w.title)
       setNextWorkout(getNextDay(recentTitles))
@@ -332,13 +342,13 @@ export default function Today({ onNavigate, onToggleTheme, themeIcon }: Props) {
             </div>
             <div style={{ fontSize: 11, color: 'var(--label3)', marginTop: 2 }}>this week</div>
           </button>
-          {/* Plan items today */}
+          {/* Plan items today — shows open / total. Tap opens agenda. */}
           <button onClick={() => onNavigate('agenda')} style={{ background: 'transparent', border: 'none', borderRadius: 12, padding: '12px 12px', cursor: 'pointer', textAlign: 'left', WebkitTapHighlightColor: 'transparent' }}>
             <div style={{ fontSize: 11, color: 'var(--label2)', fontWeight: 600, marginBottom: 4, letterSpacing: 0.4 }}>TODAY'S PLAN</div>
-            <div style={{ fontSize: 20, fontWeight: 700, letterSpacing: '-0.5px' }}>
-              <span style={{ color: 'var(--blue)' }}>tap</span>
+            <div style={{ fontSize: 20, fontWeight: 700, letterSpacing: '-0.5px', color: agendaCount && agendaCount.open === 0 && agendaCount.total > 0 ? 'var(--green)' : 'var(--label)' }}>
+              {agendaCount === null ? '—' : `${agendaCount.open}`}<span style={{ fontSize: 13, fontWeight: 500, color: 'var(--label2)' }}>{agendaCount === null ? '' : ` / ${agendaCount.total}`}</span>
             </div>
-            <div style={{ fontSize: 11, color: 'var(--label3)', marginTop: 2 }}>view agenda</div>
+            <div style={{ fontSize: 11, color: 'var(--label3)', marginTop: 2 }}>{agendaCount && agendaCount.open === 0 ? 'all done' : 'open'}</div>
           </button>
           {/* Skincare AM/PM */}
           <button onClick={() => onNavigate('skincare')} style={{ background: 'transparent', border: 'none', borderRadius: 12, padding: '12px 12px', cursor: 'pointer', textAlign: 'left', WebkitTapHighlightColor: 'transparent' }}>
@@ -350,11 +360,13 @@ export default function Today({ onNavigate, onToggleTheme, themeIcon }: Props) {
             </div>
             <div style={{ fontSize: 11, color: 'var(--label3)', marginTop: 2 }}>routine</div>
           </button>
-          {/* Lists / shopping */}
+          {/* Lists / shopping — shows unchecked count. */}
           <button onClick={() => onNavigate('lists')} style={{ background: 'transparent', border: 'none', borderRadius: 12, padding: '12px 12px', cursor: 'pointer', textAlign: 'left', WebkitTapHighlightColor: 'transparent' }}>
-            <div style={{ fontSize: 11, color: 'var(--label2)', fontWeight: 600, marginBottom: 4, letterSpacing: 0.4 }}>LISTS</div>
-            <div style={{ fontSize: 20, fontWeight: 700, letterSpacing: '-0.5px', color: 'var(--orange)' }}>tap</div>
-            <div style={{ fontSize: 11, color: 'var(--label3)', marginTop: 2 }}>shopping & more</div>
+            <div style={{ fontSize: 11, color: 'var(--label2)', fontWeight: 600, marginBottom: 4, letterSpacing: 0.4 }}>SHOPPING</div>
+            <div style={{ fontSize: 20, fontWeight: 700, letterSpacing: '-0.5px', color: shoppingCount && shoppingCount > 0 ? 'var(--orange)' : 'var(--label)' }}>
+              {shoppingCount === null ? '—' : shoppingCount}<span style={{ fontSize: 13, fontWeight: 500, color: 'var(--label2)' }}> {shoppingCount === 1 ? 'item' : 'items'}</span>
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--label3)', marginTop: 2 }}>to buy</div>
           </button>
         </div>
 
