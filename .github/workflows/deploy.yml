@@ -9,8 +9,8 @@ name: Deploy to Cloudflare Pages
 #   CLOUDFLARE_ACCOUNT_ID — your CF account id (visible in dashboard URL or
 #                          top-right of any account page)
 #
-# Project name in CF must match `health-hub-dwz` below — change if your
-# Pages project has a different name.
+# Project name in CF is `health-hub` (subdomain `health-hub-dwz.pages.dev`
+# is auto-generated and is NOT the project name).
 
 on:
   push:
@@ -50,4 +50,4 @@ jobs:
           # `wrangler pages deploy <dir>` reads functions/ from CWD automatically
           # so the Pages Functions get compiled and bundled correctly. Branch
           # `main` makes this a Production deployment (vs preview).
-          command: pages deploy dist --project-name=health-hub-dwz --branch=main
+          command: pages deploy dist --project-name=health-hub --branch=main
