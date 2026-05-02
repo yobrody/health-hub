@@ -732,3 +732,103 @@ def delete_agenda_item(item_id: str, key=Depends(require_key)):
     items = [i for i in items if i["id"] != item_id]
     save_agenda(items)
     return {"ok": True}
+
+# ── HEALTHKIT SYNC ────────────────────────────────────────────────────
+# Endpoints for an iOS Shortcut that pushes Apple Health data into Health Hub.
+# Covers: body weight, active calories, workouts (incl. gym sessions). The
+# Shortcut is the only thing that knows about HealthKit — this side is
+# storage-agnostic and just appends to JSON files.
+HEALTHKIT_FILE = DATA_DIR / "healthkit.json"
+
+class HealthKitWorkout(BaseModel):
+    """A single workout / activity row from HealthKit."""
+    type: str  # e.g. "Functional Strength Training", "Walking"
+    start: str  # ISO 8601 datetime
+    duration_min: float
+    active_calories: Optional[float] = None
+    distance_km: Optional[float] = None
+
+class HealthKitPayload(BaseModel):
+    # Use any combination — the Shortcut may push partial syncs (e.g. just weight).
+    weight_kg: Optional[float] = None
+    weight_at: Optional[str] = None  # ISO datetime
+    active_calories_today: Optional[float] = None
+    resting_calories_today: Optional[float] = None
+    steps_today: Optional[int] = None
+    workouts: Optional[list[HealthKitWorkout]] = None
+
+def _read_healthkit() -> dict:
+    if not HEALTHKIT_FILE.exists():
+        return {"weight_log": [], "daily": [], "workouts": []}
+    try:
+        return json.loads(HEALTHKIT_FILE.read_text())
+    except (json.JSONDecodeError, OSError):
+        return {"weight_log": [], "daily": [], "workouts": []}
+
+def _write_healthkit(data: dict):
+    HEALTHKIT_FILE.write_text(json.dumps(data, indent=2))
+
+@app.post("/healthkit/sync")
+def healthkit_sync(payload: HealthKitPayload, key=Depends(require_key)):
+    """Append HealthKit data to healthkit.json. Idempotent on workouts (dedupe
+    by start+type) so the Shortcut can push the same window twice without
+    duplicating entries. Returns counts so the Shortcut can show a toast."""
+    store = _read_healthkit()
+
+    added = {"weight": 0, "daily": 0, "workouts": 0}
+
+    if payload.weight_kg is not None and payload.weight_at is not None:
+        store["weight_log"].append({"kg": payload.weight_kg, "at": payload.weight_at})
+        store["weight_log"] = store["weight_log"][-365:]  # cap at ~1yr
+        added["weight"] = 1
+
+    if any(v is not None for v in [payload.active_calories_today, payload.resting_calories_today, payload.steps_today]):
+        today_str = date.today().isoformat()
+        # Replace today's row if it exists (Shortcut may sync hourly); otherwise append.
+        store["daily"] = [d for d in store["daily"] if d.get("date") != today_str]
+        store["daily"].append({
+            "date": today_str,
+            "active_calories": payload.active_calories_today,
+            "resting_calories": payload.resting_calories_today,
+            "steps": payload.steps_today,
+            "synced_at": datetime.now().isoformat(),
+        })
+        store["daily"] = store["daily"][-90:]  # 90-day window
+        added["daily"] = 1
+
+    if payload.workouts:
+        existing_keys = {(w["start"], w["type"]) for w in store["workouts"]}
+        for w in payload.workouts:
+            key_pair = (w.start, w.type)
+            if key_pair in existing_keys:
+                continue
+            store["workouts"].append({
+                "type": w.type,
+                "start": w.start,
+                "duration_min": w.duration_min,
+                "active_calories": w.active_calories,
+                "distance_km": w.distance_km,
+                "synced_at": datetime.now().isoformat(),
+            })
+            existing_keys.add(key_pair)
+            added["workouts"] += 1
+        store["workouts"] = store["workouts"][-365:]
+
+    _write_healthkit(store)
+    return {"ok": True, "added": added}
+
+@app.get("/healthkit/latest")
+def healthkit_latest(key=Depends(require_key)):
+    """Returns latest synced summary so the frontend can show
+    "Last HealthKit sync: 2 hours ago" + the most recent weight/active-cal totals."""
+    store = _read_healthkit()
+    last_weight = store["weight_log"][-1] if store["weight_log"] else None
+    last_daily = store["daily"][-1] if store["daily"] else None
+    last_workout = store["workouts"][-1] if store["workouts"] else None
+    return {
+        "last_weight": last_weight,
+        "last_daily": last_daily,
+        "last_workout": last_workout,
+        "weight_count": len(store["weight_log"]),
+        "workout_count": len(store["workouts"]),
+    }
