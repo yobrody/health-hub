@@ -439,6 +439,30 @@ def save_workout(workout: Workout, key=Depends(require_key)):
     save_workouts(workouts)
     return {"ok": True, "id": w["id"]}
 
+@app.patch("/workouts/{workout_id}")
+def update_workout(workout_id: str, workout: Workout, key=Depends(require_key)):
+    """Replace a finished workout in place. Used when the user opens a saved
+    workout to fix sets, change weight, etc. — the id stays stable so PRs
+    derived from the workout don't lose their lineage."""
+    workouts = load_workouts()
+    for i, w in enumerate(workouts):
+        if w.get("id") == workout_id:
+            updated = workout.dict()
+            updated["id"] = workout_id
+            workouts[i] = updated
+            save_workouts(workouts)
+            return {"ok": True, "id": workout_id}
+    raise HTTPException(status_code=404, detail="Workout not found")
+
+@app.delete("/workouts/{workout_id}")
+def delete_workout(workout_id: str, key=Depends(require_key)):
+    workouts = load_workouts()
+    next_workouts = [w for w in workouts if w.get("id") != workout_id]
+    if len(next_workouts) == len(workouts):
+        raise HTTPException(status_code=404, detail="Workout not found")
+    save_workouts(next_workouts)
+    return {"ok": True}
+
 @app.get("/workouts/prs")
 def get_prs(key=Depends(require_key)):
     workouts = load_workouts()

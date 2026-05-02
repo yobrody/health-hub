@@ -304,18 +304,38 @@ export default function Fridge() {
     ...STAPLES.filter(staple => !allItems.some(i => i.name.toLowerCase().includes(staple))),
   ].filter((v, i, a) => a.indexOf(v) === i).slice(0, 10)
 
-  function shareShoppingList() {
-    const expiringLines = alertItems.map(i => `\u2022 ${i.name} (${daysOld(i.added)}d old \u2014 replace)`)
-    const text = expiringLines.length > 0
-      ? `\u{1F6D2} Shopping List\n\nNeeds replacing:\n${expiringLines.join('\n')}`
-      : '\u{1F6D2} Shopping List\n\nFridge is well stocked! Nothing to replace yet.'
-    if (navigator.share) {
-      navigator.share({ title: 'Shopping List', text }).catch(() => {})
-    } else {
-      navigator.clipboard.writeText(text).then(() => {
-        setScanStatus('\u2713 Shopping list copied to clipboard!')
-        setTimeout(() => setScanStatus(null), 3000)
-      })
+  // Adds expiring items + recommended staples to the persistent shopping list
+  // (Lists page \u2192 Shopping tab). Replaces the previous navigator.share flow,
+  // which silently failed in iOS PWA standalone mode for some users. Fetching
+  // the existing list first keeps duplicates out so repeated taps are safe.
+  async function shareShoppingList() {
+    const candidates = [
+      ...alertItems.map(i => i.name),
+      ...STAPLES.filter(staple => !allItems.some(i => i.name.toLowerCase().includes(staple))),
+    ].filter((v, i, a) => a.indexOf(v) === i)
+
+    if (candidates.length === 0) {
+      setScanStatus('Fridge is well stocked \u2014 nothing to add')
+      setTimeout(() => setScanStatus(null), 2500)
+      return
+    }
+
+    setScanStatus('Adding to shopping list\u2026')
+    try {
+      const existing = await api.getList('shopping').catch(() => ({ items: [] as { text: string }[] }))
+      const have = new Set(existing.items.map(i => i.text.toLowerCase().trim()))
+      const fresh = candidates.filter(name => !have.has(name.toLowerCase().trim()))
+      if (fresh.length === 0) {
+        setScanStatus('Already on your shopping list')
+        setTimeout(() => setScanStatus(null), 2500)
+        return
+      }
+      await Promise.allSettled(fresh.map(name => api.addListItem('shopping', name)))
+      setScanStatus(`\u2713 Added ${fresh.length} to shopping list`)
+      setTimeout(() => setScanStatus(null), 3500)
+    } catch {
+      setScanStatus('Failed to update shopping list')
+      setTimeout(() => setScanStatus(null), 3000)
     }
   }
 

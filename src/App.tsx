@@ -16,12 +16,12 @@ import './App.css'
 
 type Tab = 'today' | 'nutrition' | 'fridge' | 'workout' | 'goals' | 'skincare' | 'lists' | 'agenda'
 
-// 4 visible tabs — Fridge/Skincare accessible via navigation within pages
+// 4 visible tabs. Goals/Skincare/Lists/Agenda accessible via Today's quick actions.
 const TABS: { id: Tab; label: string }[] = [
   { id: 'today',     label: 'Today'    },
   { id: 'nutrition', label: 'Nutrition'},
   { id: 'workout',   label: 'Workout'  },
-  { id: 'goals',     label: 'Goals'    },
+  { id: 'fridge',    label: 'Fridge'   },
 ]
 
 function TabIcon({ id, active }: { id: Tab; active: boolean }) {
@@ -62,6 +62,14 @@ function TabIcon({ id, active }: { id: Tab; active: boolean }) {
         <rect x="3" y="14" width="4" height="8" rx="1" opacity={active ? 1 : 0.6}/>
         <rect x="10" y="9" width="4" height="13" rx="1" opacity={active ? 1 : 0.6}/>
         <rect x="17" y="4" width="4" height="18" rx="1" opacity={active ? 1 : 0.6}/>
+      </svg>
+    )
+    case 'fridge': return (
+      <svg {...s} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="6" y="2" width="12" height="20" rx="2"/>
+        <line x1="6" y1="10" x2="18" y2="10"/>
+        <line x1="9" y1="6" x2="9" y2="7"/>
+        <line x1="9" y1="13" x2="9" y2="14"/>
       </svg>
     )
     default: return null

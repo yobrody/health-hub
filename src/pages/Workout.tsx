@@ -21,7 +21,18 @@ interface LiveExercise {
   restSeconds?: number
   notes?: string
 }
-interface LiveWorkout { title: string; startTime: string; exercises: LiveExercise[] }
+interface LiveWorkout {
+  title: string
+  startTime: string
+  exercises: LiveExercise[]
+  // When set, finishing the workout PATCHes an existing record instead of
+  // creating a new one. Allows editing finished workouts — open from the
+  // recent list, change anything, save back to the same id.
+  editingId?: string
+  // Preserve the original end_time when editing so we don't bump the workout
+  // forward in the timeline on every edit.
+  editingEndTime?: string
+}
 
 function parseRepRange(repRange?: string): { min: number; max: number } | null {
   if (!repRange) return null
@@ -386,8 +397,8 @@ export default function Workout() {
   async function finishWorkout() {
     if (!live) return
     setFinishing(true)
-    const endTime = new Date().toISOString()
-    await api.saveWorkout({
+    const endTime = live.editingEndTime ?? new Date().toISOString()
+    const payload = {
       title: live.title,
       start_time: live.startTime,
       end_time: endTime,
@@ -397,18 +408,55 @@ export default function Workout() {
           const { done, ...rest } = s
           void done
           return rest
-        })
-      }))
-    })
+        }),
+      })),
+    }
+    if (live.editingId) {
+      await api.updateWorkout(live.editingId, payload)
+    } else {
+      await api.saveWorkout(payload)
+    }
     const [updated, updatedPRs] = await Promise.all([api.getWorkouts(20), api.getPRs()])
     setWorkouts(updated)
     setPRs(updatedPRs)
-    publishCoachFeed(live)
+    if (!live.editingId) publishCoachFeed(live)
     setLive(null)
     setRestTimer(null)
     setFinishing(false)
     if (navigator.vibrate) navigator.vibrate([50, 50, 200])
-    showToast('Workout saved')
+    showToast(live.editingId ? 'Workout updated' : 'Workout saved')
+  }
+
+  function loadWorkoutForEdit(w: WorkoutData) {
+    // Hydrate a saved workout back into the live editor. Sets are marked done
+    // because they were completed; the user can untoggle to re-edit a set.
+    const exercises: LiveExercise[] = w.exercises.map(ex => {
+      const pr = prs[ex.name]
+      const sets: LiveSet[] = ex.sets.map(s => ({ ...s, done: true }))
+      return { name: ex.name, sets, prevBest: pr }
+    })
+    setLive({
+      title: w.title,
+      startTime: w.start_time,
+      exercises,
+      editingId: w.id,
+      editingEndTime: w.end_time,
+    })
+    setRestTimer(null)
+    if (navigator.vibrate) navigator.vibrate(15)
+  }
+
+  async function deleteWorkout(w: WorkoutData) {
+    if (!confirm(`Delete "${w.title}" from ${new Date(w.start_time).toLocaleDateString()}?`)) return
+    try {
+      await api.deleteWorkout(w.id)
+      const [updated, updatedPRs] = await Promise.all([api.getWorkouts(20), api.getPRs()])
+      setWorkouts(updated)
+      setPRs(updatedPRs)
+      showToast('Workout deleted')
+    } catch {
+      showToast('Failed to delete workout', 'err')
+    }
   }
 
   // ── LIVE WORKOUT VIEW ──────────────────────────────────────────
@@ -430,10 +478,18 @@ export default function Workout() {
                   <ElapsedTimer startTime={live.startTime} /> · {totalSets} sets · {Math.round(totalVolume).toLocaleString()}kg vol
                 </div>
               </div>
-              <button
-                onClick={finishWorkout} disabled={finishing || live.exercises.length === 0}
-                style={{ background: 'rgba(255,255,255,0.25)', border: 'none', borderRadius: 20, padding: '8px 16px', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer', opacity: (finishing || live.exercises.length === 0) ? 0.5 : 1 }}
-              >{finishing ? '…' : 'Finish'}</button>
+              <div style={{ display: 'flex', gap: 6 }}>
+                {live.editingId && (
+                  <button
+                    onClick={() => { setLive(null); setRestTimer(null) }}
+                    style={{ background: 'rgba(255,255,255,0.18)', border: 'none', borderRadius: 20, padding: '8px 12px', color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
+                  >Cancel</button>
+                )}
+                <button
+                  onClick={finishWorkout} disabled={finishing || live.exercises.length === 0}
+                  style={{ background: 'rgba(255,255,255,0.25)', border: 'none', borderRadius: 20, padding: '8px 16px', color: '#fff', fontSize: 14, fontWeight: 700, cursor: 'pointer', opacity: (finishing || live.exercises.length === 0) ? 0.5 : 1 }}
+                >{finishing ? '…' : (live.editingId ? 'Save' : 'Finish')}</button>
+              </div>
             </div>
             {/* Eating-status badge — tells the user whether the predicted-weight rule
                 is bumping or holding today. Quiet when it's holding (red would feel
@@ -638,8 +694,11 @@ export default function Workout() {
                 const vol = w.exercises.reduce((a, ex) => a + ex.sets.reduce((b, s) => b + (s.weight_kg ?? 0) * (s.reps ?? 0), 0), 0)
                 const isProgramDay = ROTATION.includes(w.title as DayName)
                 return (
-                  <div key={i} className="list-row">
-                    <div style={{ flex: 1 }}>
+                  <div key={w.id || i} className="list-row" style={{ gap: 10 }}>
+                    <button
+                      onClick={() => loadWorkoutForEdit(w)}
+                      style={{ flex: 1, background: 'none', border: 'none', textAlign: 'left', cursor: 'pointer', padding: 0, color: 'inherit' }}
+                    >
                       <div style={{ fontSize: 15, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 6 }}>
                         {w.title}
                         {isProgramDay && <span className="badge badge-blue" style={{ fontSize: 10 }}>{(PROGRAM as Record<string, ProgramDay>)[w.title]?.focus}</span>}
@@ -647,11 +706,16 @@ export default function Workout() {
                       <div style={{ fontSize: 13, color: 'var(--label2)', marginTop: 2 }}>
                         {start.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })} · {mins} min
                       </div>
-                    </div>
+                    </button>
                     <div style={{ textAlign: 'right' }}>
                       <div style={{ fontSize: 14, fontWeight: 600 }}>{w.exercises.length} exercises</div>
                       <div style={{ fontSize: 12, color: 'var(--label2)' }}>{Math.round(vol).toLocaleString()}kg vol</div>
                     </div>
+                    <button
+                      onClick={() => deleteWorkout(w)}
+                      aria-label="Delete workout"
+                      style={{ background: 'none', border: 'none', color: 'var(--label3)', cursor: 'pointer', padding: '4px 6px', fontSize: 18, borderRadius: 8, flexShrink: 0 }}
+                    >×</button>
                   </div>
                 )
               })}

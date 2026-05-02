@@ -183,7 +183,12 @@ export const api = {
   getWorkouts: (limit = 30) =>
     request<WorkoutData[] | { value: WorkoutData[] }>(`/workouts?limit=${limit}`).then(unwrap),
   saveWorkout: (workout: WorkoutInput) =>
-    request('/workouts', { method: 'POST', body: JSON.stringify(workout) }),
+    request<{ ok: boolean; id: string }>('/workouts', { method: 'POST', body: JSON.stringify(workout) }),
+  // Replace a finished workout in place — same id, new contents.
+  updateWorkout: (id: string, workout: WorkoutInput) =>
+    request<{ ok: boolean; id: string }>(`/workouts/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(workout) }),
+  deleteWorkout: (id: string) =>
+    request<{ ok: boolean }>(`/workouts/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   getPRs: () => request<Record<string, PR>>('/workouts/prs'),
 
   // Goals
