@@ -35,15 +35,36 @@ async function compressThumbnail(file: File): Promise<string> {
 }
 
 async function detectBarcode(file: File): Promise<string | null> {
-  if (!('BarcodeDetector' in window)) return null
+  // 1) Native BarcodeDetector — Chrome on Android + desktop. Much faster than
+  // the JS decoder when available.
+  if ('BarcodeDetector' in window) {
+    try {
+      const BD = (window as unknown as { BarcodeDetector: new (o: object) => { detect: (b: ImageBitmap) => Promise<Array<{ rawValue: string }>> } }).BarcodeDetector
+      const detector = new BD({ formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39', 'qr_code'] })
+      const bitmap = await createImageBitmap(file)
+      const barcodes = await detector.detect(bitmap)
+      bitmap.close()
+      if (barcodes.length) return barcodes[0].rawValue
+      // No barcode found in image — don't fall through, just return null.
+      // (Falling through would double the latency on a clean miss.)
+      return null
+    } catch {
+      // Native detector errored unexpectedly — fall through to JS fallback.
+    }
+  }
+  // 2) JS fallback for iOS Safari + Firefox + older browsers. Code-split via
+  // dynamic import so the ~80KB decoder doesn't bloat first paint for users
+  // who never scan a barcode.
   try {
-    const BD = (window as unknown as { BarcodeDetector: new (o: object) => { detect: (b: ImageBitmap) => Promise<Array<{ rawValue: string }>> } }).BarcodeDetector
-    const detector = new BD({ formats: ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39', 'qr_code'] })
-    const bitmap = await createImageBitmap(file)
-    const barcodes = await detector.detect(bitmap)
-    bitmap.close()
-    if (!barcodes.length) return null
-    return barcodes[0].rawValue
+    const { BrowserMultiFormatReader } = await import('@zxing/browser')
+    const reader = new BrowserMultiFormatReader()
+    const url = URL.createObjectURL(file)
+    try {
+      const result = await reader.decodeFromImageUrl(url)
+      return result.getText()
+    } finally {
+      URL.revokeObjectURL(url)
+    }
   } catch {
     return null
   }
@@ -296,7 +317,6 @@ export default function CameraSheet({ open, onClose, fridgeData, onFridgeUpdated
 
   const totalKcal = analysis?.foods.reduce((a, f) => a + f.kcal, 0) ?? 0
   const totalProtein = Math.round(analysis?.foods.reduce((a, f) => a + f.protein_g, 0) ?? 0)
-  const hasBarcodeSupport = typeof window !== 'undefined' && 'BarcodeDetector' in window
 
   return (
     <div
@@ -395,13 +415,11 @@ export default function CameraSheet({ open, onClose, fridgeData, onFridgeUpdated
 
             <button
               onClick={() => barcodeInputRef.current?.click()}
-              disabled={!hasBarcodeSupport}
               style={{
-                background: hasBarcodeSupport ? 'var(--purple)' : 'var(--gray4)',
+                background: 'var(--purple)',
                 color: '#fff', border: 'none', borderRadius: 16, padding: '18px 20px',
-                fontSize: 17, fontWeight: 700, cursor: hasBarcodeSupport ? 'pointer' : 'default',
+                fontSize: 17, fontWeight: 700, cursor: 'pointer',
                 textAlign: 'left', display: 'flex', alignItems: 'center', gap: 14,
-                opacity: hasBarcodeSupport ? 1 : 0.5,
               }}
             >
               <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round">
@@ -412,7 +430,7 @@ export default function CameraSheet({ open, onClose, fridgeData, onFridgeUpdated
               <div>
                 <div>Scan Barcode</div>
                 <div style={{ fontSize: 13, fontWeight: 400, opacity: 0.82, marginTop: 2 }}>
-                  {hasBarcodeSupport ? 'Log food or add to fridge' : 'Not supported on this device'}
+                  Log food or add to fridge
                 </div>
               </div>
             </button>
