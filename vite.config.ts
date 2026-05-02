@@ -4,16 +4,23 @@ import react from '@vitejs/plugin-react'
 import { VitePWA } from 'vite-plugin-pwa'
 import type { IncomingMessage, ServerResponse } from 'http'
 
-// Local-dev middleware: handles AI endpoints without exposing API keys to browser
-// ANTHROPIC_API_KEY must be in .env (no VITE_ prefix — never exposed to frontend)
-// env is passed from defineConfig so loadEnv values are available in closures
-function localAiPlugin(anthropicKey: string, healthKey: string) {
-  const VPS = 'http://128.140.33.150:8080'
+// Local-dev middleware: handles AI endpoints without exposing API keys to browser.
+// ANTHROPIC_API_KEY must be in .env (no VITE_ prefix — never exposed to frontend).
+// Items returned from /api/fridge/scan are NOT added to the VPS server-side here
+// (matches prod Pages Function behavior); the frontend iterates /api/fridge/item
+// for each item, which gives the user a confirm step.
+function localAiPlugin(anthropicKey: string) {
   return {
     name: 'local-ai-endpoints',
     configureServer(server: { middlewares: Connect.Server }) {
 
-      // POST /api/fridge/scan — receipt scanning via Claude Vision
+      // POST /api/fridge/scan — receipt scanning via Claude Vision.
+      // Dev middleware kept in sync with the prod Cloudflare Pages Function
+      // (functions/api/fridge/scan.js): same JSON contract in, same shape out
+      // ({items, store}), same per-item fields (unit_size_g, unit_count) so the
+      // Phase 1 fridge-depletion flow works identically in dev and prod.
+      // Note: prod uses OpenRouter/Gemini; dev uses Anthropic directly because
+      // the local user already has the key in .env.
       server.middlewares.use('/api/fridge/scan', (req: IncomingMessage, res: ServerResponse, next: Connect.NextFunction) => {
         if (req.method === 'OPTIONS') {
           res.writeHead(204, { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'POST,OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type,X-Health-Key' })
@@ -23,10 +30,8 @@ function localAiPlugin(anthropicKey: string, healthKey: string) {
 
         if (!anthropicKey) {
           res.writeHead(503, { 'Content-Type': 'application/json' })
-          res.end(JSON.stringify({ error: 'Set ANTHROPIC_API_KEY in .env for receipt scanning', items_added: 0 })); return
+          res.end(JSON.stringify({ error: 'Set ANTHROPIC_API_KEY in .env for receipt scanning', items: [], store: null })); return
         }
-
-        const HEALTH_KEY = healthKey
 
         const chunks: Buffer[] = []
         req.on('data', (c: Buffer) => chunks.push(c))
@@ -34,25 +39,32 @@ function localAiPlugin(anthropicKey: string, healthKey: string) {
           try {
             const { image, mimeType = 'image/jpeg' } = JSON.parse(Buffer.concat(chunks).toString())
 
-            const prompt = `This is a grocery store receipt. Extract only edible food and drink items.
+            const prompt = `Look at this grocery store receipt. Extract the purchased food and drink items.
 
-Return ONLY this JSON (no other text):
-{"items":["item name 1","item name 2"],"count":<number>}
+Return ONLY valid JSON, no markdown or explanation:
+{"store":{"name":"store name","location":"address/area or null"},"items":[{"name":"readable name","unit_size_g":340,"unit_count":null,"size":"340g","cost":1.89,"section":"fridge"}]}
 
 Rules:
-- Short simple names (e.g. "chicken breast" not "CHKN BRST 1KG BNLS", "greek yogurt" not "GREEK YOG 10%")
-- INCLUDE: fresh produce, meat, fish, dairy, eggs, bread, frozen food, snacks, drinks, condiments, coffee, tea, canned/jarred food, spices
-- SKIP non-food items: foil, cling film, bags, cleaning products, batteries, toiletries, paper, packaging
-- SKIP: prices, totals, store name, address, dates, barcodes, receipt numbers, VAT lines
-- If an item name contains "/" it may be two items — add both separately
-- Max 30 items`
+- name: clean readable name (e.g. "greek yogurt" not "GREEK YOG 10%")
+- unit_size_g: pack size in grams as a NUMBER ("340g" → 340, "1kg" → 1000, "1.5L" → 1500). null if not weight-based.
+- unit_count: discrete count if more natural (eggs: 6/12, apples: 4). null otherwise.
+- size: human-readable "340g" / "1L" / "12 eggs" — null if not shown.
+- cost: number — null if not visible
+- section: one of "fridge", "freezer", "pantry", "condiments"
+  - fridge: dairy, fresh produce, eggs, meat/fish, yogurt, juice
+  - freezer: frozen meals, ice cream, frozen veg/meat
+  - pantry: canned, dry goods, snacks, coffee, tea, bread, nuts, spreads, chocolate
+  - condiments: sauces, oils, vinegar, dressings, spices
+- INCLUDE all food and drink items
+- SKIP non-food (foil, bags, cleaning, toiletries), totals, VAT, discounts, header rows
+- If a name contains "/" add both as separate items`
 
             const apiRes = await fetch('https://api.anthropic.com/v1/messages', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json', 'x-api-key': anthropicKey, 'anthropic-version': '2023-06-01' },
               body: JSON.stringify({
                 model: 'claude-sonnet-4-6',
-                max_tokens: 600,
+                max_tokens: 2000,
                 messages: [{ role: 'user', content: [
                   { type: 'image', source: { type: 'base64', media_type: mimeType, data: image } },
                   { type: 'text', text: prompt },
@@ -60,38 +72,36 @@ Rules:
               }),
             })
             const claude = await apiRes.json() as { content?: Array<{ text: string }> }
-            const text = claude.content?.[0]?.text || '{"items":[]}'
+            const text = claude.content?.[0]?.text || '{}'
             const match = text.match(/\{[\s\S]*\}/)
-            const { items = [] }: { items: string[] } = JSON.parse(match?.[0] || '{"items":[]}')
-
-            function getZone(name: string) {
-              const n = name.toLowerCase()
-              if (['butter','oil','sauce','mayo','mustard','ketchup','vinegar','soy','sriracha'].some(k => n.includes(k))) return 'condiments'
-              if (n.includes('frozen') || n.includes('ice cream')) return 'freezer'
-              if (['flour','rice','pasta','oat','bread','cereal','nuts','canned','tin','jar','chips','crackers'].some(k => n.includes(k))) return 'pantry'
-              return 'fridge'
-            }
-
-            let added = 0
-            await Promise.allSettled(items.map(async (name: string) => {
-              const r = await fetch(`${VPS}/fridge/item`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'X-Health-Key': HEALTH_KEY },
-                body: JSON.stringify({ name, section: getZone(name) }),
-              })
-              if (r.ok) added++
-            }))
+            type RawScanned = { name?: string; section?: string; unit_size_g?: number; unit_count?: number; size?: string; cost?: number }
+            const parsed = JSON.parse(match?.[0] || '{}') as { items?: RawScanned[]; store?: { name?: string; location?: string | null } | null }
+            const validSections = new Set(['fridge', 'freezer', 'pantry', 'condiments'])
+            const items = (parsed.items ?? [])
+              .filter((i) => i?.name)
+              .map((i) => ({
+                name: String(i.name).toLowerCase().trim(),
+                size: i.size ?? (typeof i.unit_size_g === 'number' ? `${i.unit_size_g}g` : null),
+                unit_size_g: typeof i.unit_size_g === 'number' && i.unit_size_g > 0 ? i.unit_size_g : null,
+                unit_count: typeof i.unit_count === 'number' && Number.isInteger(i.unit_count) && i.unit_count > 0 ? i.unit_count : null,
+                cost: typeof i.cost === 'number' ? i.cost : null,
+                section: i.section && validSections.has(i.section) ? i.section : 'fridge',
+              }))
 
             res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' })
-            res.end(JSON.stringify({ items_added: added, items }))
-          } catch {
+            res.end(JSON.stringify({ items, store: parsed.store ?? null }))
+          } catch (e) {
             res.writeHead(500, { 'Content-Type': 'application/json' })
-            res.end(JSON.stringify({ error: 'Receipt scan failed', items_added: 0, items: [] }))
+            res.end(JSON.stringify({ error: 'Receipt scan failed: ' + String(e), items: [], store: null }))
           }
         })
       })
 
       // POST /api/ai/analyze-food — food photo analysis
+      // POST /api/ai/analyze-food — multi-item food analysis with home/out modes.
+      // Mirrors functions/api/ai/analyze-food.js. Home mode cross-references the
+      // user's fridge inventory and returns per-item grams_used so the camera
+      // flow can decrement quantity_g; Out mode returns macros only.
       server.middlewares.use('/api/ai/analyze-food', (req: IncomingMessage, res: ServerResponse, next: Connect.NextFunction) => {
         if (req.method === 'OPTIONS') {
           res.writeHead(204, { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'POST,OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type,X-Health-Key' })
@@ -101,34 +111,112 @@ Rules:
 
         if (!anthropicKey) {
           res.writeHead(503, { 'Content-Type': 'application/json' })
-          res.end(JSON.stringify({ error: 'Set ANTHROPIC_API_KEY in .env for local AI features' })); return
+          res.end(JSON.stringify({ error: 'Set ANTHROPIC_API_KEY in .env for local AI features', foods: [], fridge_matches: [], confidence: 'low' })); return
         }
 
         const chunks: Buffer[] = []
         req.on('data', (c: Buffer) => chunks.push(c))
         req.on('end', async () => {
+          type FridgeShape = { fridge?: unknown[]; freezer?: unknown[]; pantry?: unknown[]; condiments?: unknown[] }
+          type IncomingItem = { name?: string; [k: string]: unknown }
           try {
-            const body = JSON.parse(Buffer.concat(chunks).toString())
-            const { image, mimeType = 'image/jpeg', description = '' } = body
+            const body = JSON.parse(Buffer.concat(chunks).toString()) as {
+              image?: string; mimeType?: string; description?: string;
+              mode?: 'home' | 'out'; fridge?: FridgeShape | IncomingItem[] | null
+            }
+            const { image, mimeType = 'image/jpeg', description = '', fridge = null } = body
+
+            // Flatten fridge for the prompt — accept both FridgeData object and flat array.
+            const fridgeItems: Array<IncomingItem & { zone: string }> = []
+            if (fridge && !Array.isArray(fridge)) {
+              for (const zone of ['fridge', 'freezer', 'pantry', 'condiments'] as const) {
+                const zoneItems = (fridge as FridgeShape)[zone]
+                if (Array.isArray(zoneItems)) {
+                  for (const it of zoneItems) fridgeItems.push({ ...(it as IncomingItem), zone })
+                }
+              }
+            } else if (Array.isArray(fridge)) {
+              for (const it of fridge) fridgeItems.push({ ...it, zone: 'fridge' })
+            }
+            const fridgeNames = fridgeItems.map(it => it.name).filter(Boolean) as string[]
+
+            // Mode inference: explicit > fridge presence > out fallback. Same as prod.
+            const effectiveMode: 'home' | 'out' =
+              body.mode === 'home' || body.mode === 'out'
+                ? body.mode
+                : (fridgeItems.length > 0 ? 'home' : 'out')
+
+            const homePrompt = `Analyze this home-made meal photo${description ? ` (user says: "${description}")` : ''}.
+Identify ALL distinct food items. Estimate realistic nutrition AND grams for the visible portion of each item.
+${fridgeNames.length ? `User's fridge/pantry contents: ${fridgeNames.join(', ')}` : 'No fridge inventory provided.'}
+For each food on the plate that appears to come from the fridge list, also estimate how many grams of that fridge item were used.
+
+Return ONLY valid JSON, no markdown:
+{"foods":[{"name":"...","kcal":N,"protein_g":N,"carbs_g":N,"fat_g":N,"grams":N}],"fridge_matches":[{"name":"<exact fridge name>","grams_used":N}],"confidence":"high|medium|low"}
+
+Rules:
+- grams: visible portion weight in grams
+- fridge_matches names must exactly match the fridge list (case-insensitive)
+- grams_used: estimated raw/dry grams used (a 150g cooked chicken portion ≈ 200g raw)`
+
+            const outPrompt = `Analyze this restaurant / takeaway food photo${description ? ` (user says: "${description}")` : ''}.
+This was NOT made from the user's fridge — they're eating out. Identify all distinct items, estimate realistic nutrition + grams.
+
+Return ONLY valid JSON, no markdown:
+{"foods":[{"name":"...","kcal":N,"protein_g":N,"carbs_g":N,"fat_g":N,"grams":N}],"confidence":"high|medium|low"}
+
+Rules:
+- grams: total weight as served
+- be realistic about restaurant portions (often larger than home)`
+
+            const promptText = effectiveMode === 'home' ? homePrompt : outPrompt
 
             const content: unknown[] = []
             if (image) content.push({ type: 'image', source: { type: 'base64', media_type: mimeType, data: image } })
-            content.push({ type: 'text', text: `Analyze this food${description ? ` (described as: "${description}")` : ''}. Return ONLY JSON: {"name":"food name","kcal":N,"protein_g":N,"carbs_g":N,"fat_g":N,"description":"brief description","confidence":"high"|"medium"|"low"}` })
+            content.push({ type: 'text', text: promptText })
 
             const apiRes = await fetch('https://api.anthropic.com/v1/messages', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json', 'x-api-key': anthropicKey, 'anthropic-version': '2023-06-01' },
-              body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 300, messages: [{ role: 'user', content }] }),
+              body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 800, messages: [{ role: 'user', content }] }),
             })
             const claude = await apiRes.json() as { content?: Array<{ text: string }> }
             const text = claude.content?.[0]?.text || '{}'
-            const match = text.match(/\{[\s\S]*\}/)
-            const result = JSON.parse(match?.[0] || '{}')
+            const m = text.match(/\{[\s\S]*\}/)
+            type RawResult = { foods?: unknown[]; fridge_matches?: unknown[]; confidence?: string }
+            const result = (m ? JSON.parse(m[0]) : {}) as RawResult
+
+            // Resolve fridge_matches names back to full item objects (home mode only)
+            let fridgeMatches: Array<IncomingItem & { zone: string; grams_used: number | null }> = []
+            if (effectiveMode === 'home' && Array.isArray(result.fridge_matches)) {
+              fridgeMatches = (result.fridge_matches as Array<unknown>)
+                .map((entry) => {
+                  const nameVal = typeof entry === 'string' ? entry : (entry as { name?: string })?.name
+                  const grams = typeof entry === 'object' && entry !== null && typeof (entry as { grams_used?: unknown }).grams_used === 'number'
+                    ? (entry as { grams_used: number }).grams_used : null
+                  if (!nameVal) return null
+                  const item = fridgeItems.find(it =>
+                    typeof it.name === 'string' && (
+                      it.name.toLowerCase().includes(nameVal.toLowerCase()) ||
+                      nameVal.toLowerCase().includes(it.name.toLowerCase())
+                    )
+                  )
+                  if (!item) return null
+                  return { ...item, grams_used: grams }
+                })
+                .filter((x): x is IncomingItem & { zone: string; grams_used: number | null } => x !== null)
+            }
+
             res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' })
-            res.end(JSON.stringify(result))
+            res.end(JSON.stringify({
+              mode: effectiveMode,
+              foods: Array.isArray(result.foods) ? result.foods : [],
+              fridge_matches: fridgeMatches,
+              confidence: typeof result.confidence === 'string' ? result.confidence : 'medium',
+            }))
           } catch {
             res.writeHead(500, { 'Content-Type': 'application/json' })
-            res.end(JSON.stringify({ name: 'Unknown', kcal: 0, protein_g: 0, carbs_g: 0, fat_g: 0, description: 'Analysis failed', confidence: 'low' }))
+            res.end(JSON.stringify({ mode: 'out', foods: [], fridge_matches: [], confidence: 'low' }))
           }
         })
       })
@@ -146,7 +234,7 @@ export default defineConfig(({ mode }) => {
   return {
     plugins: [
       react(),
-      localAiPlugin(anthropicKey, healthKey),
+      localAiPlugin(anthropicKey),
       VitePWA({
         registerType: 'autoUpdate',
         includeAssets: ['icon.svg', 'maskable-icon.svg'],
