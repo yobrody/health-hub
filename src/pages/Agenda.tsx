@@ -11,12 +11,41 @@ const PRIORITY_OPTS = [
 
 type Priority = 'normal' | 'urgent' | 'low'
 
+// Priority is stored client-side keyed by item id. The server's `notes` field
+// is reserved for free-text task notes — overloading it for priority breaks
+// the moment a notes UI is added. Legacy items whose notes is exactly
+// 'urgent'/'low' are treated as priority for backwards compat on first load.
+const LS_PRIORITY_KEY = 'agenda_priorities'
+
+function loadPriorities(): Record<string, Priority> {
+  try {
+    const raw = localStorage.getItem(LS_PRIORITY_KEY)
+    if (!raw) return {}
+    const parsed: unknown = JSON.parse(raw)
+    if (parsed && typeof parsed === 'object') return parsed as Record<string, Priority>
+  } catch { /* ignore corrupt JSON */ }
+  return {}
+}
+
+function savePriorities(map: Record<string, Priority>) {
+  try { localStorage.setItem(LS_PRIORITY_KEY, JSON.stringify(map)) } catch { /* ignore quota errors */ }
+}
+
+function getPriority(item: AgendaItemData, map: Record<string, Priority>): Priority {
+  const fromMap = map[item.id]
+  if (fromMap) return fromMap
+  // Legacy compat: items created before the priority split stored 'urgent'/'low' in notes.
+  if (item.notes === 'urgent' || item.notes === 'low') return item.notes
+  return 'normal'
+}
+
 function todayLabel() {
   return new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })
 }
 
 export default function Agenda() {
   const [items, setItems] = useState<AgendaItemData[]>([])
+  const [priorities, setPriorities] = useState<Record<string, Priority>>(loadPriorities)
   const [loading, setLoading] = useState(false)
   const [input, setInput] = useState('')
   const [priority, setPriority] = useState<Priority>('normal')
@@ -33,14 +62,25 @@ export default function Agenda() {
 
   useEffect(() => { load() }, [])
 
+  function setItemPriority(itemId: string, p: Priority) {
+    setPriorities(prev => {
+      const next = { ...prev }
+      if (p === 'normal') delete next[itemId]
+      else next[itemId] = p
+      savePriorities(next)
+      return next
+    })
+  }
+
   async function addItem() {
     const title = input.trim()
     if (!title) return
     setInput('')
     setAdding(true)
     try {
-      const { item } = await api.addAgendaItem(title, priority !== 'normal' ? priority : undefined)
-      setItems(prev => [...(prev || []), { ...item, notes: priority !== 'normal' ? priority : item.notes }])
+      const { item } = await api.addAgendaItem(title)
+      setItems(prev => [...(prev || []), item])
+      if (priority !== 'normal') setItemPriority(item.id, priority)
       if (navigator.vibrate) navigator.vibrate(8)
     } catch {
       showToast('Failed to add task', 'err')
@@ -65,6 +105,7 @@ export default function Agenda() {
 
   async function remove(itemId: string) {
     setItems(prev => prev.filter(i => i.id !== itemId))
+    setItemPriority(itemId, 'normal') // clean up priority entry
     try {
       await api.deleteAgendaItem(itemId)
     } catch {
@@ -77,12 +118,13 @@ export default function Agenda() {
   const done = items.filter(i => i.done)
 
   // Sort pending: urgent first, then normal, then low
-  const order: Record<string, number> = { urgent: 0, normal: 1, low: 2 }
-  const sorted = [...pending].sort((a, b) => (order[a.notes ?? 'normal'] ?? 1) - (order[b.notes ?? 'normal'] ?? 1))
+  const order: Record<Priority, number> = { urgent: 0, normal: 1, low: 2 }
+  const sorted = [...pending].sort((a, b) => order[getPriority(a, priorities)] - order[getPriority(b, priorities)])
 
   function urgencyColor(item: AgendaItemData) {
-    if (item.notes === 'urgent') return 'var(--red)'
-    if (item.notes === 'low') return 'var(--label3)'
+    const p = getPriority(item, priorities)
+    if (p === 'urgent') return 'var(--red)'
+    if (p === 'low') return 'var(--label3)'
     return 'var(--blue)'
   }
 
@@ -166,8 +208,8 @@ export default function Agenda() {
                       }}
                     />
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 16, fontWeight: item.notes === 'urgent' ? 700 : 400 }}>{item.title}</div>
-                      {item.notes === 'urgent' && (
+                      <div style={{ fontSize: 16, fontWeight: getPriority(item, priorities) === 'urgent' ? 700 : 400 }}>{item.title}</div>
+                      {getPriority(item, priorities) === 'urgent' && (
                         <div style={{ fontSize: 12, color: 'var(--red)', fontWeight: 600, marginTop: 1 }}>URGENT</div>
                       )}
                     </div>

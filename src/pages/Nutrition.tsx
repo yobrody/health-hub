@@ -67,10 +67,9 @@ export default function Nutrition({ onNavigate }: NutritionProps) {
   }, [showDiary])
   const [selectedPhoto, setSelectedPhoto] = useState<string | null>(null)
 
-  const hour = new Date().getHours()
-  const defaultMeal = hour < 11 ? 'Breakfast' : hour < 15 ? 'Lunch' : hour < 18 ? 'Snack' : 'Dinner'
-
   useEffect(() => {
+    const hour = new Date().getHours()
+    const defaultMeal = hour < 11 ? 'Breakfast' : hour < 15 ? 'Lunch' : hour < 18 ? 'Snack' : 'Dinner'
     setMeal(defaultMeal)
     api.getToday().then(setData).catch(console.error)
     api.getFoodHistory(7).then(setHistory).catch(console.error)
