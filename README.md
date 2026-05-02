@@ -29,8 +29,8 @@ goals, and a lightweight personal assistant (lists + agenda) — all in one app.
   proxy `/api/*` → FastAPI on `128.140.33.150:8080` and add KV-backed extended
   fridge metadata.
 - **Backend service:** FastAPI (Docker) on a VPS — health metrics + personal
-  assistant endpoints. Source lives on the `add-personal-assistant-api` branch
-  (not main). See `functions/api/[[path]].js` for the proxy contract.
+  assistant endpoints. Source in `api/` (see `api/README.md`). Proxy contract
+  in `functions/api/[[path]].js`.
 - **Storage:** VPS-side JSON for app data, Cloudflare KV for fridge metadata
   + learned shelf-life, R2 for permanent food-photo URLs, browser
   `localStorage` for offline cache and per-device state (e.g. agenda
@@ -43,12 +43,14 @@ npm install
 npm run dev      # vite dev server
 npm run build    # tsc -b && vite build
 npm run lint     # eslint
+npm test         # vitest (one-shot)
+npm run test:watch  # vitest watch mode
 ```
 
 ## CI
 
-`.github/workflows/ci.yml` runs `build` and `lint` on every PR and push to
-`main`. Both are required checks.
+`.github/workflows/ci.yml` runs `build`, `lint`, and `test` on every PR
+and push to `main`. All three are required checks.
 
 ## API contract
 

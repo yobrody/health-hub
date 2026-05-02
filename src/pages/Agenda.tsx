@@ -2,6 +2,13 @@ import { useEffect, useRef, useState } from 'react'
 import { api } from '../api/client'
 import type { AgendaItemData } from '../api/client'
 import { showToast } from '../toast'
+import {
+  getPriority,
+  loadPriorities as loadPrioritiesFromStorage,
+  savePriorities as savePrioritiesToStorage,
+  withPriority,
+  type Priority,
+} from '../lib/agenda-priority'
 
 const PRIORITY_OPTS = [
   { id: 'normal', label: 'Normal', color: 'var(--blue)' },
@@ -9,35 +16,8 @@ const PRIORITY_OPTS = [
   { id: 'low',    label: 'Low',    color: 'var(--label3)' },
 ] as const
 
-type Priority = 'normal' | 'urgent' | 'low'
-
-// Priority is stored client-side keyed by item id. The server's `notes` field
-// is reserved for free-text task notes — overloading it for priority breaks
-// the moment a notes UI is added. Legacy items whose notes is exactly
-// 'urgent'/'low' are treated as priority for backwards compat on first load.
-const LS_PRIORITY_KEY = 'agenda_priorities'
-
-function loadPriorities(): Record<string, Priority> {
-  try {
-    const raw = localStorage.getItem(LS_PRIORITY_KEY)
-    if (!raw) return {}
-    const parsed: unknown = JSON.parse(raw)
-    if (parsed && typeof parsed === 'object') return parsed as Record<string, Priority>
-  } catch { /* ignore corrupt JSON */ }
-  return {}
-}
-
-function savePriorities(map: Record<string, Priority>) {
-  try { localStorage.setItem(LS_PRIORITY_KEY, JSON.stringify(map)) } catch { /* ignore quota errors */ }
-}
-
-function getPriority(item: AgendaItemData, map: Record<string, Priority>): Priority {
-  const fromMap = map[item.id]
-  if (fromMap) return fromMap
-  // Legacy compat: items created before the priority split stored 'urgent'/'low' in notes.
-  if (item.notes === 'urgent' || item.notes === 'low') return item.notes
-  return 'normal'
-}
+const loadPriorities = () => loadPrioritiesFromStorage(localStorage)
+const savePriorities = (map: Record<string, Priority>) => savePrioritiesToStorage(localStorage, map)
 
 function todayLabel() {
   return new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })
@@ -64,9 +44,7 @@ export default function Agenda() {
 
   function setItemPriority(itemId: string, p: Priority) {
     setPriorities(prev => {
-      const next = { ...prev }
-      if (p === 'normal') delete next[itemId]
-      else next[itemId] = p
+      const next = withPriority(prev, itemId, p)
       savePriorities(next)
       return next
     })
