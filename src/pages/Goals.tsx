@@ -122,7 +122,7 @@ export default function GoalsPage() {
       .sort((a, b) => a.date.localeCompare(b.date))
       .slice(-60)
     setWeights(updated)
-    try { localStorage.setItem('weight_log', JSON.stringify(updated)) } catch {}
+    try { localStorage.setItem('weight_log', JSON.stringify(updated)) } catch { /* ignore quota errors */ }
     setWeightInput('')
     setShowWeightInput(false)
     if (navigator.vibrate) navigator.vibrate(10)

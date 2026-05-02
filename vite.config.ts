@@ -84,7 +84,7 @@ Rules:
 
             res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' })
             res.end(JSON.stringify({ items_added: added, items }))
-          } catch (e) {
+          } catch {
             res.writeHead(500, { 'Content-Type': 'application/json' })
             res.end(JSON.stringify({ error: 'Receipt scan failed', items_added: 0, items: [] }))
           }
@@ -126,7 +126,7 @@ Rules:
             const result = JSON.parse(match?.[0] || '{}')
             res.writeHead(200, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' })
             res.end(JSON.stringify(result))
-          } catch (e) {
+          } catch {
             res.writeHead(500, { 'Content-Type': 'application/json' })
             res.end(JSON.stringify({ name: 'Unknown', kcal: 0, protein_g: 0, carbs_g: 0, fat_g: 0, description: 'Analysis failed', confidence: 'low' }))
           }

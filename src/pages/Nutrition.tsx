@@ -62,7 +62,7 @@ export default function Nutrition({ onNavigate }: NutritionProps) {
   // Refresh diary from localStorage when switching to diary view (picks up new entries from CameraSheet)
   useEffect(() => {
     if (showDiary) {
-      try { setDiary(JSON.parse(localStorage.getItem('photo_diary') || '[]')) } catch {}
+      try { setDiary(JSON.parse(localStorage.getItem('photo_diary') || '[]')) } catch { /* ignore corrupt JSON */ }
     }
   }, [showDiary])
   const [selectedPhoto, setSelectedPhoto] = useState<string | null>(null)
@@ -89,7 +89,7 @@ export default function Nutrition({ onNavigate }: NutritionProps) {
   function saveRecent(entry: { desc: string; kcal: number; protein_g: number }) {
     const updated = [entry, ...recentFoods.filter(r => r.desc.toLowerCase() !== entry.desc.toLowerCase())].slice(0, 12)
     setRecentFoods(updated)
-    try { localStorage.setItem('recent_foods', JSON.stringify(updated)) } catch {}
+    try { localStorage.setItem('recent_foods', JSON.stringify(updated)) } catch { /* ignore quota errors */ }
   }
 
   function inferSection(name: string): 'fridge' | 'freezer' | 'pantry' | 'condiments' {
@@ -187,7 +187,7 @@ export default function Nutrition({ onNavigate }: NutritionProps) {
       if (result.name) setDesc(result.name)
       if (result.kcal > 0) setKcal(String(result.kcal))
       if (result.protein_g > 0) setProteinG(String(result.protein_g))
-    } catch (err) {
+    } catch {
       setScanMsg('AI analysis failed \u2014 enter details manually')
       setTimeout(() => setScanMsg(null), 4000)
     } finally {

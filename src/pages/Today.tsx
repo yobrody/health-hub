@@ -34,14 +34,14 @@ function WaterTracker() {
     try {
       const s = localStorage.getItem('water_intake')
       if (s) { const p = JSON.parse(s); if (p.date === todayKey) return p.count }
-    } catch {}
+    } catch { /* ignore corrupt JSON */ }
     return 0
   })
 
   function set(n: number) {
     const next = Math.max(0, Math.min(12, n))
     setCount(next)
-    try { localStorage.setItem('water_intake', JSON.stringify({ date: todayKey, count: next })) } catch {}
+    try { localStorage.setItem('water_intake', JSON.stringify({ date: todayKey, count: next })) } catch { /* ignore quota errors */ }
     if (navigator.vibrate) navigator.vibrate(5)
   }
 
@@ -138,14 +138,14 @@ export default function Today({ onNavigate, onToggleTheme, themeIcon }: Props) {
         const p = JSON.parse(raw) as { name?: string }
         if (p.name) setDisplayName(p.name)
       }
-    } catch {}
+    } catch { /* ignore corrupt JSON */ }
 
     api.getProfile().then(profile => {
       if (profile.name) setDisplayName(profile.name)
       try {
         const existing = JSON.parse(localStorage.getItem('user_profile') || '{}')
         localStorage.setItem('user_profile', JSON.stringify({ ...existing, ...profile }))
-      } catch {}
+      } catch { /* ignore quota errors */ }
     }).catch(() => {})
   }, [])
 
