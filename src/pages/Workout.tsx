@@ -75,17 +75,21 @@ async function searchExercises(query: string): Promise<string[]> {
 function RestTimer({ seconds, onSkip }: { seconds: number; onSkip: () => void }) {
   const [remaining, setRemaining] = useState(seconds)
   const pct = remaining / seconds
+  // onSkip is typically an inline arrow from the parent, so its identity changes every parent render.
+  // Stash the latest in a ref so the tick effect doesn't restart the countdown on every re-render.
+  const onSkipRef = useRef(onSkip)
+  useEffect(() => { onSkipRef.current = onSkip }, [onSkip])
 
   useEffect(() => {
-    if (remaining <= 0) { onSkip(); return }
+    if (remaining <= 0) { onSkipRef.current(); return }
     if (remaining % 15 === 0 && remaining < seconds && navigator.vibrate) navigator.vibrate(30)
     const t = setTimeout(() => setRemaining(r => r - 1), 1000)
     return () => clearTimeout(t)
-  }, [remaining])
+  }, [remaining, seconds])
 
   useEffect(() => {
     if (remaining === 0 && navigator.vibrate) navigator.vibrate([100, 50, 100, 50, 200])
-  }, [remaining]) // fires whenever remaining changes; vibrate only when it hits 0
+  }, [remaining])
 
   const mins = String(Math.floor(remaining / 60)).padStart(2, '0')
   const secs = String(remaining % 60).padStart(2, '0')

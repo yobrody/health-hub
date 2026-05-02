@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
+import { getStreak, type DayLog } from '../lib/streaks'
 
 type RoutineStep = { id: string; label: string; icon: string }
-type DayLog = { date: string; morning: string[]; evening: string[] }
 
 const MORNING_STEPS: RoutineStep[] = [
   { id: 'cleanse', label: 'Cleanse', icon: '🫧' },
@@ -31,23 +31,6 @@ function setLog(next: DayLog[]) {
   try { localStorage.setItem('skincare_log', JSON.stringify(next)) } catch { /* ignore quota errors */ }
 }
 
-function getStreak(days: DayLog[]): number {
-  const sorted = [...days].sort((a, b) => b.date.localeCompare(a.date))
-  let streak = 0
-  const d = new Date()
-  while (true) {
-    const key = d.toISOString().slice(0, 10)
-    const row = sorted.find(r => r.date === key)
-    if (!row) break
-    const doneMorning = row.morning.length >= MORNING_STEPS.length
-    const doneEvening = row.evening.length >= EVENING_STEPS.length
-    if (!doneMorning && !doneEvening) break
-    streak++
-    d.setDate(d.getDate() - 1)
-  }
-  return streak
-}
-
 export default function Skincare() {
   const [log, setLocalLog] = useState<DayLog[]>(() => getLog())
   const [period, setPeriod] = useState<'morning' | 'evening'>(() => new Date().getHours() < 14 ? 'morning' : 'evening')
@@ -61,7 +44,7 @@ export default function Skincare() {
   const doneIds = period === 'morning' ? todayRow.morning : todayRow.evening
   const steps = period === 'morning' ? MORNING_STEPS : EVENING_STEPS
 
-  const streak = getStreak(log)
+  const streak = getStreak(log, new Date(), MORNING_STEPS.length, EVENING_STEPS.length)
   const totalDoneToday = todayRow.morning.length + todayRow.evening.length
 
   useEffect(() => {

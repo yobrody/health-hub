@@ -2,6 +2,13 @@ import { useEffect, useRef, useState } from 'react'
 import { api } from '../api/client'
 import type { AgendaItemData } from '../api/client'
 import { showToast } from '../toast'
+import {
+  getPriority,
+  loadPriorities as loadPrioritiesFromStorage,
+  savePriorities as savePrioritiesToStorage,
+  withPriority,
+  type Priority,
+} from '../lib/agenda-priority'
 
 const PRIORITY_OPTS = [
   { id: 'normal', label: 'Normal', color: 'var(--blue)' },
@@ -9,7 +16,8 @@ const PRIORITY_OPTS = [
   { id: 'low',    label: 'Low',    color: 'var(--label3)' },
 ] as const
 
-type Priority = 'normal' | 'urgent' | 'low'
+const loadPriorities = () => loadPrioritiesFromStorage(localStorage)
+const savePriorities = (map: Record<string, Priority>) => savePrioritiesToStorage(localStorage, map)
 
 function todayLabel() {
   return new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })
@@ -17,6 +25,7 @@ function todayLabel() {
 
 export default function Agenda() {
   const [items, setItems] = useState<AgendaItemData[]>([])
+  const [priorities, setPriorities] = useState<Record<string, Priority>>(loadPriorities)
   const [loading, setLoading] = useState(false)
   const [input, setInput] = useState('')
   const [priority, setPriority] = useState<Priority>('normal')
@@ -33,14 +42,23 @@ export default function Agenda() {
 
   useEffect(() => { load() }, [])
 
+  function setItemPriority(itemId: string, p: Priority) {
+    setPriorities(prev => {
+      const next = withPriority(prev, itemId, p)
+      savePriorities(next)
+      return next
+    })
+  }
+
   async function addItem() {
     const title = input.trim()
     if (!title) return
     setInput('')
     setAdding(true)
     try {
-      const { item } = await api.addAgendaItem(title, priority !== 'normal' ? priority : undefined)
-      setItems(prev => [...(prev || []), { ...item, notes: priority !== 'normal' ? priority : item.notes }])
+      const { item } = await api.addAgendaItem(title)
+      setItems(prev => [...(prev || []), item])
+      if (priority !== 'normal') setItemPriority(item.id, priority)
       if (navigator.vibrate) navigator.vibrate(8)
     } catch {
       showToast('Failed to add task', 'err')
@@ -65,6 +83,7 @@ export default function Agenda() {
 
   async function remove(itemId: string) {
     setItems(prev => prev.filter(i => i.id !== itemId))
+    setItemPriority(itemId, 'normal') // clean up priority entry
     try {
       await api.deleteAgendaItem(itemId)
     } catch {
@@ -77,12 +96,13 @@ export default function Agenda() {
   const done = items.filter(i => i.done)
 
   // Sort pending: urgent first, then normal, then low
-  const order: Record<string, number> = { urgent: 0, normal: 1, low: 2 }
-  const sorted = [...pending].sort((a, b) => (order[a.notes ?? 'normal'] ?? 1) - (order[b.notes ?? 'normal'] ?? 1))
+  const order: Record<Priority, number> = { urgent: 0, normal: 1, low: 2 }
+  const sorted = [...pending].sort((a, b) => order[getPriority(a, priorities)] - order[getPriority(b, priorities)])
 
   function urgencyColor(item: AgendaItemData) {
-    if (item.notes === 'urgent') return 'var(--red)'
-    if (item.notes === 'low') return 'var(--label3)'
+    const p = getPriority(item, priorities)
+    if (p === 'urgent') return 'var(--red)'
+    if (p === 'low') return 'var(--label3)'
     return 'var(--blue)'
   }
 
@@ -166,8 +186,8 @@ export default function Agenda() {
                       }}
                     />
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 16, fontWeight: item.notes === 'urgent' ? 700 : 400 }}>{item.title}</div>
-                      {item.notes === 'urgent' && (
+                      <div style={{ fontSize: 16, fontWeight: getPriority(item, priorities) === 'urgent' ? 700 : 400 }}>{item.title}</div>
+                      {getPriority(item, priorities) === 'urgent' && (
                         <div style={{ fontSize: 12, color: 'var(--red)', fontWeight: 600, marginTop: 1 }}>URGENT</div>
                       )}
                     </div>

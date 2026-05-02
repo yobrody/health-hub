@@ -208,7 +208,7 @@ export default function Today({ onNavigate, onToggleTheme, themeIcon }: Props) {
 
   useEffect(() => {
     if (!data || total < goals.calories * 0.95) return
-    const todayKey = now.toISOString().slice(0, 10)
+    const todayKey = new Date().toISOString().slice(0, 10)
     const saved = localStorage.getItem('celebrated_today')
     if (saved === todayKey) return
     setShowCelebrate(true)
@@ -216,7 +216,7 @@ export default function Today({ onNavigate, onToggleTheme, themeIcon }: Props) {
     const timer = window.setTimeout(() => setShowCelebrate(false), 2200)
     if (navigator.vibrate) navigator.vibrate([30, 60, 30])
     return () => window.clearTimeout(timer)
-  }, [total])
+  }, [data, goals.calories, total])
 
   const nextDay = PROGRAM[nextWorkout]
 
