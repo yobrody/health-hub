@@ -71,6 +71,28 @@ def read_goals() -> dict:
     goals["gym_days"] = int(m.group(1)) if m else 4
     return goals
 
+def _fridge_meta_path() -> Path:
+    """Sidecar JSON keyed by lowercase item name carrying structured metadata
+    (unit_size_g, quantity_g, unit_count, quantity_count) that doesn't fit the
+    human-editable fridge.md format. Lives alongside fridge.md so Lucky's
+    markdown view stays unchanged."""
+    return WORKSPACE / "fridge_meta.json"
+
+def _read_fridge_meta() -> dict:
+    p = _fridge_meta_path()
+    if not p.exists():
+        return {}
+    try:
+        return json.loads(p.read_text())
+    except (json.JSONDecodeError, OSError):
+        return {}
+
+def _write_fridge_meta(meta: dict):
+    _fridge_meta_path().write_text(json.dumps(meta, indent=2))
+
+def _meta_key(name: str) -> str:
+    return name.strip().lower()
+
 def read_fridge() -> dict:
     p = WORKSPACE / "fridge.md"
     if not p.exists():
@@ -79,6 +101,7 @@ def read_fridge() -> dict:
     result = {"fridge": [], "pantry": [], "condiments": [], "freezer": []}
     section_map = {"Fridge": "fridge", "Pantry": "pantry", "Condiments": "condiments", "Freezer": "freezer"}
     current = None
+    meta = _read_fridge_meta()
     for line in content.splitlines():
         for sec, key in section_map.items():
             if line.startswith(f"## {sec}"):
@@ -89,10 +112,19 @@ def read_fridge() -> dict:
             name_match = re.match(r"^(.*?)(?:\s*\(added (.+?)\))?$", item_text)
             name = name_match.group(1).strip() if name_match else item_text
             added = name_match.group(2) if name_match and name_match.group(2) else None
-            result[current].append({"name": name, "added": added})
+            entry = {"name": name, "added": added}
+            extra = meta.get(_meta_key(name))
+            if extra:
+                for field in ("unit_size_g", "quantity_g", "unit_count", "quantity_count"):
+                    if field in extra and extra[field] is not None:
+                        entry[field] = extra[field]
+            result[current].append(entry)
     return result
 
 def write_fridge(data: dict):
+    """Write the human-readable fridge.md AND the sidecar fridge_meta.json.
+    The markdown is the canonical inventory list (so Lucky can still edit it).
+    The JSON sidecar carries quantity_g / unit_size_g / etc. keyed by name."""
     p = WORKSPACE / "fridge.md"
     now = datetime.now().strftime("%Y-%m-%d %H:%M")
     lines = [f"# Fridge & Pantry", f"_Last updated: {now}_", ""]
@@ -102,6 +134,7 @@ def write_fridge(data: dict):
         ("condiments", "Condiments & Sauces"),
         ("freezer", "Freezer")
     ]
+    new_meta: dict = {}
     for key, label in section_labels:
         lines.append(f"## {label}")
         items = data.get(key, [])
@@ -109,10 +142,24 @@ def write_fridge(data: dict):
             for item in items:
                 added = item.get("added", "")
                 lines.append(f"- {item['name']}" + (f" (added {added})" if added else ""))
+                # Capture structured fields for the sidecar
+                fields = {
+                    f: item[f]
+                    for f in ("unit_size_g", "quantity_g", "unit_count", "quantity_count")
+                    if f in item and item[f] is not None
+                }
+                if fields:
+                    new_meta[_meta_key(item["name"])] = fields
         else:
             lines.append("_(empty)_")
         lines.append("")
     p.write_text("\n".join(lines))
+    if new_meta:
+        _write_fridge_meta(new_meta)
+    elif _fridge_meta_path().exists():
+        # All structured fields removed (or all items deleted) — empty out the sidecar
+        # so the file doesn't drift away from reality.
+        _write_fridge_meta({})
 
 # ── FOOD ──────────────────────────────────────────────────────────────
 class FoodEntry(BaseModel):
