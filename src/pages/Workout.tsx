@@ -55,6 +55,45 @@ function publishCoachFeed(live: LiveWorkout) {
   try { localStorage.setItem('coach_feed', JSON.stringify(payload)) } catch { /* ignore quota errors */ }
 }
 
+// Exercise icon + gradient — keeps the active card visual without adding image
+// assets. Matches by substring against the exercise name; falls back to a
+// barbell. Add new entries here as your program adds new movements.
+function getExerciseEmoji(name: string): string {
+  const n = name.toLowerCase()
+  if (n.includes('bench') || n.includes('press') && n.includes('chest')) return '🏋️'
+  if (n.includes('squat') || n.includes('leg press')) return '🦵'
+  if (n.includes('deadlift') || n.includes('rdl')) return '🔱'
+  if (n.includes('overhead') || n.includes('shoulder press') || n.includes('ohp')) return '💪'
+  if (n.includes('pull') && (n.includes('up') || n.includes('-up'))) return '🤸'
+  if (n.includes('row') || n.includes('lat pulldown')) return '🚣'
+  if (n.includes('curl') || n.includes('bicep')) return '💪'
+  if (n.includes('tricep') || n.includes('pushdown') || n.includes('dip')) return '✋'
+  if (n.includes('press')) return '🏋️'
+  if (n.includes('run') || n.includes('cardio') || n.includes('cycle')) return '🏃'
+  if (n.includes('core') || n.includes('abs') || n.includes('plank')) return '🔥'
+  return '🏋️'
+}
+
+function getExerciseGradient(name: string): string {
+  const n = name.toLowerCase()
+  if (n.includes('squat') || n.includes('leg') || n.includes('deadlift')) {
+    return 'linear-gradient(135deg, #34C759 0%, #30B0C7 100%)' // green → teal: legs
+  }
+  if (n.includes('bench') || n.includes('press') || n.includes('chest')) {
+    return 'linear-gradient(135deg, #FF3B30 0%, #FF9500 100%)' // red → orange: push
+  }
+  if (n.includes('pull') || n.includes('row') || n.includes('lat')) {
+    return 'linear-gradient(135deg, #5856D6 0%, #AF52DE 100%)' // indigo → purple: pull
+  }
+  if (n.includes('curl') || n.includes('tricep') || n.includes('bicep')) {
+    return 'linear-gradient(135deg, #FF9500 0%, #FFCC00 100%)' // orange → yellow: arms
+  }
+  if (n.includes('run') || n.includes('cardio') || n.includes('cycle')) {
+    return 'linear-gradient(135deg, #007AFF 0%, #5AC8FA 100%)' // blue: cardio
+  }
+  return 'linear-gradient(135deg, #007AFF 0%, #AF52DE 100%)'
+}
+
 // Wger exercise search
 async function searchExercises(query: string): Promise<string[]> {
   try {
@@ -65,46 +104,6 @@ async function searchExercises(query: string): Promise<string[]> {
   } catch {
     return []
   }
-}
-
-function RestTimer({ seconds, onSkip }: { seconds: number; onSkip: () => void }) {
-  const [remaining, setRemaining] = useState(seconds)
-  const pct = remaining / seconds
-  // onSkip is typically an inline arrow from the parent, so its identity changes every parent render.
-  // Stash the latest in a ref so the tick effect doesn't restart the countdown on every re-render.
-  const onSkipRef = useRef(onSkip)
-  useEffect(() => { onSkipRef.current = onSkip }, [onSkip])
-
-  useEffect(() => {
-    if (remaining <= 0) { onSkipRef.current(); return }
-    if (remaining % 15 === 0 && remaining < seconds && navigator.vibrate) navigator.vibrate(30)
-    const t = setTimeout(() => setRemaining(r => r - 1), 1000)
-    return () => clearTimeout(t)
-  }, [remaining, seconds])
-
-  useEffect(() => {
-    if (remaining === 0 && navigator.vibrate) navigator.vibrate([100, 50, 100, 50, 200])
-  }, [remaining])
-
-  const mins = String(Math.floor(remaining / 60)).padStart(2, '0')
-  const secs = String(remaining % 60).padStart(2, '0')
-
-  return (
-    <div style={{ position: 'fixed', bottom: 'calc(var(--tab-bar-height) + var(--safe-bottom))', left: 0, right: 0, zIndex: 50 }}>
-      <div style={{ background: 'var(--card)', padding: '12px 20px 14px', borderTop: '0.5px solid var(--separator)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-          <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--label2)' }}>Rest</div>
-          <div style={{ fontSize: 28, fontWeight: 700, color: remaining <= 10 ? 'var(--red)' : 'var(--label)', letterSpacing: '-0.5px', fontVariantNumeric: 'tabular-nums' }}>
-            {mins}:{secs}
-          </div>
-          <button onClick={onSkip} style={{ background: 'none', border: '1.5px solid var(--blue)', borderRadius: 16, color: 'var(--blue)', fontSize: 14, fontWeight: 600, padding: '6px 14px', cursor: 'pointer' }}>Skip</button>
-        </div>
-        <div style={{ height: 6, background: 'var(--gray5)', borderRadius: 3, overflow: 'hidden' }}>
-          <div style={{ height: '100%', background: remaining <= 10 ? 'var(--red)' : 'var(--blue)', width: `${pct * 100}%`, borderRadius: 3, transition: 'width 1s linear, background 0.3s' }} />
-        </div>
-      </div>
-    </div>
-  )
 }
 
 function ElapsedTimer({ startTime }: { startTime: string }) {
@@ -121,6 +120,206 @@ function ElapsedTimer({ startTime }: { startTime: string }) {
   return <span style={{ fontVariantNumeric: 'tabular-nums' }}>{h > 0 ? `${h}:` : ''}{String(m).padStart(2, '0')}:{String(s).padStart(2, '0')}</span>
 }
 
+/**
+ * Inline rest timer used by the focus-mode rest phase. Counts down + auto-fires
+ * onComplete when remaining hits 0. Renders inline in its parent (no fixed
+ * positioning), unlike the legacy floating RestTimer above. White-on-gradient
+ * styling so it sits cleanly inside the rest card.
+ */
+function RestTimerInline({ seconds, onComplete }: { seconds: number; onComplete: () => void }) {
+  const [remaining, setRemaining] = useState(seconds)
+  const onCompleteRef = useRef(onComplete)
+  useEffect(() => { onCompleteRef.current = onComplete }, [onComplete])
+
+  useEffect(() => {
+    if (remaining <= 0) { onCompleteRef.current(); return }
+    if (remaining % 15 === 0 && remaining < seconds && navigator.vibrate) navigator.vibrate(30)
+    const t = setTimeout(() => setRemaining(r => r - 1), 1000)
+    return () => clearTimeout(t)
+  }, [remaining, seconds])
+
+  useEffect(() => {
+    if (remaining === 0 && navigator.vibrate) navigator.vibrate([100, 50, 100, 50, 200])
+  }, [remaining])
+
+  const mins = String(Math.floor(remaining / 60)).padStart(2, '0')
+  const secs = String(remaining % 60).padStart(2, '0')
+  const pct = Math.max(0, remaining / seconds)
+  return (
+    <div>
+      <div style={{ fontSize: 72, fontWeight: 800, letterSpacing: '-2px', fontVariantNumeric: 'tabular-nums', lineHeight: 1.05 }}>
+        {mins}:{secs}
+      </div>
+      <div style={{ height: 6, background: 'rgba(255,255,255,0.25)', borderRadius: 3, overflow: 'hidden', maxWidth: 240, margin: '14px auto 0' }}>
+        <div style={{ height: '100%', width: `${pct * 100}%`, background: 'rgba(255,255,255,0.95)', borderRadius: 3, transition: 'width 1s linear' }} />
+      </div>
+    </div>
+  )
+}
+
+/**
+ * Hero card for the active phase — the only thing the user sees during a set.
+ * Big gradient background, exercise emoji + name, reps input dominant,
+ * weight as a tappable label that expands inline +/- controls.
+ *
+ * Submit gestures (both work, your pick):
+ *   - Tap the big "Log set" button below the inputs
+ *   - Swipe left across the card (gym-friendly when hands are full)
+ */
+function ActiveSetCard({
+  gradient, emoji, exerciseName, setNumber, totalSets,
+  weight, reps, isDone,
+  onWeight, onReps, onSubmit, onSwipe, repsInputRef,
+}: {
+  gradient: string
+  emoji: string
+  exerciseName: string
+  setNumber: number
+  totalSets: number
+  weight: number | undefined
+  reps: number | undefined
+  isDone: boolean
+  onWeight: (v: number | undefined) => void
+  onReps: (v: number | undefined) => void
+  onSubmit: () => void
+  onSwipe: (dx: number) => void
+  repsInputRef: React.RefObject<HTMLInputElement | null>
+}) {
+  const [showWeightEdit, setShowWeightEdit] = useState(false)
+  const swipeStartX = useRef<number | null>(null)
+  const swipeStartY = useRef<number | null>(null)
+
+  // Refocus reps on every set transition. autoFocus only fires on mount; using
+  // a key on the parent forces remount, but the input ref needs an explicit
+  // focus call so iOS shows the keyboard.
+  useEffect(() => {
+    if (!isDone) {
+      // Slight delay lets iOS install the new keyboard cleanly.
+      const t = setTimeout(() => repsInputRef.current?.focus(), 90)
+      return () => clearTimeout(t)
+    }
+  }, [isDone, repsInputRef])
+
+  function bumpWeight(delta: number) {
+    const next = Math.max(0, Math.round(((weight ?? 0) + delta) * 4) / 4)
+    onWeight(next)
+  }
+
+  return (
+    <div
+      onPointerDown={e => { swipeStartX.current = e.clientX; swipeStartY.current = e.clientY }}
+      onPointerUp={e => {
+        if (swipeStartX.current === null || swipeStartY.current === null) return
+        const dx = e.clientX - swipeStartX.current
+        const dy = e.clientY - swipeStartY.current
+        // Only fire as a swipe if mostly horizontal — avoids triggering when
+        // the user drags vertically while scrolling.
+        if (Math.abs(dx) > 80 && Math.abs(dy) < 40) onSwipe(dx)
+        swipeStartX.current = null; swipeStartY.current = null
+      }}
+      style={{
+        background: gradient,
+        borderRadius: 24,
+        padding: '28px 22px 24px',
+        marginTop: 8,
+        color: '#fff',
+        boxShadow: '0 12px 36px rgba(0,0,0,0.18)',
+        position: 'relative',
+        overflow: 'hidden',
+      }}
+    >
+      {/* Hero — emoji + name + set N of M */}
+      <div style={{ textAlign: 'center', marginBottom: 22 }}>
+        <div style={{
+          fontSize: 56, lineHeight: 1, marginBottom: 10,
+          filter: 'drop-shadow(0 4px 14px rgba(0,0,0,0.22))',
+        }}>{emoji}</div>
+        <div style={{ fontSize: 24, fontWeight: 800, letterSpacing: '-0.5px', textShadow: '0 1px 2px rgba(0,0,0,0.15)' }}>
+          {exerciseName}
+        </div>
+        <div style={{ fontSize: 13, fontWeight: 600, opacity: 0.92, marginTop: 4, letterSpacing: 0.5 }}>
+          SET {setNumber} / {totalSets}
+        </div>
+      </div>
+
+      {/* Weight pill — tap to expand +/- controls. Default shows the predicted
+          value; user only interacts when they want to change. */}
+      <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 18 }}>
+        {!showWeightEdit ? (
+          <button
+            onClick={() => setShowWeightEdit(true)}
+            style={{
+              background: 'rgba(255,255,255,0.18)', border: 'none', borderRadius: 22,
+              color: '#fff', padding: '10px 18px', fontSize: 16, fontWeight: 700,
+              cursor: 'pointer', backdropFilter: 'blur(8px)',
+              WebkitBackdropFilter: 'blur(8px)',
+            }}
+          >{weight !== undefined ? `${weight}kg` : 'Set weight'} ▾</button>
+        ) : (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'rgba(255,255,255,0.95)', borderRadius: 22, padding: '4px 6px' }}>
+            <button onClick={() => bumpWeight(-2.5)} style={{ background: 'none', border: 'none', fontSize: 18, fontWeight: 700, cursor: 'pointer', color: 'var(--label)', width: 36, height: 36, borderRadius: 18 }}>−2.5</button>
+            <input
+              type="number" inputMode="decimal"
+              value={weight ?? ''}
+              onChange={e => { const v = e.target.value; onWeight(v === '' ? undefined : parseFloat(v)) }}
+              style={{ width: 80, background: 'none', border: 'none', outline: 'none', fontSize: 20, fontWeight: 800, textAlign: 'center', color: 'var(--label)' }}
+              placeholder="kg"
+            />
+            <button onClick={() => bumpWeight(2.5)} style={{ background: 'none', border: 'none', fontSize: 18, fontWeight: 700, cursor: 'pointer', color: 'var(--label)', width: 36, height: 36, borderRadius: 18 }}>+2.5</button>
+            <button onClick={() => setShowWeightEdit(false)} style={{ background: 'var(--blue)', color: '#fff', border: 'none', borderRadius: 18, padding: '6px 12px', fontSize: 13, fontWeight: 700, marginLeft: 4, cursor: 'pointer' }}>Done</button>
+          </div>
+        )}
+      </div>
+
+      {/* The one input the user actually fills in */}
+      <div style={{ background: 'rgba(255,255,255,0.95)', borderRadius: 18, padding: '18px 16px 20px', marginBottom: 16 }}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--label3)', textAlign: 'center', letterSpacing: 1.5, marginBottom: 4 }}>REPS</div>
+        <input
+          ref={repsInputRef}
+          type="number" inputMode="numeric"
+          value={reps ?? ''}
+          onChange={e => { const v = e.target.value; onReps(v === '' ? undefined : parseInt(v)) }}
+          onKeyDown={e => { if (e.key === 'Enter' && !isDone) onSubmit() }}
+          placeholder="—"
+          style={{
+            width: '100%', background: 'none', border: 'none', outline: 'none',
+            fontSize: 56, fontWeight: 800, textAlign: 'center', color: 'var(--label)',
+            letterSpacing: '-2px', fontVariantNumeric: 'tabular-nums',
+            padding: 0,
+          }}
+          disabled={isDone}
+        />
+      </div>
+
+      {/* Big submit. Disabled until reps > 0; isDone path shows a green confirm. */}
+      {isDone ? (
+        <div style={{
+          background: 'rgba(255,255,255,0.95)', color: 'var(--green)',
+          borderRadius: 18, padding: '16px', textAlign: 'center', fontSize: 16, fontWeight: 800,
+        }}>✓ Logged · resting next</div>
+      ) : (
+        <button
+          onClick={onSubmit}
+          disabled={!reps || reps <= 0}
+          style={{
+            width: '100%',
+            background: 'rgba(255,255,255,0.95)',
+            color: !reps || reps <= 0 ? 'rgba(0,0,0,0.3)' : 'var(--label)',
+            border: 'none', borderRadius: 18,
+            padding: '18px',
+            fontSize: 17, fontWeight: 800, letterSpacing: 0.3,
+            cursor: !reps || reps <= 0 ? 'default' : 'pointer',
+            transition: 'opacity 0.2s',
+          }}
+        >Log set →</button>
+      )}
+
+      <div style={{ marginTop: 10, fontSize: 11, textAlign: 'center', opacity: 0.75, fontWeight: 500 }}>
+        Tip: swipe left to log
+      </div>
+    </div>
+  )
+}
 
 // Program day card for the idle screen
 function DayCard({ day, isNext, onStart }: { day: ProgramDay; isNext: boolean; onStart: () => void }) {
@@ -419,7 +618,6 @@ export default function Workout() {
     const isEditing = !!liveNonNull.editingId
     const focusEx = liveNonNull.exercises[focusExIdx]
     const focusSet = focusEx?.sets[focusSetIdx]
-    const focusExPR = focusEx ? prs[focusEx.name] : undefined
 
     function endRest() {
       setRestTimer(null)
@@ -454,231 +652,162 @@ export default function Workout() {
       }
     }
 
-    function navTo(direction: -1 | 1) {
-      // Free navigation across all sets (used in editing mode + while the
-      // user wants to go back and tweak a just-completed set).
-      const target = direction > 0 ? focusSetIdx + 1 : focusSetIdx - 1
-      if (direction > 0 && target < focusEx!.sets.length) {
-        setFocusSetIdx(target)
-      } else if (direction < 0 && target >= 0) {
-        setFocusSetIdx(target)
-      } else if (direction > 0 && focusExIdx + 1 < liveNonNull.exercises.length) {
-        setFocusExIdx(focusExIdx + 1); setFocusSetIdx(0)
-      } else if (direction < 0 && focusExIdx > 0) {
-        const prevEx = liveNonNull.exercises[focusExIdx - 1]
-        setFocusExIdx(focusExIdx - 1); setFocusSetIdx(Math.max(0, prevEx.sets.length - 1))
-      }
-      setPhase('active')
-    }
+    // Note: free Prev/Next navigation removed from the active card per the
+    // user's "no clutter" feedback. Set jumps now happen from the Manage sheet.
 
     return (
-      <div className="page" style={{ background: 'var(--bg)' }}>
-        <div className="page-content">
-          {/* Compact header — kept small so the focus card dominates the screen. */}
-          <div style={{ background: 'var(--blue)', borderRadius: 14, padding: '10px 14px', marginBottom: 12, color: '#fff' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
-              <div style={{ minWidth: 0, flex: 1 }}>
-                <div style={{ fontSize: 16, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{live.title}</div>
-                <div style={{ fontSize: 12, opacity: 0.85, marginTop: 1 }}>
-                  <ElapsedTimer startTime={live.startTime} /> · {totalDone}/{totalCount} sets
-                </div>
+      <div
+        className="page"
+        style={{
+          background: phase === 'active' && focusEx
+            ? `radial-gradient(circle at top, ${getExerciseGradient(focusEx.name)} 0%, transparent 60%), var(--bg)`
+            : 'var(--bg)',
+          transition: 'background 0.5s',
+        }}
+      >
+        <div className="page-content" style={{ paddingTop: 8 }}>
+          {/* Minimal header — title + progress + Manage. Eating badge moved to
+              the Manage sheet so it doesn't clutter the active view. */}
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+            <div style={{ minWidth: 0, flex: 1 }}>
+              <div style={{ fontSize: 12, color: 'var(--label3)', fontWeight: 600, letterSpacing: 0.5, textTransform: 'uppercase', marginBottom: 1 }}>
+                {liveNonNull.title}
               </div>
-              <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
-                <button
-                  onClick={() => setShowManage(true)}
-                  aria-label="Manage exercises"
-                  style={{ background: 'rgba(255,255,255,0.18)', border: 'none', borderRadius: 20, width: 36, height: 36, color: '#fff', fontSize: 18, cursor: 'pointer' }}
-                >☰</button>
-                {isEditing && (
-                  <button
-                    onClick={() => { setLive(null); setRestTimer(null); setPhase('active') }}
-                    style={{ background: 'rgba(255,255,255,0.18)', border: 'none', borderRadius: 20, padding: '0 12px', height: 36, color: '#fff', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}
-                  >Cancel</button>
-                )}
-                <button
-                  onClick={finishWorkout}
-                  disabled={finishing || live.exercises.length === 0 || (!isEditing && totalDone === 0)}
-                  style={{ background: 'rgba(255,255,255,0.25)', border: 'none', borderRadius: 20, padding: '0 14px', height: 36, color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', opacity: (finishing || live.exercises.length === 0 || (!isEditing && totalDone === 0)) ? 0.5 : 1 }}
-                >{finishing ? '…' : (isEditing ? 'Save' : 'Finish')}</button>
+              <div style={{ fontSize: 13, color: 'var(--label2)', fontWeight: 500 }}>
+                <ElapsedTimer startTime={liveNonNull.startTime} /> · {totalDone}/{totalCount} sets
               </div>
             </div>
-            {!isEditing && (
-              <div style={{ marginTop: 8, fontSize: 11, fontWeight: 600, opacity: 0.95 }}>
-                {properlyEating
-                  ? '🟢 Fueled — progressive overload active'
-                  : '🟡 Holding weight — eat your protein for the next bump'}
-              </div>
-            )}
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                onClick={() => setShowManage(true)}
+                aria-label="Manage exercises"
+                style={{ background: 'var(--gray6)', border: 'none', borderRadius: 18, width: 36, height: 36, fontSize: 17, cursor: 'pointer', color: 'var(--label)' }}
+              >☰</button>
+              {isEditing && (
+                <button
+                  onClick={() => { setLive(null); setRestTimer(null); setPhase('active') }}
+                  style={{ background: 'var(--gray6)', border: 'none', borderRadius: 18, padding: '0 14px', height: 36, fontSize: 13, fontWeight: 600, cursor: 'pointer', color: 'var(--label)' }}
+                >Cancel</button>
+              )}
+              <button
+                onClick={finishWorkout}
+                disabled={finishing || liveNonNull.exercises.length === 0 || (!isEditing && totalDone === 0)}
+                style={{ background: 'var(--blue)', border: 'none', borderRadius: 18, padding: '0 16px', height: 36, color: '#fff', fontSize: 13, fontWeight: 700, cursor: 'pointer', opacity: (finishing || liveNonNull.exercises.length === 0 || (!isEditing && totalDone === 0)) ? 0.4 : 1 }}
+              >{finishing ? '…' : (isEditing ? 'Save' : 'Finish')}</button>
+            </div>
           </div>
 
-          {/* ── ACTIVE SET CARD ── */}
+          {/* ── ACTIVE: hero card with exercise visual + reps focus ── */}
           {phase === 'active' && focusEx && focusSet && (() => {
             const isThisSetDone = focusSet.done
-            const restLabel = focusEx.restSeconds ? (focusEx.restSeconds >= 60 ? `${focusEx.restSeconds / 60} min` : `${focusEx.restSeconds}s`) : null
+            const gradient = getExerciseGradient(focusEx.name)
+            const emoji = getExerciseEmoji(focusEx.name)
+            const handleSwipe = (dx: number) => {
+              if (dx < -80 && !isThisSetDone && (focusSet.reps ?? 0) > 0) {
+                // Swipe left = log set (gym-friendly: thumb swipe across screen)
+                submitCurrentSet()
+              }
+            }
             return (
-              <div className="card" style={{ padding: '20px 18px 22px', marginBottom: 12 }}>
-                {/* Prev / Exercise / Next */}
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-                  <button
-                    onClick={() => navTo(-1)}
-                    disabled={focusExIdx === 0 && focusSetIdx === 0}
-                    aria-label="Previous set"
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 22, padding: 8, color: (focusExIdx === 0 && focusSetIdx === 0) ? 'var(--label3)' : 'var(--label)' }}
-                  >‹</button>
-                  <div style={{ textAlign: 'center', flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 21, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{focusEx.name}</div>
-                    <div style={{ fontSize: 13, color: 'var(--blue)', fontWeight: 600, marginTop: 2 }}>
-                      Set {focusSetIdx + 1} of {focusEx.sets.length}
-                      {focusEx.repRange && ` · ${focusEx.repRange} reps`}
-                      {focusEx.rir && ` · ${focusEx.rir} RIR`}
-                    </div>
-                    {focusExPR && (
-                      <div style={{ fontSize: 12, color: 'var(--label2)', marginTop: 2 }}>
-                        Best: {focusExPR.weight_kg}kg × {focusExPR.reps}{restLabel ? ` · ${restLabel} rest` : ''}
-                      </div>
-                    )}
-                  </div>
-                  <button
-                    onClick={() => navTo(1)}
-                    disabled={focusExIdx === live.exercises.length - 1 && focusSetIdx === focusEx.sets.length - 1}
-                    aria-label="Next set"
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 22, padding: 8, color: (focusExIdx === live.exercises.length - 1 && focusSetIdx === focusEx.sets.length - 1) ? 'var(--label3)' : 'var(--label)' }}
-                  >›</button>
-                </div>
-
-                {focusEx.notes && <div style={{ fontSize: 12, color: 'var(--label3)', textAlign: 'center', marginTop: 2, marginBottom: 6 }}>{focusEx.notes}</div>}
-
-                {/* Big inputs */}
-                <div style={{ display: 'flex', gap: 12, marginTop: 18 }}>
-                  <div style={{ flex: 1, textAlign: 'center' }}>
-                    <div style={{ fontSize: 11, color: 'var(--label3)', fontWeight: 600, letterSpacing: 0.5, marginBottom: 4 }}>WEIGHT (KG)</div>
-                    <input
-                      type="number" inputMode="decimal" placeholder="—"
-                      style={{ width: '100%', background: 'var(--bg)', border: '1.5px solid var(--separator)', borderRadius: 14, padding: '14px 8px', fontSize: 30, fontWeight: 700, textAlign: 'center', color: 'var(--label)', outline: 'none' }}
-                      value={focusSet.weight_kg ?? ''}
-                      onChange={e => { const v = e.target.value; updateSet(focusExIdx, focusSetIdx, 'weight_kg', v === '' ? undefined : parseFloat(v)) }}
-                    />
-                  </div>
-                  <div style={{ flex: 1, textAlign: 'center' }}>
-                    <div style={{ fontSize: 11, color: 'var(--label3)', fontWeight: 600, letterSpacing: 0.5, marginBottom: 4 }}>REPS</div>
-                    <input
-                      ref={repsInputRef}
-                      type="number" inputMode="numeric" placeholder="—"
-                      style={{ width: '100%', background: 'var(--bg)', border: '1.5px solid var(--blue)', borderRadius: 14, padding: '14px 8px', fontSize: 30, fontWeight: 700, textAlign: 'center', color: 'var(--label)', outline: 'none' }}
-                      value={focusSet.reps ?? ''}
-                      onChange={e => { const v = e.target.value; updateSet(focusExIdx, focusSetIdx, 'reps', v === '' ? undefined : parseInt(v)) }}
-                      onKeyDown={e => { if (e.key === 'Enter' && !isThisSetDone) submitCurrentSet() }}
-                      autoFocus={!isThisSetDone}
-                    />
-                  </div>
-                </div>
-
-                {/* Submit / Done indicator */}
-                {isThisSetDone ? (
-                  <div style={{ marginTop: 18, padding: '12px 14px', background: 'var(--green)', color: '#fff', borderRadius: 14, textAlign: 'center', fontSize: 15, fontWeight: 700 }}>
-                    ✓ Logged — tap › to advance
-                  </div>
-                ) : (
-                  <button
-                    onClick={submitCurrentSet}
-                    disabled={!focusSet.reps || focusSet.reps <= 0}
-                    style={{
-                      width: '100%', marginTop: 18,
-                      background: focusSet.reps ? 'var(--blue)' : 'var(--gray5)',
-                      color: '#fff', border: 'none', borderRadius: 14, padding: '16px',
-                      fontSize: 17, fontWeight: 700, cursor: focusSet.reps ? 'pointer' : 'default',
-                    }}
-                  >Log set ↵</button>
-                )}
-
-                {/* Compact set strip — small dots showing this exercise's set status */}
-                {focusEx.sets.length > 1 && (
-                  <div style={{ display: 'flex', gap: 6, justifyContent: 'center', marginTop: 14 }}>
-                    {focusEx.sets.map((s, i) => (
-                      <button
-                        key={i}
-                        onClick={() => { setFocusSetIdx(i); setPhase('active') }}
-                        style={{
-                          width: 10, height: 10, borderRadius: '50%', border: 'none', cursor: 'pointer',
-                          background: i === focusSetIdx ? 'var(--blue)' : s.done ? 'var(--green)' : 'var(--gray4)',
-                        }}
-                        aria-label={`Go to set ${i + 1}`}
-                      />
-                    ))}
-                  </div>
-                )}
-              </div>
+              <ActiveSetCard
+                key={`${focusExIdx}-${focusSetIdx}`}
+                gradient={gradient}
+                emoji={emoji}
+                exerciseName={focusEx.name}
+                setNumber={focusSetIdx + 1}
+                totalSets={focusEx.sets.length}
+                weight={focusSet.weight_kg}
+                reps={focusSet.reps}
+                isDone={isThisSetDone}
+                onWeight={(v) => updateSet(focusExIdx, focusSetIdx, 'weight_kg', v)}
+                onReps={(v) => updateSet(focusExIdx, focusSetIdx, 'reps', v)}
+                onSubmit={submitCurrentSet}
+                onSwipe={handleSwipe}
+                repsInputRef={repsInputRef}
+              />
             )
           })()}
 
-          {/* ── REST CARD ── */}
+          {/* ── REST: full-card timer with prominent Skip ── */}
           {phase === 'rest' && (() => {
-            const previewBase = (() => {
-              // Show what the user is heading INTO. focusEx/focusSet point to
-              // the next set already (we advanced before flipping to rest), so
-              // describe relative to the set we just finished.
-              const fromExIdx = focusSetIdx === 0 && focusExIdx > 0 ? focusExIdx - 1 : focusExIdx
-              const fromSetIdx = focusSetIdx === 0 && focusExIdx > 0
-                ? Math.max(0, (live.exercises[focusExIdx - 1]?.sets.length ?? 1) - 1)
-                : Math.max(0, focusSetIdx - 1)
-              return describeNext(live.exercises, { exerciseIdx: fromExIdx, setIdx: fromSetIdx })
-            })()
+            const fromExIdx = focusSetIdx === 0 && focusExIdx > 0 ? focusExIdx - 1 : focusExIdx
+            const fromSetIdx = focusSetIdx === 0 && focusExIdx > 0
+              ? Math.max(0, (liveNonNull.exercises[focusExIdx - 1]?.sets.length ?? 1) - 1)
+              : Math.max(0, focusSetIdx - 1)
+            const previewBase = describeNext(liveNonNull.exercises, { exerciseIdx: fromExIdx, setIdx: fromSetIdx })
             return (
-              <div className="card" style={{ padding: '24px 20px 22px', marginBottom: 12, textAlign: 'center' }}>
-                <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--label2)', letterSpacing: 0.5, textTransform: 'uppercase', marginBottom: 8 }}>Rest</div>
-                <RestTimer
+              <div style={{
+                background: focusEx ? `linear-gradient(135deg, ${getExerciseGradient(focusEx.name)})` : 'var(--blue)',
+                borderRadius: 22,
+                padding: '36px 24px 28px',
+                marginTop: 8,
+                color: '#fff',
+                textAlign: 'center',
+                boxShadow: '0 8px 30px rgba(0,0,0,0.12)',
+              }}>
+                <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1.5, textTransform: 'uppercase', opacity: 0.85, marginBottom: 10 }}>Rest</div>
+                <RestTimerInline
                   key={`rest-${focusExIdx}-${focusSetIdx}-${restTimer?.seconds ?? 90}`}
                   seconds={restTimer?.seconds ?? focusEx?.restSeconds ?? 90}
-                  onSkip={endRest}
+                  onComplete={endRest}
                 />
-                <div style={{ marginTop: 14, fontSize: 14, color: 'var(--label2)' }}>
+                <div style={{ marginTop: 14, fontSize: 15, opacity: 0.95 }}>
                   {previewBase.kind === 'next-set' && (
-                    <>Next: <strong style={{ color: 'var(--label)' }}>Set {previewBase.setNumber} of {previewBase.exerciseName}</strong></>
+                    <>Next: <strong>Set {previewBase.setNumber} of {previewBase.exerciseName}</strong></>
                   )}
                   {previewBase.kind === 'next-exercise' && (
-                    <>Next exercise: <strong style={{ color: 'var(--label)' }}>{previewBase.exerciseName}</strong> — Set 1 of {previewBase.totalSets}</>
+                    <>Next exercise: <strong>{previewBase.exerciseName}</strong> · Set 1 of {previewBase.totalSets}</>
                   )}
                   {previewBase.kind === 'workout-complete' && (
-                    <strong style={{ color: 'var(--green)' }}>Workout complete</strong>
+                    <strong>Workout complete</strong>
                   )}
                 </div>
                 <button
                   onClick={endRest}
-                  style={{ marginTop: 16, background: 'var(--blue)', color: '#fff', border: 'none', borderRadius: 14, padding: '12px 22px', fontSize: 15, fontWeight: 700, cursor: 'pointer' }}
+                  style={{ marginTop: 22, background: 'rgba(255,255,255,0.95)', color: 'var(--label)', border: 'none', borderRadius: 16, padding: '14px 32px', fontSize: 16, fontWeight: 700, cursor: 'pointer', minWidth: 180 }}
                 >Skip rest →</button>
               </div>
             )
           })()}
 
-          {/* ── DONE CARD ── */}
+          {/* ── DONE ── */}
           {phase === 'done' && (
-            <div className="card" style={{ padding: '28px 20px', marginBottom: 12, textAlign: 'center' }}>
-              <div style={{ fontSize: 56, marginBottom: 8 }}>🎉</div>
-              <div style={{ fontSize: 22, fontWeight: 700, marginBottom: 6 }}>Workout complete!</div>
-              <div style={{ fontSize: 14, color: 'var(--label2)' }}>
-                {totalDone}/{totalCount} sets · <ElapsedTimer startTime={live.startTime} />
+            <div style={{
+              background: 'linear-gradient(135deg, #34C759 0%, #5AC8FA 100%)',
+              borderRadius: 22,
+              padding: '40px 24px',
+              marginTop: 8,
+              color: '#fff',
+              textAlign: 'center',
+              boxShadow: '0 8px 30px rgba(0,0,0,0.12)',
+            }}>
+              <div style={{ fontSize: 64, marginBottom: 10 }}>🎉</div>
+              <div style={{ fontSize: 24, fontWeight: 800, marginBottom: 6 }}>Workout complete</div>
+              <div style={{ fontSize: 14, opacity: 0.9 }}>
+                {totalDone}/{totalCount} sets · <ElapsedTimer startTime={liveNonNull.startTime} />
               </div>
               <button
                 onClick={finishWorkout}
                 disabled={finishing}
-                style={{ marginTop: 22, background: 'var(--green)', color: '#fff', border: 'none', borderRadius: 14, padding: '16px 24px', fontSize: 17, fontWeight: 700, cursor: 'pointer', width: '100%', opacity: finishing ? 0.5 : 1 }}
+                style={{ marginTop: 24, background: 'rgba(255,255,255,0.95)', color: 'var(--label)', border: 'none', borderRadius: 16, padding: '14px 32px', fontSize: 16, fontWeight: 700, cursor: 'pointer', minWidth: 220, opacity: finishing ? 0.5 : 1 }}
               >{finishing ? 'Saving…' : 'Save workout'}</button>
             </div>
           )}
 
-          {/* ── EMPTY-WORKOUT FALLBACK ── */}
-          {live.exercises.length === 0 && (
-            <div className="card" style={{ padding: '28px 20px', marginBottom: 12, textAlign: 'center', color: 'var(--label2)' }}>
-              <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 8 }}>No exercises yet</div>
+          {/* ── EMPTY workout fallback ── */}
+          {liveNonNull.exercises.length === 0 && (
+            <div style={{ padding: '40px 20px', textAlign: 'center' }}>
+              <div style={{ fontSize: 56, marginBottom: 8 }}>🏋️</div>
+              <div style={{ fontSize: 17, fontWeight: 600, marginBottom: 16, color: 'var(--label2)' }}>No exercises yet</div>
               <button
                 onClick={() => setShowManage(true)}
-                style={{ background: 'var(--blue)', color: '#fff', border: 'none', borderRadius: 12, padding: '10px 20px', fontSize: 14, fontWeight: 700, cursor: 'pointer' }}
+                style={{ background: 'var(--blue)', color: '#fff', border: 'none', borderRadius: 14, padding: '12px 24px', fontSize: 15, fontWeight: 700, cursor: 'pointer' }}
               >+ Add exercise</button>
             </div>
           )}
         </div>
 
-        {/* ── MANAGE SHEET — reorder, add exercise, add set ── */}
+        {/* ── MANAGE SHEET ── */}
         {showManage && (
           <div
             style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 400, display: 'flex', alignItems: 'flex-end' }}
@@ -695,17 +824,28 @@ export default function Workout() {
                 <button onClick={() => { setShowManage(false); setShowExSearch(false); setExSearch('') }} className="sheet-close">×</button>
               </div>
 
-              {live.exercises.length > 0 && (
+              {!isEditing && (
+                <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 12, padding: '8px 12px', borderRadius: 10, background: properlyEating ? 'rgba(52,199,89,0.12)' : 'rgba(255,149,0,0.12)', color: properlyEating ? 'var(--green)' : 'var(--orange)' }}>
+                  {properlyEating
+                    ? '🟢 Fueled — progressive overload active today'
+                    : '🟡 Holding weight — eat your protein for the next bump'}
+                </div>
+              )}
+
+              {liveNonNull.exercises.length > 0 && (
                 <div className="card" style={{ marginBottom: 12 }}>
-                  {live.exercises.map((ex, exIdx) => (
-                    <div key={exIdx} className="list-row" style={{ gap: 8, borderBottom: exIdx < live.exercises.length - 1 ? '0.5px solid var(--separator)' : 'none' }}>
+                  {liveNonNull.exercises.map((ex, exIdx) => (
+                    <div key={exIdx} className="list-row" style={{ gap: 8, borderBottom: exIdx < liveNonNull.exercises.length - 1 ? '0.5px solid var(--separator)' : 'none' }}>
                       <button
                         onClick={() => { setFocusExIdx(exIdx); setFocusSetIdx(0); setPhase('active'); setShowManage(false) }}
-                        style={{ flex: 1, background: 'none', border: 'none', textAlign: 'left', cursor: 'pointer', padding: 0, color: 'inherit', minWidth: 0 }}
+                        style={{ flex: 1, background: 'none', border: 'none', textAlign: 'left', cursor: 'pointer', padding: 0, color: 'inherit', minWidth: 0, display: 'flex', alignItems: 'center', gap: 10 }}
                       >
-                        <div style={{ fontSize: 15, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ex.name}</div>
-                        <div style={{ fontSize: 12, color: 'var(--label2)', marginTop: 1 }}>
-                          {ex.sets.filter(s => s.done).length}/{ex.sets.length} sets done
+                        <span style={{ fontSize: 22 }}>{getExerciseEmoji(ex.name)}</span>
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontSize: 15, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ex.name}</div>
+                          <div style={{ fontSize: 12, color: 'var(--label2)', marginTop: 1 }}>
+                            {ex.sets.filter(s => s.done).length}/{ex.sets.length} sets done
+                          </div>
                         </div>
                       </button>
                       <button
@@ -713,7 +853,7 @@ export default function Workout() {
                         aria-label="Add set"
                         style={{ background: 'var(--gray6)', border: 'none', borderRadius: 8, width: 32, height: 32, fontSize: 16, cursor: 'pointer', color: 'var(--label)' }}
                       >+</button>
-                      {live.exercises.length > 1 && (
+                      {liveNonNull.exercises.length > 1 && (
                         <>
                           <button
                             onClick={() => moveExercise(exIdx, -1)}
@@ -723,9 +863,9 @@ export default function Workout() {
                           >↑</button>
                           <button
                             onClick={() => moveExercise(exIdx, 1)}
-                            disabled={exIdx === live.exercises.length - 1}
+                            disabled={exIdx === liveNonNull.exercises.length - 1}
                             aria-label="Move down"
-                            style={{ background: 'var(--gray6)', border: 'none', borderRadius: 8, width: 32, height: 32, fontSize: 14, cursor: exIdx === live.exercises.length - 1 ? 'default' : 'pointer', color: exIdx === live.exercises.length - 1 ? 'var(--label3)' : 'var(--label)' }}
+                            style={{ background: 'var(--gray6)', border: 'none', borderRadius: 8, width: 32, height: 32, fontSize: 14, cursor: exIdx === liveNonNull.exercises.length - 1 ? 'default' : 'pointer', color: exIdx === liveNonNull.exercises.length - 1 ? 'var(--label3)' : 'var(--label)' }}
                           >↓</button>
                         </>
                       )}
