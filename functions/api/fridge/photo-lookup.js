@@ -57,6 +57,16 @@ function looksRelevant(query, productName) {
   return words.some(w => p.includes(w))
 }
 
+/**
+ * Three return states:
+ *   { url: '...' }       — found a relevant photo
+ *   { checked: true }    — OFF responded with results, no relevant match
+ *   { unavailable: true} — OFF errored / overloaded / timed out — DO NOT cache
+ *
+ * The unavailable distinction matters because OFF's search.pl is flaky and
+ * returns an HTML overload page during peaks. If we cached those as a miss,
+ * the user would never see a photo until the cache expired in 14 days.
+ */
 async function searchOFF(name) {
   const params = new URLSearchParams({
     search_terms: name,
@@ -68,7 +78,6 @@ async function searchOFF(name) {
     fields: 'product_name,product_name_en,image_small_url,image_front_small_url,brands,countries_tags',
   })
   const url = `https://world.openfoodfacts.org/cgi/search.pl?${params.toString()}`
-  // 6s budget. OFF's overload page returns instantly so we don't waste much.
   const ctrl = new AbortController()
   const t = setTimeout(() => ctrl.abort(), 6000)
   try {
@@ -76,16 +85,13 @@ async function searchOFF(name) {
       headers: { 'User-Agent': UA, 'Accept': 'application/json' },
       signal: ctrl.signal,
     })
-    if (!res.ok) return null
+    if (!res.ok) return { unavailable: true }
     const text = await res.text()
-    // OFF returns HTML on overload — guard against parse error.
-    if (!text.startsWith('{')) return null
-    const data = JSON.parse(text)
+    if (!text.startsWith('{')) return { unavailable: true }
+    let data
+    try { data = JSON.parse(text) }
+    catch { return { unavailable: true } }
     const products = Array.isArray(data?.products) ? data.products : []
-    // Walk results in descending popularity. Take the first one that:
-    //   1. has an image
-    //   2. passes the relevance check
-    // Prefer UK products when available (most of Brody's groceries).
     const ukFirst = [
       ...products.filter(p => (p.countries_tags || []).includes('en:united-kingdom')),
       ...products.filter(p => !(p.countries_tags || []).includes('en:united-kingdom')),
@@ -94,12 +100,12 @@ async function searchOFF(name) {
       const img = p.image_small_url || p.image_front_small_url
       const pname = p.product_name_en || p.product_name || ''
       if (img && looksRelevant(name, pname)) {
-        return img
+        return { url: img }
       }
     }
-    return null
+    return { checked: true }
   } catch {
-    return null
+    return { unavailable: true }
   } finally {
     clearTimeout(t)
   }
@@ -127,17 +133,22 @@ export async function onRequestPost(context) {
     } catch { /* KV down — fall through to OFF */ }
   }
 
-  const photo = await searchOFF(name)
+  const result = await searchOFF(name)
 
-  if (kv) {
+  // Only cache definitive answers. OFF being unavailable is transient; we want
+  // the next call to retry, not be locked into "no photo" for 14 days.
+  if (kv && !result.unavailable) {
     try {
-      if (photo) {
-        await kv.put(cacheKey, JSON.stringify({ url: photo, t: Date.now() }), { expirationTtl: POS_TTL_SECS })
+      if (result.url) {
+        await kv.put(cacheKey, JSON.stringify({ url: result.url, t: Date.now() }), { expirationTtl: POS_TTL_SECS })
       } else {
         await kv.put(cacheKey, JSON.stringify({ miss: true, t: Date.now() }), { expirationTtl: NEG_TTL_SECS })
       }
     } catch { /* ignore KV write failures */ }
   }
 
-  return json({ photo_url: photo, source: photo ? 'off' : 'miss' })
+  const source = result.url
+    ? 'off'
+    : result.unavailable ? 'unavailable' : 'miss'
+  return json({ photo_url: result.url || null, source })
 }

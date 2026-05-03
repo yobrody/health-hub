@@ -51,6 +51,7 @@ function looksRelevant(query, productName) {
   return words.some(w => p.includes(w))
 }
 
+// See photo-lookup.js for the rationale on the three return states.
 async function searchOFF(name) {
   const params = new URLSearchParams({
     search_terms: name,
@@ -69,10 +70,12 @@ async function searchOFF(name) {
       headers: { 'User-Agent': UA, 'Accept': 'application/json' },
       signal: ctrl.signal,
     })
-    if (!res.ok) return null
+    if (!res.ok) return { unavailable: true }
     const text = await res.text()
-    if (!text.startsWith('{')) return null
-    const data = JSON.parse(text)
+    if (!text.startsWith('{')) return { unavailable: true }
+    let data
+    try { data = JSON.parse(text) }
+    catch { return { unavailable: true } }
     const products = Array.isArray(data?.products) ? data.products : []
     const ukFirst = [
       ...products.filter(p => (p.countries_tags || []).includes('en:united-kingdom')),
@@ -81,11 +84,11 @@ async function searchOFF(name) {
     for (const p of ukFirst) {
       const img = p.image_small_url || p.image_front_small_url
       const pname = p.product_name_en || p.product_name || ''
-      if (img && looksRelevant(name, pname)) return img
+      if (img && looksRelevant(name, pname)) return { url: img }
     }
-    return null
+    return { checked: true }
   } catch {
-    return null
+    return { unavailable: true }
   } finally {
     clearTimeout(t)
   }
@@ -94,6 +97,11 @@ async function searchOFF(name) {
 export async function onRequestPost(context) {
   const expected = context.env.HEALTH_API_KEY || 'brody-health-hub-2026'
   const kv = context.env.FRIDGE_META
+  // ?force=1 bypasses the negative cache so the previous backfill's stale
+  // "miss" entries from when OFF was overloaded get retried. Hits are still
+  // read from cache (no point re-fetching a known-good photo URL).
+  const url = new URL(context.request.url)
+  const force = url.searchParams.get('force') === '1'
 
   // Pull current fridge contents
   let fridge
@@ -128,12 +136,14 @@ export async function onRequestPost(context) {
     let photo_url = null
     let source = 'miss'
 
-    // 1) Try cached photo lookup
+    // 1) Try cached photo lookup. Hits always honoured. Misses honoured unless
+    // ?force=1 was passed (used to recover from a backfill that ran during
+    // an OFF outage and cached a bunch of false misses).
     if (kv) {
       try {
         const cached = await kv.get(cacheKey, 'json')
         if (cached?.url) { photo_url = cached.url; source = 'cache' }
-        else if (cached?.miss) { source = 'cache-miss' }
+        else if (cached?.miss && !force) { source = 'cache-miss' }
       } catch { /* fall through */ }
     }
 
@@ -144,10 +154,14 @@ export async function onRequestPost(context) {
       if (lookedUp > 0) await new Promise(r => setTimeout(r, 350))
       const offResult = await searchOFF(name)
       lookedUp++
-      photo_url = offResult
-      source = offResult ? 'off' : 'miss'
+      photo_url = offResult.url || null
+      source = offResult.url
+        ? 'off'
+        : offResult.unavailable ? 'unavailable' : 'miss'
 
-      if (kv) {
+      // Only cache definitive answers. Don't burn a 14-day miss cache on a
+      // transient OFF outage — let the next backfill retry.
+      if (kv && !offResult.unavailable) {
         try {
           if (photo_url) {
             await kv.put(cacheKey, JSON.stringify({ url: photo_url, t: Date.now() }), { expirationTtl: POS_TTL_SECS })
