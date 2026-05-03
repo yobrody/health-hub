@@ -214,6 +214,11 @@ function ItemCard({
   const isOld = pct >= 0.85
   const isWarn = pct >= 0.55 && !isOld
   const tint = getFoodTint(item.name)
+  // Track image-load failures so we can swap to the emoji fallback without
+  // re-rendering the whole tree. A single bad photo URL shouldn't break the
+  // grid; the emoji is always available.
+  const [imgFailed, setImgFailed] = useState(false)
+  const showPhoto = !!item.photo_url && !imgFailed
 
   return (
     <button className="tap-lift" onClick={onTap} style={{
@@ -226,10 +231,30 @@ function ItemCard({
     }}>
       {isOld && <div style={{ position:'absolute', top:-6, right:-6, background:'var(--red)', color:'#fff', borderRadius:6, fontSize:9, fontWeight:700, padding:'1px 5px' }}>OLD</div>}
       {isWarn && !isOld && <div style={{ position:'absolute', top:-6, right:-6, background:'var(--orange)', color:'#fff', borderRadius:6, fontSize:9, fontWeight:700, padding:'1px 5px' }}>SOON</div>}
-      <span style={{
-        fontSize: 26, lineHeight: 1.1, padding: '2px 4px',
-        background: tint, borderRadius: 10,
-      }}>{getEmoji(item.name)}</span>
+      {showPhoto ? (
+        // Real product photo from Open Food Facts. Square 56px slot keeps the
+        // grid uniform whatever the source aspect ratio. Subtle border so the
+        // photo doesn't bleed into the card on light theme.
+        <div style={{
+          width: 56, height: 56, borderRadius: 12, overflow: 'hidden',
+          background: tint,
+          boxShadow: 'inset 0 0 0 1px rgba(0,0,0,0.04)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>
+          <img
+            src={item.photo_url ?? undefined}
+            alt={item.name}
+            loading="lazy"
+            onError={() => setImgFailed(true)}
+            style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+          />
+        </div>
+      ) : (
+        <span style={{
+          fontSize: 26, lineHeight: 1.1, padding: '2px 4px',
+          background: tint, borderRadius: 10,
+        }}>{getEmoji(item.name)}</span>
+      )}
       <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--label)', lineHeight: 1.3,
         overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', width: '100%' }}>
         {item.name}
@@ -517,7 +542,11 @@ export default function Fridge() {
         return
       }
       const section = inferSection(product.name)
-      await api.addFridgeItem(product.name, section)
+      // Pass the OFF photo through so the card has a real product image
+      // immediately. lookupBarcode now returns image_url alongside name.
+      await api.addFridgeItem(product.name, section, {
+        photo_url: product.image_url ?? null,
+      })
       const updated = await api.getFridge()
       setData(updated)
       setScanStatus(`✓ Added ${product.name} to ${ZONE_CONFIG[section].label}`)
@@ -552,6 +581,16 @@ export default function Fridge() {
     setShowAdd(false)
     if (navigator.vibrate) navigator.vibrate(10)
     showToast(`Added ${name} to ${ZONE_CONFIG[addZone].label}`)
+    // Background photo lookup. Resolves into KV server-side; we re-fetch the
+    // fridge once the lookup returns so the new card swaps from emoji → photo
+    // without a reload. Failure is silent — emoji fallback is fine.
+    void api.lookupPhoto(name).then(r => {
+      if (r.photo_url) {
+        return api.addFridgeItem(name, addZone, { photo_url: r.photo_url })
+          .then(() => api.getFridge())
+          .then(setData)
+      }
+    }).catch(() => {})
   }
 
   return (

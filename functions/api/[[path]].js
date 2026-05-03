@@ -55,7 +55,13 @@ export async function onRequest(context) {
                 const metaStr = await kv.get(key)
                 if (metaStr) {
                   const meta = JSON.parse(metaStr)
-                  return { ...item, size: meta.size ?? null, cost: meta.cost ?? null, store: meta.store ?? null }
+                  return {
+                    ...item,
+                    size: meta.size ?? null,
+                    cost: meta.cost ?? null,
+                    store: meta.store ?? null,
+                    photo_url: meta.photo_url ?? null,
+                  }
                 }
               } catch {}
               return item
@@ -82,6 +88,7 @@ export async function onRequest(context) {
       size = null, cost = null, store = null,
       unit_size_g = null, quantity_g = null,
       unit_count = null, quantity_count = null,
+      photo_url = null,
     } = body
 
     // Forward to VPS with the fields the FastAPI model accepts
@@ -101,14 +108,24 @@ export async function onRequest(context) {
       return jsonResp({ error: 'VPS unreachable: ' + String(err) }, 502)
     }
 
-    // Write extended metadata to KV if any present
-    if (kv && name && (size !== null || cost !== null || store !== null)) {
+    // Write extended metadata to KV if any present. Merge with existing record
+    // so we don't clobber a photo_url that an earlier add or backfill resolved.
+    if (kv && name && (size !== null || cost !== null || store !== null || photo_url !== null)) {
       try {
         const key = name.toLowerCase().trim()
+        let existing = {}
+        try {
+          const prev = await kv.get(key)
+          if (prev) existing = JSON.parse(prev)
+        } catch {}
         await kv.put(key, JSON.stringify({
-          size, cost, store,
-          section: section || 'fridge',
-          added: new Date().toISOString(),
+          ...existing,
+          size: size ?? existing.size ?? null,
+          cost: cost ?? existing.cost ?? null,
+          store: store ?? existing.store ?? null,
+          photo_url: photo_url ?? existing.photo_url ?? null,
+          section: section || existing.section || 'fridge',
+          added: existing.added || new Date().toISOString(),
         }))
       } catch {}
     }

@@ -269,6 +269,14 @@ export default function CameraSheet({ open, onClose, fridgeData, onFridgeUpdated
         ))
         onFridgeUpdated()
         showToast(`Added ${result.items.length} items from receipt`)
+        // Fire-and-forget photo lookup for each new item. Resolved URLs are
+        // written into KV server-side, so the next /fridge GET picks them up.
+        // Cached results are instant; misses are bounded by OFF's 6s budget.
+        void Promise.all(result.items.map(item =>
+          api.lookupPhoto(item.name)
+            .then(r => r.photo_url ? api.addFridgeItem(item.name, item.section, { photo_url: r.photo_url }) : null)
+            .catch(() => {})
+        )).then(() => onFridgeUpdated())
       } else {
         showToast('No items found on receipt', 'info')
       }
@@ -311,7 +319,11 @@ export default function CameraSheet({ open, onClose, fridgeData, onFridgeUpdated
     try {
       const section = inferSection(barcodeProduct.name)
       if (choice === 'fridge' || choice === 'both') {
-        await api.addFridgeItem(barcodeProduct.name, section)
+        // Pass the OFF photo through so the item gets a real product image
+        // immediately on the next /fridge GET — no follow-up lookup needed.
+        await api.addFridgeItem(barcodeProduct.name, section, {
+          photo_url: barcodeProduct.image_url ?? null,
+        })
         onFridgeUpdated()
       }
       if (choice === 'log' || choice === 'both') {

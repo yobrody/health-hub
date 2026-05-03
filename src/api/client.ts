@@ -64,7 +64,10 @@ async function lookupBarcode(barcode: string): Promise<BarcodeLookupResult | nul
         ?? (p.nutriments?.energy_100g ? p.nutriments.energy_100g / 4.184 : null)
       const servingG = parseFloat(p.serving_quantity) || 100
       const kcal = kcal100 ? Math.round(kcal100 * servingG / 100) : undefined
-      return { name, kcal }
+      // 200px image. Prefer image_small_url (200px); fall back to front_small or thumb.
+      const image_url: string | undefined =
+        p.image_small_url || p.image_front_small_url || p.image_thumb_url || undefined
+      return { name, kcal, image_url }
     }
   } catch { /* OpenFoodFacts unreachable; barcode lookup unavailable */ }
 
@@ -168,6 +171,24 @@ export const api = {
   getShelfLife: (items: string[]) =>
     request<ShelfLifeMap>(`/fridge/shelf-life?items=${items.map(encodeURIComponent).join(',')}`),
 
+  // Resolve an Open Food Facts product image URL by name (server-side, with
+  // KV cache + relevance check). Used after a fridge item is added by name
+  // (receipt scan or hand-add) to backfill a photo asynchronously without
+  // blocking the add UI. Returns { photo_url: string | null }.
+  lookupPhoto: (name: string) =>
+    request<{ photo_url: string | null; source: string }>(
+      '/fridge/photo-lookup', { method: 'POST', body: JSON.stringify({ name }) },
+    ),
+
+  // One-shot backfill: walks every existing fridge item and resolves a
+  // photo_url for any that don't have one yet. Polite to OFF (~350ms gap
+  // between external lookups; cached results read instantly). Safe to call
+  // repeatedly — only items missing a cached entry hit OFF.
+  backfillPhotos: () =>
+    request<{ walked: number; resolved: number; missed: number; looked_up_external: number; items: Array<{ name: string; zone: string; photo_url: string | null; source: string }> }>(
+      '/fridge/photo-backfill', { method: 'POST' },
+    ),
+
   // AI food photo analysis (legacy single-item)
   analyzeFood: async (file: File, description: string): Promise<FoodAnalysis> => {
     const image = await fileToBase64(file)
@@ -238,6 +259,9 @@ export interface AddFridgeItemMeta {
   quantity_g?: number | null
   unit_count?: number | null
   quantity_count?: number | null
+  // OFF product image URL when available (typically from barcode scan).
+  // Stored alongside other extended metadata in KV; surfaces on the item card.
+  photo_url?: string | null
 }
 export interface ScannedItem {
   name: string
@@ -267,6 +291,9 @@ export interface BarcodeLookupResult {
   protein_g?: number
   carbs_g?: number
   fat_g?: number
+  // OFF product image URL (200px-wide front-of-pack). May be undefined when
+  // the OFF entry exists but has no uploaded photos.
+  image_url?: string
 }
 export interface TodayData { date: string; entries: FoodEntry[]; total_kcal: number; goals: Goals }
 export interface FoodEntry { time: string; meal: string; items: string; kcal: number; protein_g?: number }
@@ -289,6 +316,12 @@ export interface FridgeItem {
   quantity_g?: number | null
   unit_count?: number | null
   quantity_count?: number | null
+  // Resolved product image URL, typically from Open Food Facts. Set when:
+  //   - The item was added via barcode scan (the OFF product API call returns one)
+  //   - The /api/fridge/photo-lookup name-search resolved a confident match
+  //   - The /api/fridge/photo-backfill admin call walked the existing fridge
+  // Falls back to the emoji map on the card when null/empty/broken.
+  photo_url?: string | null
 }
 export interface Meal { name: string; ingredients: string[]; kcal_estimate: number }
 export interface MealDetail {
