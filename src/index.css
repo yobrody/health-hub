@@ -1,3 +1,9 @@
+@import "tailwindcss";
+
+/* Tailwind v4 layered UNDER existing CSS variables + component classes.
+   All current inline styles, .card, .btn-primary etc keep working unchanged.
+   New work can opt into Tailwind utility classes. */
+
 :root,
 :root[data-theme='light'] {
   --tab-bar-bg: rgba(255,255,255,0.92);
