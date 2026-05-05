@@ -239,6 +239,10 @@ export default defineConfig(({ mode }) => {
       localAiPlugin(anthropicKey),
       VitePWA({
         registerType: 'autoUpdate',
+        // Force the new SW to activate immediately and take over all open
+        // clients on first install. Without these the user has to reload
+        // twice to see new code (PWA waits its turn). With them, one reload.
+        injectRegister: 'auto',
         includeAssets: ['icon.svg', 'maskable-icon.svg'],
         manifest: {
           name: 'Health Hub',
@@ -255,6 +259,9 @@ export default defineConfig(({ mode }) => {
           ],
         },
         workbox: {
+          skipWaiting: true,
+          clientsClaim: true,
+          cleanupOutdatedCaches: true,
           globPatterns: ['**/*.{js,css,html,ico,png,svg}'],
           runtimeCaching: [
             {
