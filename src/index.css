@@ -72,6 +72,14 @@ input, textarea, button, select {
 
 .card { background: var(--card); border-radius: 16px; overflow: hidden; }
 
+/* Bento-style tap feedback for full-card buttons (e.g. Routines).
+   Hover lifts via subtle scale + shadow; active gives a tactile press. */
+.routine-tap:hover { transform: scale(1.015); box-shadow: 0 4px 16px rgba(0,0,0,0.06); }
+.routine-tap:active { transform: scale(0.98); }
+@media (hover: none) {
+  .routine-tap:hover { transform: none; box-shadow: none; }
+}
+
 .btn-primary {
   background: var(--blue); color: #fff; border: none; border-radius: 14px;
   font-size: 17px; font-weight: 600; padding: 14px 24px; cursor: pointer;
