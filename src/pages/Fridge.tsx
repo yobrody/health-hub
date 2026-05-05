@@ -1323,23 +1323,6 @@ export default function Fridge() {
     return map
   }, [data])
 
-  function findSlotForName(name: string): SlotPos | null {
-    return slots[name] || null
-  }
-
-  // Build the inverse map: who's currently in slot s? Used by onDragEnd to
-  // detect "occupied" drop targets so we can swap.
-  function findNameInSlot(zone: Zone, shelf: number, col: number): string | null {
-    for (const [name, pos] of Object.entries(slots)) {
-      if (pos.zone === zone && pos.shelf === shelf && pos.col === col) return name
-    }
-    // Fallback: if slot_memory doesn't have this slot, derive from buildShelfGrid
-    // semantics — the items list and our placement rule give the same answer.
-    const items = data[zone] || []
-    const grid = buildShelfGrid(items, slots, zone)
-    return grid[shelf]?.[col]?.name || null
-  }
-
   function handleDragStart(e: DragStartEvent) {
     const id = String(e.active.id)
     if (id.startsWith('item:')) setActiveDragName(id.slice(5))
@@ -1358,11 +1341,25 @@ export default function Fridge() {
     const shelf = parseInt(shelfStr, 10)
     const col = parseInt(colStr, 10)
 
-    const fromPos = findSlotForName(draggedName)
-    const occupantName = findNameInSlot(zone, shelf, col)
-
-    // Build the new slot map. Optimistic state update; PUT in background.
+    // BUG FIX 2026-05-06: Anchor every CURRENTLY-VISIBLE item to its present
+    // slot before applying the drag. Without this, items that had no explicit
+    // slot_memory entry (relying on auto-fill from buildShelfGrid) would
+    // re-flow whenever any *other* item got an explicit slot — visually
+    // looking like a drag also moved unrelated items. After this, slot_memory
+    // contains an entry for every visible item, so the drag only affects the
+    // dragged item (+ swap target), and every other item stays put.
     const next: SlotMap = { ...slots }
+    for (const z of ['fridge', 'pantry'] as const) {
+      const grid = buildShelfGrid(data[z] || [], slots, z)
+      grid.forEach((row, s) => row.forEach((it, c) => {
+        if (it && !next[it.name]) {
+          next[it.name] = { zone: z, shelf: s, col: c }
+        }
+      }))
+    }
+
+    const fromPos = next[draggedName] || null
+    const occupantName = findNameInSlotIn(next, zone, shelf, col)
 
     if (occupantName && occupantName !== draggedName) {
       // Swap. Occupant takes dragged item's old slot (or stays put if dragged
@@ -1392,6 +1389,15 @@ export default function Fridge() {
     }
   }
 
+  // Lookup variant that operates on a snapshot map (so handleDragEnd can use
+  // the materialized `next` instead of the live `slots` state).
+  function findNameInSlotIn(map: SlotMap, zone: Zone, shelf: number, col: number): string | null {
+    for (const [name, pos] of Object.entries(map)) {
+      if (pos.zone === zone && pos.shelf === shelf && pos.col === col) return name
+    }
+    return null
+  }
+
   function firstFreeSlot(zone: Zone, slotMap: SlotMap, ignoreName?: string): SlotPos {
     const occupied = new Set<string>()
     for (const [name, pos] of Object.entries(slotMap)) {
@@ -1406,13 +1412,15 @@ export default function Fridge() {
     return { zone, shelf: 0, col: 0 } // overflow — overlay onto top-left
   }
 
-  // Cross-zone drag: re-add into the destination zone, remove from source.
-  // FastAPI's add_fridge_item appends; remove deletes by substring match.
+  // Cross-zone drag: remove from source first, then add to destination.
+  // Order matters: FastAPI's remove endpoint deletes by substring match across
+  // every zone, so an add-then-remove sequence nukes the freshly-added copy
+  // alongside the original. Remove-then-add gives the correct end state.
   async function moveItemBetweenZones(name: string, from: Zone, to: Zone) {
     if (from === to) return
     try {
-      await api.addFridgeItem(name, to)
       await api.removeFridgeItem(name)
+      await api.addFridgeItem(name, to)
       const updated = await api.getFridge()
       setData(updated)
     } catch {
@@ -1654,7 +1662,7 @@ export default function Fridge() {
               {totalSpend > 0 && <span style={{ color: 'var(--green)', fontWeight: 600 }}>{'£'}{totalSpend.toFixed(2)} stocked</span>}
               {alertItems.length > 0 && (
                 <span style={{ color: oldItems.length > 0 ? 'var(--red)' : 'var(--orange)', fontWeight: 600 }}>
-                  \u26A0\uFE0F {alertItems.length} expiring
+                  {'\u26A0\uFE0F'} {alertItems.length} expiring
                 </span>
               )}
             </div>
@@ -1847,10 +1855,10 @@ export default function Fridge() {
                   {isExpanded && (
                     <div style={{ marginTop: 12, paddingTop: 12, borderTop: '0.5px solid var(--separator)' }} onClick={e => e.stopPropagation()}>
                       {detail === 'loading' && (
-                        <div style={{ fontSize: 13, color: 'var(--label2)' }}>\u23F3 Generating recipe\u2026</div>
+                        <div style={{ fontSize: 13, color: 'var(--label2)' }}>⏳ Generating recipe…</div>
                       )}
                       {detail === 'error' && (
-                        <div style={{ fontSize: 13, color: 'var(--red)' }}>Couldn't generate recipe \u2014 tap to retry</div>
+                        <div style={{ fontSize: 13, color: 'var(--red)' }}>Couldn't generate recipe — tap to retry</div>
                       )}
                       {detailLoaded && (
                         <>
@@ -1896,7 +1904,7 @@ export default function Fridge() {
         )}
         {showMeals && loadingMeals && (
           <div style={{ textAlign: 'center', padding: '24px', color: 'var(--label2)', fontSize: 14 }}>
-            \u23F3 Finding meal ideas from your fridge\u2026
+            ⏳ Finding meal ideas from your fridge…
           </div>
         )}
       </div>

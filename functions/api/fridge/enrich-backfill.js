@@ -17,7 +17,11 @@ import {
 } from './_enrich-lib.js'
 
 const FRESH_SECS = 30 * 24 * 60 * 60
-const STEP_MS = 350
+const STEP_MS = 350           // OFF politeness delay
+// Modest Gemini pacing — flash-lite has plenty of free-tier RPM, but a
+// large backfill could still trip the 1000 RPD ceiling, and 200ms keeps
+// the function response time bounded.
+const GEMINI_STEP_MS = 200
 
 export async function onRequestOptions() {
   return new Response(null, { status: 204, headers: CORS })
@@ -82,6 +86,8 @@ export async function onRequestPost(context) {
       if (stillMissingNutrition) {
         const r = await geminiEstimate(item.name, context.env)
         if (r.enriched) layers.push(r)
+        // Per-Gemini-call throttle, only when we actually called Gemini.
+        await sleep(GEMINI_STEP_MS)
       }
 
       if (layers.length) {

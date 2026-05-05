@@ -10,7 +10,11 @@
  * is the free-tier successor. Verify with ListModels if quota errors recur.
  */
 
-const MODEL = 'gemini-2.5-flash'
+// gemini-2.5-flash-lite has 1000+ RPD on free tier; gemini-2.5-flash has only
+// ~20 RPD on this account (lower than the published 250 — appears to be a
+// per-project-config thing). Lite is plenty for structured extraction tasks
+// (receipt OCR, food photo macros, recipe steps, item nutrition).
+const MODEL = 'gemini-2.5-flash-lite'
 const ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`
 
 /**

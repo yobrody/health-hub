@@ -38,7 +38,7 @@ def today() -> str:
 # in 2026-05; gemini-2.5-flash is the current free-tier flagship.
 _GEMINI_ENDPOINT = (
     "https://generativelanguage.googleapis.com/v1beta/models/"
-    "gemini-2.5-flash:generateContent"
+    "gemini-2.5-flash-lite:generateContent"
 )
 
 def gemini_call(prompt: str, image_b64: str = None, mime_type: str = "image/jpeg",

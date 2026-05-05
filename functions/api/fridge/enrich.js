@@ -54,40 +54,41 @@ export async function onRequestPost(context) {
   // Build the cascade. Each layer either contributes an `enriched` object or
   // bows out. Order = most authoritative first.
   const layers = []
+  const _debug = { tried: [] }
 
   // 1. Barcode → OFF (if barcode in body OR existing)
   const barcode = body.barcode || existing?.barcode
   if (barcode) {
     const r = await fetchOFFByBarcode(barcode)
+    _debug.tried.push({ step: 'off-barcode', ok: !!r.enriched, status: r.status, miss: r.miss, unavail: r.unavailable })
     if (r.enriched) layers.push(r)
   }
 
-  // 2. Name → OFF text search (always — even if barcode hit, in case it adds
-  //    fields the barcode product is missing). But skip if barcode gave high
-  //    confidence and we're not forcing, since text search is flaky.
+  // 2. Name → OFF text search
   const haveHigh = layers.some(l => l.confidence === 'high')
   if (!haveHigh) {
     const r = await searchOFFByName(name)
+    _debug.tried.push({ step: 'off-text', ok: !!r.enriched, miss: r.miss, unavail: r.unavailable })
     if (r.enriched) layers.push(r)
   }
 
   // 3. Gemini fallback (only if we still don't have nutrition).
   const stillMissingNutrition = !layers.some(l => l.enriched?.nutrition_per_100g)
                                 && !existing?.nutrition_per_100g
+  _debug.geminiTriggered = stillMissingNutrition
   if (stillMissingNutrition) {
     const r = await geminiEstimate(name, context.env)
+    _debug.tried.push({ step: 'gemini', ok: !!r.enriched, skipped: r.skipped, status: r.status,
+                        miss: r.miss, unavail: r.unavailable, finishReason: r.finishReason,
+                        throw: r.throw, errTxt: r.errTxt, parseErr: r.parseErr })
     if (r.enriched) layers.push(r)
   }
 
-  // Merge
+  // Merge. If no layer contributed AND no hints, skip the write entirely so
+  // we don't overwrite a previously-good record with stale data.
   const merged = mergeEnrichment(existing, layers)
+  const layersContributed = layers.some(l => l?.enriched)
 
-  // Always preserve any existing user-supplied fields (cost/store/size etc)
-  // by carrying them through merge — readMeta returned them under `existing`,
-  // and mergeEnrichment only overwrites empty fields. So they survive.
-
-  // If hints arrived (typically from a receipt scan), they reflect the
-  // CURRENT purchase. Update top-level cost/store/size and append price hist.
   if (hints) {
     if (hints.cost != null) merged.cost = hints.cost
     if (hints.store) merged.store = hints.store
@@ -95,10 +96,15 @@ export async function onRequestPost(context) {
     await appendPriceHistory(kv, name, hints)
   }
 
-  // Persist
-  merged.name = merged.name || name
-  await writeMeta(kv, name, merged)
+  if (layersContributed || hints || !existing) {
+    merged.name = merged.name || name
+    await writeMeta(kv, name, merged)
+  }
 
   const recent_prices = await readPrices(kv, name)
-  return json({ ok: true, meta: merged, recent_prices, source: 'enriched' })
+  // Surface _debug only when ?debug=1 is on the URL — keeps prod responses lean.
+  const showDebug = new URL(context.request.url).searchParams.get('debug') === '1'
+  const out = { ok: true, meta: merged, recent_prices, source: 'enriched' }
+  if (showDebug) out._debug = _debug
+  return json(out)
 }

@@ -221,9 +221,9 @@ Return only the JSON object — no prose, no markdown fences.`
   // thinkingConfig.thinkingBudget=0 — 2.5-flash defaults to reasoning-with-
   // hidden-thinking which burns the maxOutputTokens budget. Off for structured
   // extraction.
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${key}`
   const ctrl = new AbortController()
-  const t = setTimeout(() => ctrl.abort(), 8000)
+  const t = setTimeout(() => ctrl.abort(), 20000)
   try {
     const res = await fetch(url, {
       method: 'POST',
@@ -239,15 +239,28 @@ Return only the JSON object — no prose, no markdown fences.`
       }),
       signal: ctrl.signal,
     })
-    if (!res.ok) return { unavailable: true, status: res.status }
+    if (!res.ok) {
+      const errTxt = await res.text().catch(() => '')
+      console.log('[gemini]', name, 'http', res.status, errTxt.slice(0, 200))
+      return { unavailable: true, status: res.status, errTxt: errTxt.slice(0, 200) }
+    }
     const data = await res.json()
     const txt = data?.candidates?.[0]?.content?.parts?.[0]?.text
-    if (!txt) return { miss: true }
+    const finishReason = data?.candidates?.[0]?.finishReason
+    if (!txt) {
+      console.log('[gemini]', name, 'empty', finishReason, JSON.stringify(data).slice(0, 200))
+      return { miss: true, finishReason }
+    }
     let parsed
-    try { parsed = JSON.parse(txt) } catch { return { miss: true } }
+    try { parsed = JSON.parse(txt) }
+    catch (e) {
+      console.log('[gemini]', name, 'parse', String(e), txt.slice(0, 100))
+      return { miss: true, parseErr: String(e), preview: txt.slice(0, 100) }
+    }
     return { enriched: { ...parsed, source: 'gemini' }, confidence: 'low' }
-  } catch {
-    return { unavailable: true }
+  } catch (e) {
+    console.log('[gemini]', name, 'throw', String(e))
+    return { unavailable: true, throw: String(e) }
   } finally {
     clearTimeout(t)
   }
@@ -266,13 +279,13 @@ export function mergeEnrichment(existing, layers) {
   const out = { ...(existing || {}) }
   let bestConfidence = existing?.confidence || null
   let bestSource = existing?.source || null
-  let primaryFilled = false  // once we take a high-conf primary, it wins
+  let primaryFilled = !!(existing?.confidence === 'high')
+  let anyLayerContributed = false
 
   for (const layer of layers) {
     if (!layer?.enriched) continue
     const e = layer.enriched
-    // Take fields that aren't already set, OR overwrite when the layer is
-    // higher-confidence than what's there.
+    let layerContributed = false
     for (const [k, v] of Object.entries(e)) {
       if (v == null || v === '') continue
       if (Array.isArray(v) && !v.length) continue
@@ -281,18 +294,30 @@ export function mergeEnrichment(existing, layers) {
         have == null ||
         have === '' ||
         (Array.isArray(have) && !have.length)
-      if (layerWins) out[k] = v
+      if (layerWins) { out[k] = v; layerContributed = true }
     }
-    if (!primaryFilled) {
+    if (layerContributed) anyLayerContributed = true
+    if (!primaryFilled && layerContributed) {
       bestConfidence = layer.confidence
       bestSource = e.source || bestSource
       if (layer.confidence === 'high') primaryFilled = true
     }
   }
 
-  out.confidence = bestConfidence || 'unknown'
-  out.source = bestSource || out.source || 'unknown'
-  out.enriched_at = Math.floor(Date.now() / 1000)
+  // Don't overwrite confidence/source/enriched_at when no layer added anything.
+  // Without this, a failed Gemini call (rate limit / network) would clobber a
+  // previously-good record's confidence with 'unknown' and reset enriched_at,
+  // making the record look fresh+empty forever.
+  if (anyLayerContributed) {
+    out.confidence = bestConfidence || 'unknown'
+    out.source = bestSource || out.source || 'unknown'
+    out.enriched_at = Math.floor(Date.now() / 1000)
+  } else if (!existing) {
+    // No prior record AND no contributions — mark unknown so the next call retries.
+    out.confidence = 'unknown'
+    out.source = 'unknown'
+    out.enriched_at = Math.floor(Date.now() / 1000)
+  }
   return out
 }
 

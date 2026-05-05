@@ -19,11 +19,16 @@ import {
   mergeEnrichment, appendPriceHistory, readMeta, writeMeta, readPrices,
 } from './_enrich-lib.js'
 
+// flash-lite has generous free-tier RPM, so we can run higher concurrency
+// without hitting per-minute caps. OFF stays the bottleneck at 350ms politeness.
 const CONCURRENCY = 3
+const GEMINI_STEP_MS = 100
 
 export async function onRequestOptions() {
   return new Response(null, { status: 204, headers: CORS })
 }
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)) }
 
 async function enrichOne(name, barcode, hints, kv, env) {
   const existing = await readMeta(kv, name)
@@ -46,6 +51,8 @@ async function enrichOne(name, barcode, hints, kv, env) {
   if (stillMissingNutrition) {
     const r = await geminiEstimate(name, env)
     if (r.enriched) layers.push(r)
+    // Respect Gemini free-tier 5 RPM by sleeping after each call.
+    await sleep(GEMINI_STEP_MS)
   }
 
   const merged = mergeEnrichment(existing, layers)
