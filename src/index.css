@@ -129,6 +129,52 @@ input, textarea, button, select {
   transform: translateY(1px) scale(0.985);
 }
 
+/* Appliance items — base transitions for hover/active. The breathing +
+   drop-in animations are inline-style on each item (variable per index). */
+.appliance-item {
+  transition: filter 0.16s ease;
+}
+.appliance-item:active {
+  filter: brightness(0.92);
+}
+
+/* Item drop-in: items fall onto the shelf from above with a slight bounce.
+   Used inline with stagger via animation-delay per item. */
+@keyframes applianceItemDrop {
+  0%   { opacity: 0; transform: translateY(-26px) scale(0.7); }
+  60%  { opacity: 1; transform: translateY(2px)   scale(1.03); }
+  100% { opacity: 1; transform: translateY(0)     scale(1); }
+}
+
+/* Idle breathing — gentle scale pulse so items feel alive. Per-index delay
+   randomizes the rhythm. Scale-only so it composes cleanly with item-level
+   rotation applied on the parent wrapper. */
+@keyframes applianceItemBreathe {
+  0%, 100% { transform: scale(1); }
+  50%      { transform: scale(1.025); }
+}
+
+/* Snowflake on the freezer compartment — slow continuous rotation, like a
+   subtle "the fridge is on" cue. */
+@keyframes snowflakeSpin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+.appliance-snowflake {
+  transform-origin: center;
+  animation: snowflakeSpin 30s linear infinite;
+}
+
+/* Internal light bulb glow at top of fridge interior — pulses subtly to
+   suggest a real light source. */
+@keyframes bulbGlow {
+  0%, 100% { opacity: 0.55; }
+  50%      { opacity: 0.75; }
+}
+.appliance-bulb {
+  animation: bulbGlow 4s ease-in-out infinite;
+}
+
 .celebrate-pop {
   animation: popIn 0.28s cubic-bezier(0.22, 1, 0.36, 1);
 }
