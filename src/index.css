@@ -1,8 +1,20 @@
 @import "tailwindcss";
 
-/* Tailwind v4 layered UNDER existing CSS variables + component classes.
-   All current inline styles, .card, .btn-primary etc keep working unchanged.
-   New work can opt into Tailwind utility classes. */
+/* C-PREVIEW BRANCH — force dark + dark-bento palette globally.
+   Reverts to iOS palette on main. */
+:root {
+  --c-bg: #09090B;
+  --c-card: #18181B;
+  --c-border: #27272A;
+  --c-label: #FAFAFA;
+  --c-label-dim: #A1A1AA;
+  --c-label-faint: #52525B;
+  --c-accent: #3B82F6;
+  --c-accent-soft: rgba(59,130,246,0.12);
+  --c-green: #10B981;
+  --c-orange: #F59E0B;
+  --c-red: #EF4444;
+}
 
 :root,
 :root[data-theme='light'] {
