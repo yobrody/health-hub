@@ -216,7 +216,9 @@ export async function geminiEstimate(name, env) {
 }
 Return only the JSON object — no prose, no markdown fences.`
 
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${key}`
+  // gemini-2.5-flash is on the free tier as of 2026-05; 2.0-flash has been
+  // moved to paid-only. Verify with ListModels if quota issues recur.
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`
   const ctrl = new AbortController()
   const t = setTimeout(() => ctrl.abort(), 8000)
   try {
