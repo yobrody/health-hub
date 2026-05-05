@@ -81,7 +81,8 @@ export default function Routines() {
                 key={r.id}
                 onClick={() => markDone(r.id)}
                 disabled={done || isLogging}
-                className="card"
+                aria-label={done ? `${r.label} done today` : `Mark ${r.label} done`}
+                className={done ? 'card' : 'card routine-tap'}
                 style={{
                   display: 'flex',
                   alignItems: 'center',
@@ -92,7 +93,7 @@ export default function Routines() {
                   cursor: done ? 'default' : 'pointer',
                   WebkitTapHighlightColor: 'transparent',
                   opacity: done ? 0.7 : 1,
-                  transition: 'opacity 0.15s',
+                  transition: 'opacity 0.15s, transform 0.12s ease, box-shadow 0.18s ease',
                 }}
               >
                 <span style={{ fontSize: 28, lineHeight: 1, flexShrink: 0 }}>{r.icon}</span>
