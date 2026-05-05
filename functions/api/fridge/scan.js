@@ -1,9 +1,12 @@
 /**
  * Cloudflare Pages Function — POST /api/fridge/scan
- * AI-powered receipt scanning via OpenRouter (Gemini 2.0 Flash).
+ * AI-powered receipt scanning via direct Google AI Studio (Gemini 2.5 Flash).
  * Returns detected items — client handles adding to VPS via /api/fridge/item.
- * This avoids issues with outbound VPS calls inside the Worker.
+ *
+ * Migrated 2026-05-05 from OpenRouter (paid credits) to direct Google AI
+ * Studio free tier. Same vision capability, no credit consumption.
  */
+import { geminiVisionJSON } from '../_gemini-vision.js'
 
 const CORS = {
   'Content-Type': 'application/json',
@@ -18,23 +21,6 @@ function json(data, status = 200) {
 
 export async function onRequestOptions() {
   return new Response(null, { status: 204, headers: CORS })
-}
-
-function extractJSON(str) {
-  try { return JSON.parse(str) } catch {}
-  let depth = 0, end = -1
-  for (let i = str.length - 1; i >= 0; i--) {
-    if (str[i] === '}') { if (depth === 0) end = i; depth++ }
-    else if (str[i] === '{') {
-      depth--
-      if (depth === 0 && end !== -1) {
-        try { return JSON.parse(str.slice(i, end + 1)) } catch {}
-      }
-    }
-  }
-  const m = str.match(/\{[\s\S]*\}/)
-  if (m) { try { return JSON.parse(m[0]) } catch {} }
-  return null
 }
 
 const PROMPT = `Look at this grocery store receipt. Extract the purchased food and drink items.
@@ -59,11 +45,6 @@ Rules:
 - If a name contains "/" (e.g. "edamame/mushroom") add both as separate items`
 
 export async function onRequestPost(context) {
-  const expected = context.env.HEALTH_API_KEY || 'brody-health-hub-2026'
-
-  const orKey = context.env.OPENROUTER_API_KEY
-  if (!orKey) return json({ error: 'OpenRouter key not configured', items: [] }, 503)
-
   let imageBase64, imageMediaType = 'image/jpeg'
   try {
     const body = await context.request.json()
@@ -74,44 +55,19 @@ export async function onRequestPost(context) {
     return json({ error: 'Bad request: ' + String(e) }, 400)
   }
 
-  // Call OpenRouter
-  let claudeText = ''
-  try {
-    const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${orKey}`,
-        'HTTP-Referer': 'https://health-hub-dwz.pages.dev',
-        'X-Title': 'Health Hub',
-      },
-      body: JSON.stringify({
-        model: 'google/gemini-2.0-flash-001',
-        max_tokens: 1500,
-        provider: { order: ['Google'], allow_fallbacks: false },
-        messages: [{
-          role: 'user',
-          content: [
-            { type: 'image_url', image_url: { url: `data:${imageMediaType};base64,${imageBase64}` } },
-            { type: 'text', text: PROMPT },
-          ],
-        }],
-      }),
-    })
-    if (!res.ok) {
-      const t = await res.text()
-      return json({ error: `AI error ${res.status}: ${t.slice(0, 150)}`, items: [] }, 502)
-    }
-    const data = await res.json()
-    claudeText = data.choices?.[0]?.message?.content || ''
-  } catch (e) {
-    return json({ error: 'AI request failed: ' + String(e), items: [] }, 502)
+  const r = await geminiVisionJSON({
+    apiKey: context.env.GEMINI_API_KEY,
+    prompt: PROMPT,
+    imageBase64,
+    mimeType: imageMediaType,
+    maxTokens: 1500,
+  })
+  if (!r.ok) {
+    return json({ error: `AI error ${r.status}: ${r.error.slice(0, 150)}`, items: [] }, r.status === 503 ? 503 : 502)
   }
-
-  const parsed = extractJSON(claudeText)
-  if (!parsed) {
-    return json({ error: 'Could not parse AI response', raw: claudeText.slice(0, 200), items: [] })
-  }
+  let parsed
+  try { parsed = JSON.parse(r.text) }
+  catch { return json({ error: 'Could not parse AI response', raw: r.text.slice(0, 200), items: [] }) }
 
   const store = parsed.store || null
   const items = Array.isArray(parsed.items)

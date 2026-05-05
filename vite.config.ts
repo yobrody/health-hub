@@ -6,33 +6,51 @@ import { VitePWA } from 'vite-plugin-pwa'
 import type { IncomingMessage, ServerResponse } from 'http'
 
 // Local-dev middleware: handles AI endpoints without exposing API keys to browser.
-// ANTHROPIC_API_KEY must be in .env (no VITE_ prefix — never exposed to frontend).
+// GEMINI_API_KEY must be in .env (no VITE_ prefix — never exposed to frontend).
 // Items returned from /api/fridge/scan are NOT added to the VPS server-side here
 // (matches prod Pages Function behavior); the frontend iterates /api/fridge/item
 // for each item, which gives the user a confirm step.
-function localAiPlugin(anthropicKey: string) {
+//
+// Migrated 2026-05-05 from Anthropic to Google AI Studio (gemini-2.5-flash) so
+// dev parity with prod and zero Anthropic-API spend on personal use.
+async function callGeminiVision(apiKey: string, prompt: string, imageBase64: string, mimeType: string, maxTokens: number) {
+  if (!apiKey) return { ok: false as const, status: 503, error: 'GEMINI_API_KEY not configured' }
+  try {
+    const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ role: 'user', parts: [
+          { inline_data: { mime_type: mimeType, data: imageBase64 } },
+          { text: prompt },
+        ]}],
+        generationConfig: { responseMimeType: 'application/json', temperature: 0.2, maxOutputTokens: maxTokens },
+      }),
+    })
+    if (!r.ok) return { ok: false as const, status: r.status, error: (await r.text()).slice(0, 300) }
+    const data = await r.json() as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> }
+    const text = data.candidates?.[0]?.content?.parts?.[0]?.text || ''
+    if (!text) return { ok: false as const, status: 502, error: 'empty response' }
+    return { ok: true as const, text }
+  } catch (e) {
+    return { ok: false as const, status: 502, error: String(e) }
+  }
+}
+
+function localAiPlugin(geminiKey: string) {
   return {
     name: 'local-ai-endpoints',
     configureServer(server: { middlewares: Connect.Server }) {
 
-      // POST /api/fridge/scan — receipt scanning via Claude Vision.
+      // POST /api/fridge/scan — receipt scanning via Gemini 2.5 Flash (free tier).
       // Dev middleware kept in sync with the prod Cloudflare Pages Function
-      // (functions/api/fridge/scan.js): same JSON contract in, same shape out
-      // ({items, store}), same per-item fields (unit_size_g, unit_count) so the
-      // Phase 1 fridge-depletion flow works identically in dev and prod.
-      // Note: prod uses OpenRouter/Gemini; dev uses Anthropic directly because
-      // the local user already has the key in .env.
+      // (functions/api/fridge/scan.js): same JSON contract in, same shape out.
       server.middlewares.use('/api/fridge/scan', (req: IncomingMessage, res: ServerResponse, next: Connect.NextFunction) => {
         if (req.method === 'OPTIONS') {
           res.writeHead(204, { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'POST,OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type,X-Health-Key' })
           res.end(); return
         }
         if (req.method !== 'POST') { next(); return }
-
-        if (!anthropicKey) {
-          res.writeHead(503, { 'Content-Type': 'application/json' })
-          res.end(JSON.stringify({ error: 'Set ANTHROPIC_API_KEY in .env for receipt scanning', items: [], store: null })); return
-        }
 
         const chunks: Buffer[] = []
         req.on('data', (c: Buffer) => chunks.push(c))
@@ -60,23 +78,13 @@ Rules:
 - SKIP non-food (foil, bags, cleaning, toiletries), totals, VAT, discounts, header rows
 - If a name contains "/" add both as separate items`
 
-            const apiRes = await fetch('https://api.anthropic.com/v1/messages', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json', 'x-api-key': anthropicKey, 'anthropic-version': '2023-06-01' },
-              body: JSON.stringify({
-                model: 'claude-sonnet-4-6',
-                max_tokens: 2000,
-                messages: [{ role: 'user', content: [
-                  { type: 'image', source: { type: 'base64', media_type: mimeType, data: image } },
-                  { type: 'text', text: prompt },
-                ]}],
-              }),
-            })
-            const claude = await apiRes.json() as { content?: Array<{ text: string }> }
-            const text = claude.content?.[0]?.text || '{}'
-            const match = text.match(/\{[\s\S]*\}/)
+            const r = await callGeminiVision(geminiKey, prompt, image, mimeType, 2000)
+            if (!r.ok) {
+              res.writeHead(r.status === 503 ? 503 : 502, { 'Content-Type': 'application/json' })
+              res.end(JSON.stringify({ error: `AI error ${r.status}: ${r.error.slice(0, 150)}`, items: [], store: null })); return
+            }
             type RawScanned = { name?: string; section?: string; unit_size_g?: number; unit_count?: number; size?: string; cost?: number }
-            const parsed = JSON.parse(match?.[0] || '{}') as { items?: RawScanned[]; store?: { name?: string; location?: string | null } | null }
+            const parsed = JSON.parse(r.text) as { items?: RawScanned[]; store?: { name?: string; location?: string | null } | null }
             const validSections = new Set(['fridge', 'freezer', 'pantry', 'condiments'])
             const items = (parsed.items ?? [])
               .filter((i) => i?.name)
@@ -109,11 +117,6 @@ Rules:
           res.end(); return
         }
         if (req.method !== 'POST') { next(); return }
-
-        if (!anthropicKey) {
-          res.writeHead(503, { 'Content-Type': 'application/json' })
-          res.end(JSON.stringify({ error: 'Set ANTHROPIC_API_KEY in .env for local AI features', foods: [], fridge_matches: [], confidence: 'low' })); return
-        }
 
         const chunks: Buffer[] = []
         req.on('data', (c: Buffer) => chunks.push(c))
@@ -172,20 +175,17 @@ Rules:
 
             const promptText = effectiveMode === 'home' ? homePrompt : outPrompt
 
-            const content: unknown[] = []
-            if (image) content.push({ type: 'image', source: { type: 'base64', media_type: mimeType, data: image } })
-            content.push({ type: 'text', text: promptText })
-
-            const apiRes = await fetch('https://api.anthropic.com/v1/messages', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json', 'x-api-key': anthropicKey, 'anthropic-version': '2023-06-01' },
-              body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 800, messages: [{ role: 'user', content }] }),
-            })
-            const claude = await apiRes.json() as { content?: Array<{ text: string }> }
-            const text = claude.content?.[0]?.text || '{}'
-            const m = text.match(/\{[\s\S]*\}/)
+            if (!image) {
+              res.writeHead(400, { 'Content-Type': 'application/json' })
+              res.end(JSON.stringify({ error: 'No image provided', foods: [], fridge_matches: [], confidence: 'low' })); return
+            }
+            const r = await callGeminiVision(geminiKey, promptText, image, mimeType, 800)
+            if (!r.ok) {
+              res.writeHead(r.status === 503 ? 503 : 502, { 'Content-Type': 'application/json' })
+              res.end(JSON.stringify({ error: `AI error ${r.status}: ${r.error.slice(0, 150)}`, foods: [], fridge_matches: [], confidence: 'low' })); return
+            }
             type RawResult = { foods?: unknown[]; fridge_matches?: unknown[]; confidence?: string }
-            const result = (m ? JSON.parse(m[0]) : {}) as RawResult
+            const result = JSON.parse(r.text) as RawResult
 
             // Resolve fridge_matches names back to full item objects (home mode only)
             let fridgeMatches: Array<IncomingItem & { zone: string; grams_used: number | null }> = []
@@ -229,14 +229,14 @@ export default defineConfig(({ mode }) => {
   // Load ALL env vars (including non-VITE_ ones) and pass them into plugins via closure
   // loadEnv returns an object but does NOT populate process.env — use the returned object directly
   const env = loadEnv(mode, process.cwd(), '')
-  const anthropicKey = env.ANTHROPIC_API_KEY || ''
+  const geminiKey = env.GEMINI_API_KEY || ''
   const healthKey = env.VITE_API_KEY || 'brody-health-hub-2026'
 
   return {
     plugins: [
       react(),
       tailwindcss(),
-      localAiPlugin(anthropicKey),
+      localAiPlugin(geminiKey),
       VitePWA({
         registerType: 'autoUpdate',
         // Force the new SW to activate immediately and take over all open

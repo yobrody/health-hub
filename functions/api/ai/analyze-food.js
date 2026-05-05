@@ -15,7 +15,12 @@
  *   fridge_matches: [{name, zone, added, grams_used?}],   // [] when mode='out'
  *   confidence: 'high' | 'medium' | 'low'
  * }
+ *
+ * Migrated 2026-05-05 from OpenRouter (paid credits) to direct Google AI
+ * Studio free tier (gemini-2.5-flash).
  */
+import { geminiVisionJSON } from '../_gemini-vision.js'
+
 const CORS = {
   'Content-Type': 'application/json',
   'Access-Control-Allow-Origin': '*',
@@ -29,13 +34,6 @@ function json(data, status = 200) {
 
 export async function onRequestOptions() {
   return new Response(null, { status: 204, headers: CORS })
-}
-
-function extractJSON(str) {
-  try { return JSON.parse(str) } catch {}
-  const m = str.match(/\{[\s\S]*\}/)
-  if (m) { try { return JSON.parse(m[0]) } catch {} }
-  return null
 }
 
 // CRITICAL: the model must REFUSE to invent food when the image is empty,
@@ -98,9 +96,6 @@ Rules:
 - Empty/non-food images: return empty foods + "low" confidence — see IMAGE QUALITY GUARD above.`
 
 export async function onRequestPost(context) {
-  const orKey = context.env.OPENROUTER_API_KEY
-  if (!orKey) return json({ error: 'OpenRouter not configured' }, 503)
-
   let body
   try { body = await context.request.json() }
   catch { return json({ error: 'Invalid JSON body' }, 400) }
@@ -132,38 +127,20 @@ export async function onRequestPost(context) {
     : OUT_PROMPT(description)
 
   try {
-    const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${orKey}`,
-        'HTTP-Referer': 'https://health-hub-dwz.pages.dev',
-        'X-Title': 'Health Hub',
-      },
-      body: JSON.stringify({
-        model: 'google/gemini-2.0-flash-001',
-        max_tokens: 800,
-        provider: { order: ['Google'], allow_fallbacks: false },
-        messages: [{
-          role: 'user',
-          content: [
-            { type: 'image_url', image_url: { url: `data:${mimeType};base64,${image}` } },
-            { type: 'text', text: promptText },
-          ],
-        }],
-      }),
+    const r = await geminiVisionJSON({
+      apiKey: context.env.GEMINI_API_KEY,
+      prompt: promptText,
+      imageBase64: image,
+      mimeType,
+      maxTokens: 800,
     })
-
-    if (!res.ok) {
-      const err = await res.text()
-      console.error('OpenRouter error:', err)
-      return json({ error: 'AI error', detail: err.slice(0, 100) }, 502)
+    if (!r.ok) {
+      console.error('Gemini error:', r.status, r.error)
+      return json({ error: 'AI error', detail: r.error.slice(0, 100) }, r.status === 503 ? 503 : 502)
     }
-
-    const data = await res.json()
-    const text = data.choices?.[0]?.message?.content || '{}'
-    const result = extractJSON(text)
-    if (!result) throw new Error('No JSON in response')
+    let result
+    try { result = JSON.parse(r.text) }
+    catch { throw new Error('No JSON in response') }
 
     const foods = Array.isArray(result.foods) ? result.foods : []
     let fridge_matches = []
