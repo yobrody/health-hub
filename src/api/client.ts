@@ -189,6 +189,34 @@ export const api = {
       '/fridge/photo-backfill', { method: 'POST' },
     ),
 
+  // Slot positions on the cartoon shelves. Server is source of truth so a
+  // layout edit on one device shows up on the next. Map is name → {zone,shelf,col}.
+  getSlots: () => request<SlotMap>('/fridge/slots'),
+  putSlots: (slots: SlotMap) =>
+    request<{ ok: boolean; count: number }>('/fridge/slots', {
+      method: 'PUT', body: JSON.stringify(slots),
+    }),
+
+  // Full enriched record for the detail modal: identity + KV metadata + recent prices.
+  getFridgeItem: (name: string) =>
+    request<FridgeItemDetail>(`/fridge/item/${encodeURIComponent(name)}`),
+
+  // Background AI enrichment. Cascade is server-side: OFF barcode → OFF text
+  // search → Gemini Flash. `hints` lets receipt-scan callers attach the
+  // current store/cost/size so price history gets appended.
+  enrichItem: (input: { name: string; barcode?: string; hints?: EnrichHints; force?: boolean }) =>
+    request<EnrichResult>('/fridge/enrich', { method: 'POST', body: JSON.stringify(input) }),
+
+  enrichBatch: (items: Array<{ name: string; barcode?: string; hints?: EnrichHints }>, force = false) =>
+    request<{ ok: boolean; results: Record<string, EnrichedRecord | { error: string }> }>(
+      '/fridge/enrich-batch', { method: 'POST', body: JSON.stringify({ items, force }) },
+    ),
+
+  enrichBackfill: (force = false) =>
+    request<{ ok: boolean; scanned: number; enriched: number; skipped: number; errors: Array<{ name: string; error: string }> }>(
+      '/fridge/enrich-backfill', { method: 'POST', body: JSON.stringify({ force }) },
+    ),
+
   // AI food photo analysis (legacy single-item)
   analyzeFood: async (file: File, description: string): Promise<FoodAnalysis> => {
     const image = await fileToBase64(file)
@@ -327,6 +355,64 @@ export interface FridgeItem {
   //   - The /api/fridge/photo-backfill admin call walked the existing fridge
   // Falls back to the emoji map on the card when null/empty/broken.
   photo_url?: string | null
+}
+
+export type Zone = 'fridge' | 'pantry' | 'freezer' | 'condiments'
+export interface SlotPos { zone: Zone; shelf: number; col: number }
+export type SlotMap = Record<string, SlotPos>
+
+export interface NutritionPer100g {
+  kcal?: number
+  protein_g?: number
+  carbs_g?: number
+  fat_g?: number
+  fiber_g?: number
+  sugar_g?: number
+}
+
+export interface EnrichedRecord {
+  name?: string | null
+  brand?: string | null
+  photo_url?: string | null
+  barcode?: string | null
+  nutrition_per_100g?: NutritionPer100g | null
+  typical_size_g?: number | null
+  typical_unit_count?: number | null
+  packaging?: string | null
+  shelf_life_days_sealed?: number | null
+  shelf_life_days_opened?: number | null
+  allergens?: string[] | null
+  categories?: string[] | null
+  size?: string | null
+  cost?: number | null
+  store?: string | null
+  source?: string | null
+  confidence?: 'high' | 'medium' | 'low' | 'unknown'
+  enriched_at?: number | null
+}
+
+export interface PriceEntry { date: string; store: string | null; cost: number; size: string | null }
+
+export interface EnrichHints { store?: string | null; cost?: number | null; size?: string | null; date?: string | null }
+
+export interface EnrichResult {
+  ok: boolean
+  meta: EnrichedRecord
+  recent_prices: PriceEntry[]
+  source: 'enriched' | 'cache'
+}
+
+// Returned by GET /fridge/item/{name} — the rich payload the detail modal renders.
+export interface FridgeItemDetail extends EnrichedRecord {
+  name: string
+  added: string | null
+  zone: Zone
+  slot: SlotPos | null
+  unit_size_g?: number | null
+  unit_count?: number | null
+  quantity_g?: number | null
+  quantity_count?: number | null
+  recent_prices: PriceEntry[]
 }
 export interface Meal { name: string; ingredients: string[]; kcal_estimate: number }
 export interface MealDetail {

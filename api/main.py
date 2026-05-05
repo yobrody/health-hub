@@ -204,9 +204,58 @@ def food_history(days: int = 7, key=Depends(require_key)):
     return result
 
 # ── FRIDGE ────────────────────────────────────────────────────────────
+SLOT_FILE = DATA_DIR / "slot_memory.json"
+
+def read_slots() -> dict:
+    if not SLOT_FILE.exists():
+        return {}
+    try:
+        return json.loads(SLOT_FILE.read_text() or "{}")
+    except json.JSONDecodeError:
+        return {}
+
+def write_slots(slots: dict):
+    # Atomic write: tmp file then rename, so a crash mid-write can't corrupt.
+    tmp = SLOT_FILE.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(slots, indent=2, sort_keys=True))
+    tmp.replace(SLOT_FILE)
+
+def drop_slot_for(name: str):
+    slots = read_slots()
+    name_lower = name.lower()
+    changed = [k for k in slots if name_lower in k.lower()]
+    if changed:
+        for k in changed:
+            del slots[k]
+        write_slots(slots)
+
 @app.get("/fridge")
 def get_fridge(key=Depends(require_key)):
     return read_fridge()
+
+@app.get("/fridge/slots")
+def get_slots(key=Depends(require_key)):
+    return read_slots()
+
+@app.put("/fridge/slots")
+def put_slots(slots: dict, key=Depends(require_key)):
+    valid_zones = {"fridge", "pantry", "freezer", "condiments"}
+    cleaned: dict = {}
+    for name, pos in slots.items():
+        if not isinstance(pos, dict):
+            continue
+        zone = pos.get("zone")
+        shelf = pos.get("shelf")
+        col = pos.get("col")
+        if zone not in valid_zones:
+            continue
+        if not (isinstance(shelf, int) and 0 <= shelf <= 2):
+            continue
+        if not (isinstance(col, int) and 0 <= col <= 2):
+            continue
+        cleaned[name] = {"zone": zone, "shelf": shelf, "col": col}
+    write_slots(cleaned)
+    return {"ok": True, "count": len(cleaned)}
 
 class FridgeItem(BaseModel):
     name: str
@@ -257,6 +306,7 @@ def remove_fridge_item(name: str, key=Depends(require_key)):
     if not removed:
         raise HTTPException(status_code=404, detail=f"Item not found")
     write_fridge(data)
+    drop_slot_for(name)
     return {"ok": True}
 
 class ConsumeInput(BaseModel):

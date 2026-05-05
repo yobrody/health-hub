@@ -1,7 +1,11 @@
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useMemo, useState, useRef } from 'react'
 import { api } from '../api/client'
-import type { FridgeData, FridgeItem, Meal, MealDetail, ScanResult, ScannedItem, ShelfLifeMap } from '../api/client'
+import type { FridgeData, FridgeItem, Meal, MealDetail, ScanResult, ScannedItem, ShelfLifeMap, SlotMap, SlotPos, FridgeItemDetail } from '../api/client'
 import { showToast } from '../toast'
+import {
+  DndContext, useDraggable, useDroppable, DragOverlay, PointerSensor, useSensor, useSensors,
+} from '@dnd-kit/core'
+import type { DragEndEvent, DragStartEvent } from '@dnd-kit/core'
 
 type Zone = 'fridge' | 'pantry' | 'condiments' | 'freezer'
 
@@ -10,80 +14,7 @@ const SHELF_LIFE: Record<Zone, number> = {
   fridge: 7, freezer: 90, pantry: 180, condiments: 365,
 }
 
-// Food emoji map. Substring match (longer keys first via the order in this
-// object \u2014 getEmoji walks Object.entries top-down). When a real-world receipt
-// surfaces an item that misses everything here, it falls back to \ud83c\udf71 \u2014 that's
-// the visual cue to come back and add a key. Recently filled gaps the user
-// hit on prod: honey, protein pudding/bar/shake, peanut butter, jam, etc.
-const FOOD_EMOJIS: Record<string, string> = {
-  // Multi-word entries first so substring matches don't fire on a more
-  // generic key (e.g. "protein pudding" before bare "protein").
-  'protein pudding': '\u{1F36E}', 'protein bar': '\u{1F36B}', 'protein shake': '\u{1F95B}',
-  'protein powder': '\u{1F4AA}', 'peanut butter': '\u{1F95C}', 'almond butter': '\u{1F95C}',
-  'olive oil': '\u{1FAD9}', 'coconut oil': '\u{1FAD8}', 'sour cream': '\u{1F95B}',
-  'greek yogurt': '\u{1F95B}', 'cottage cheese': '\u{1F9C0}', 'cream cheese': '\u{1F9C0}',
-  'orange juice': '\u{1F9C3}', 'apple juice': '\u{1F9C3}', 'sparkling water': '\u{1F4A7}',
-  'ice cream': '\u{1F368}', 'ice lolly': '\u{1F36A}', 'baked beans': '\u{1FAD8}',
-  'sweet potato': '\u{1F360}', 'red pepper': '\u{1FAD1}', 'bell pepper': '\u{1FAD1}',
-  'spring onion': '\u{1F9C5}', 'green bean': '\u{1F95C}',
-  'soy sauce': '\u{1FAD9}', 'fish sauce': '\u{1FAD9}', 'hot sauce': '\u{1F336}',
-  'maple syrup': '\u{1F36F}', 'tomato sauce': '\u{1F345}',
-  'kombucha': '\u{1F375}', 'energy drink': '\u{1F95B}',
-
-  // Single-word entries
-  chicken: '\u{1F357}', beef: '\u{1F969}', salmon: '\u{1F41F}', fish: '\u{1F420}',
-  shrimp: '\u{1F990}', prawn: '\u{1F990}', egg: '\u{1F95A}', eggs: '\u{1F95A}',
-  turkey: '\u{1F983}', pork: '\u{1F969}', tuna: '\u{1F41F}', ham: '\u{1F969}',
-  bacon: '\u{1F953}', steak: '\u{1F969}', lamb: '\u{1F969}', mince: '\u{1F969}',
-  milk: '\u{1F95B}', cheese: '\u{1F9C0}', yoghurt: '\u{1F95B}', yogurt: '\u{1F95B}',
-  butter: '\u{1F9C8}', cream: '\u{1F95B}', tofu: '\u{1F9C8}',
-  spinach: '\u{1F96C}', lettuce: '\u{1F96C}', kale: '\u{1F96C}', cabbage: '\u{1F96C}',
-  rocket: '\u{1F96C}', salad: '\u{1F957}',
-  broccoli: '\u{1F966}', cauliflower: '\u{1F966}', carrot: '\u{1F955}', tomato: '\u{1F345}',
-  pepper: '\u{1FAD1}', onion: '\u{1F9C5}', garlic: '\u{1F9C4}', ginger: '\u{1F9C4}',
-  avocado: '\u{1F951}', cucumber: '\u{1F952}', courgette: '\u{1F952}', zucchini: '\u{1F952}',
-  potato: '\u{1F954}', aubergine: '\u{1F346}', eggplant: '\u{1F346}',
-  corn: '\u{1F33D}', mushroom: '\u{1F344}', celery: '\u{1F33F}', leek: '\u{1F33F}',
-  apple: '\u{1F34E}', banana: '\u{1F34C}', orange: '\u{1F34A}', lemon: '\u{1F34B}',
-  lime: '\u{1F34B}', kiwi: '\u{1F95D}', pineapple: '\u{1F34D}', peach: '\u{1F351}',
-  pear: '\u{1F350}', watermelon: '\u{1F349}', melon: '\u{1F348}', cherries: '\u{1F352}',
-  cherry: '\u{1F352}', plum: '\u{1F352}',
-  berry: '\u{1FAD0}', blueberry: '\u{1FAD0}', raspberry: '\u{1FAD0}', strawberry: '\u{1F353}',
-  grape: '\u{1F347}', mango: '\u{1F96D}', coconut: '\u{1F965}',
-  rice: '\u{1F35A}', pasta: '\u{1F35D}', noodle: '\u{1F35C}', bread: '\u{1F35E}',
-  bagel: '\u{1F96F}', toast: '\u{1F35E}', wrap: '\u{1F32F}', tortilla: '\u{1F32E}',
-  oat: '\u{1F33E}', oats: '\u{1F33E}', flour: '\u{1F33E}', quinoa: '\u{1F33E}',
-  granola: '\u{1F33E}', muesli: '\u{1F33E}', cereal: '\u{1F963}',
-  biscuit: '\u{1F36A}', cookie: '\u{1F36A}', cracker: '\u{1F36A}', cake: '\u{1F370}',
-  nuts: '\u{1F95C}', peanut: '\u{1F95C}', almond: '\u{1F95C}', cashew: '\u{1F95C}',
-  walnut: '\u{1F95C}', pistachio: '\u{1F95C}',
-  hummus: '\u{1FAD9}', dip: '\u{1FAD9}', salsa: '\u{1FAD9}', guacamole: '\u{1F951}',
-  oil: '\u{1FAD9}', vinegar: '\u{1FAD9}', sauce: '\u{1FAD9}', mayo: '\u{1FAD9}',
-  mustard: '\u{1FAD9}', ketchup: '\u{1FAD9}', pesto: '\u{1FAD9}', soy: '\u{1FAD9}',
-  sriracha: '\u{1F336}', chilli: '\u{1F336}', spice: '\u{1F9C2}', salt: '\u{1F9C2}',
-  honey: '\u{1F36F}', jam: '\u{1F36F}', marmalade: '\u{1F36F}', syrup: '\u{1F36F}',
-  sugar: '\u{1F9C2}', sweetener: '\u{1F9C2}', stevia: '\u{1F33F}',
-  coffee: '\u2615', espresso: '\u2615', tea: '\u{1F375}', matcha: '\u{1F375}',
-  juice: '\u{1F9C3}', smoothie: '\u{1F964}', water: '\u{1F4A7}',
-  beer: '\u{1F37A}', wine: '\u{1F377}', soda: '\u{1F964}', cola: '\u{1F964}',
-  drink: '\u{1F964}',
-  chocolate: '\u{1F36B}', candy: '\u{1F36C}', sweet: '\u{1F36C}',
-  protein: '\u{1F4AA}', supplement: '\u{1F48A}', vitamin: '\u{1F48A}',
-  sausage: '\u{1F32D}', burger: '\u{1F354}', pizza: '\u{1F355}', sushi: '\u{1F363}',
-  jerky: '\u{1F969}', pudding: '\u{1F36E}', dessert: '\u{1F36E}',
-  pickle: '\u{1F952}', olive: '\u{1FAD2}', lentil: '\u{1FAD8}', bean: '\u{1FAD8}',
-  chickpea: '\u{1FAD8}', tinned: '\u{1F96B}', canned: '\u{1F96B}',
-  frozen: '\u{1F9CA}',
-}
 const STAPLES = ['eggs', 'milk', 'chicken', 'rice', 'yogurt', 'spinach', 'banana', 'oats']
-
-function getEmoji(name: string): string {
-  const lower = name.toLowerCase()
-  for (const [key, emoji] of Object.entries(FOOD_EMOJIS)) {
-    if (lower.includes(key)) return emoji
-  }
-  return '\u{1F6D2}'
-}
 
 // Parallel map -> Iconify Noto Color icon names. Substring-matched in the same
 // order as FOOD_EMOJIS so behavior is identical: longer keys (multi-word) hit
@@ -749,26 +680,63 @@ function PantrySvg({ itemCount }: { itemCount: number }) {
  * empty shelves stay visible (suggesting "more capacity" so the user feels
  * like they can add more).
  */
-function Appliance({ kind, items, onRemove, learnedShelfLife }: {
+const PER_SHELF = 3
+const TOTAL_SHELVES = 3
+
+/**
+ * Build a 3×3 grid of items for a zone from the slot map. Items the user has
+ * placed go to their explicit slot. Items that have NO slot entry yet (newly
+ * added) get the first free `(shelf, col)` scanning left→right top→bottom,
+ * so a freshly added thing always shows up somewhere visible without
+ * needing a server round-trip.
+ */
+function buildShelfGrid(items: FridgeItem[], slots: SlotMap, zone: Zone): (FridgeItem | null)[][] {
+  const grid: (FridgeItem | null)[][] = Array.from({ length: TOTAL_SHELVES }, () =>
+    Array.from({ length: PER_SHELF }, () => null))
+
+  const placed = new Set<string>()
+  for (const item of items) {
+    const pos = slots[item.name]
+    if (pos && pos.zone === zone && pos.shelf >= 0 && pos.shelf < TOTAL_SHELVES
+              && pos.col >= 0 && pos.col < PER_SHELF
+              && !grid[pos.shelf][pos.col]) {
+      grid[pos.shelf][pos.col] = item
+      placed.add(item.name)
+    }
+  }
+
+  for (const item of items) {
+    if (placed.has(item.name)) continue
+    outer:
+    for (let s = 0; s < TOTAL_SHELVES; s++) {
+      for (let c = 0; c < PER_SHELF; c++) {
+        if (!grid[s][c]) {
+          grid[s][c] = item
+          placed.add(item.name)
+          break outer
+        }
+      }
+    }
+    // If both 3×3 grids are full and there are extra items, they fall off-screen.
+    // Acceptable: a 9-slot appliance is a real physical limit.
+  }
+  return grid
+}
+
+function Appliance({ kind, items, slots, learnedShelfLife, activeDragName, onTapItem }: {
   kind: 'fridge' | 'pantry'
   items: FridgeItem[]
-  onRemove: (name: string, zone: Zone) => void
+  slots: SlotMap
   learnedShelfLife: ShelfLifeMap
+  activeDragName: string | null
+  onTapItem: (name: string, zone: Zone) => void
 }) {
   const fridge = kind === 'fridge'
-  const PER_SHELF = 3
-  const TOTAL_SHELVES = 3
-  // Auto-fill shelves left to right. Empty shelves still render so the user
-  // sees there's room for more.
-  const shelves: FridgeItem[][] = Array.from({ length: TOTAL_SHELVES }, (_, i) =>
-    items.slice(i * PER_SHELF, (i + 1) * PER_SHELF),
-  )
   const zoneId: Zone = fridge ? 'fridge' : 'pantry'
+  const grid = buildShelfGrid(items, slots, zoneId)
 
   // Items overlay alignment with SVG shelves. viewBox is 240w × 480h.
-  //   FRIDGE: freezer is at the BOTTOM now (per Brody 2026-05-05).
-  //     Interior y=68..338. Shelf lines at y=174, 252, 330.
-  //     Items area = under bulb (y=98) → last shelf (y=330).
+  //   FRIDGE: freezer is at the BOTTOM. Interior y=68..338. Items: y=98 → y=330.
   //   PANTRY: shelves at y=156, 256, 356. Items area = y=80 → y=356.
   const itemsTopPct    = fridge ? (98  / 480) * 100 : (80  / 480) * 100
   const itemsBottomPct = fridge ? ((480 - 330) / 480) * 100 : ((480 - 356) / 480) * 100
@@ -780,12 +748,8 @@ function Appliance({ kind, items, onRemove, learnedShelfLife }: {
       position: 'relative',
       filter: `drop-shadow(0 18px 20px rgba(0,0,0,0.28)) drop-shadow(0 6px 8px rgba(0,0,0,0.18))`,
     }}>
-      {/* The cartoon body */}
       {fridge ? <FridgeSvg itemCount={items.length} /> : <PantrySvg itemCount={items.length} />}
 
-      {/* Items overlay — 3 shelves × 3 slots, items positioned over the SVG
-          shelves. Items align to flex-end so they sit ON the shelf line.
-          Empty slots still render so the appliance shows it has more room. */}
       <div style={{
         position: 'absolute',
         top: `${itemsTopPct}%`,
@@ -796,7 +760,7 @@ function Appliance({ kind, items, onRemove, learnedShelfLife }: {
         flexDirection: 'column',
         pointerEvents: 'none',
       }}>
-        {shelves.map((shelfItems, shelfIdx) => (
+        {grid.map((shelf, shelfIdx) => (
           <div key={shelfIdx} style={{
             flex: 1,
             display: 'grid',
@@ -806,22 +770,86 @@ function Appliance({ kind, items, onRemove, learnedShelfLife }: {
             position: 'relative',
             pointerEvents: 'auto',
           }}>
-            {shelfItems.map((item, i) => (
-              <ApplianceItem
-                key={i}
-                item={item}
+            {shelf.map((item, col) => (
+              <DroppableSlot
+                key={`${shelfIdx}-${col}`}
                 zone={zoneId}
-                onTap={() => onRemove(item.name, zoneId)}
-                learnedDays={learnedShelfLife[item.name]}
-                idx={shelfIdx * PER_SHELF + i}
-              />
-            ))}
-            {Array.from({ length: PER_SHELF - shelfItems.length }).map((_, i) => (
-              <div key={`pad-${i}`} aria-hidden="true" />
+                shelf={shelfIdx}
+                col={col}
+              >
+                {item && item.name !== activeDragName && (
+                  <DraggableApplianceItem
+                    item={item}
+                    zone={zoneId}
+                    learnedDays={learnedShelfLife[item.name]}
+                    idx={shelfIdx * PER_SHELF + col}
+                    onTap={() => onTapItem(item.name, zoneId)}
+                  />
+                )}
+              </DroppableSlot>
             ))}
           </div>
         ))}
       </div>
+    </div>
+  )
+}
+
+function DroppableSlot({ zone, shelf, col, children }: {
+  zone: Zone
+  shelf: number
+  col: number
+  children: React.ReactNode
+}) {
+  const { setNodeRef, isOver } = useDroppable({
+    id: `slot:${zone}:${shelf}:${col}`,
+    data: { zone, shelf, col },
+  })
+  return (
+    <div ref={setNodeRef} style={{
+      width: '100%', height: '100%',
+      display: 'flex', alignItems: 'flex-end', justifyContent: 'center',
+      borderRadius: 8,
+      transition: 'background 120ms ease, box-shadow 120ms ease',
+      background: isOver ? 'rgba(99,102,241,0.18)' : 'transparent',
+      boxShadow: isOver ? 'inset 0 0 0 1.5px rgba(99,102,241,0.55)' : 'none',
+    }}>
+      {children}
+    </div>
+  )
+}
+
+/**
+ * Wraps ApplianceItem with dnd-kit's useDraggable. PointerSensor with an
+ * 8px activation distance means a tap (<8px movement) doesn't start a drag,
+ * so the existing tap handler keeps its tap-to-open-modal behavior.
+ */
+function DraggableApplianceItem({ item, zone, learnedDays, idx, onTap }: {
+  item: FridgeItem
+  zone: Zone
+  learnedDays?: { avg_days: number; sample_count: number }
+  idx: number
+  onTap: () => void
+}) {
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
+    id: `item:${item.name}`,
+    data: { name: item.name, zone },
+  })
+  return (
+    <div ref={setNodeRef} {...listeners} {...attributes}
+      style={{
+        width: '100%', height: '100%',
+        display: 'flex', alignItems: 'flex-end', justifyContent: 'center',
+        opacity: isDragging ? 0 : 1, // hide source; DragOverlay shows the floating ghost
+        touchAction: 'none', // mobile drag — don't let scroll grab it
+      }}>
+      <ApplianceItem
+        item={item}
+        zone={zone}
+        learnedDays={learnedDays}
+        idx={idx}
+        onTap={onTap}
+      />
     </div>
   )
 }
@@ -837,7 +865,7 @@ function Appliance({ kind, items, onRemove, learnedShelfLife }: {
 function ApplianceItem({ item, zone, onTap, learnedDays, idx }: {
   item: FridgeItem
   zone: Zone
-  onTap: () => void
+  onTap?: () => void
   learnedDays?: { avg_days: number; sample_count: number }
   idx: number
 }) {
@@ -1012,15 +1040,261 @@ function ZoneSection({ zone, items, onRemove, learnedShelfLife }: {
   )
 }
 
+/**
+ * Rich product page bottom-sheet — replaces the old bare Remove? sheet.
+ * Loads from GET /fridge/item/{name} on open. Renders gracefully when
+ * enrichment is missing (skeleton → "no nutrition data yet" state).
+ */
+function ItemDetailModal({ name, zone, onClose, onRemove }: {
+  name: string
+  zone: Zone
+  onClose: () => void
+  onRemove: () => void
+}) {
+  const [detail, setDetail] = useState<FridgeItemDetail | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [reEnriching, setReEnriching] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    api.getFridgeItem(name)
+      .then(d => { if (!cancelled) setDetail(d) })
+      .catch(err => { if (!cancelled) setError(String(err?.message || err)) })
+    return () => { cancelled = true }
+  }, [name])
+
+  async function reEnrich() {
+    setReEnriching(true)
+    try {
+      const r = await api.enrichItem({ name, force: true })
+      // Re-pull the merged item so we render the full payload (item-detail
+      // includes recent_prices + zone, which /enrich doesn't return).
+      const fresh = await api.getFridgeItem(name)
+      setDetail(fresh)
+      showToast(`Updated ${name}${r.meta.confidence === 'high' ? '' : ' (best guess)'}`, 'info')
+    } catch {
+      showToast('Re-enrich failed', 'err')
+    } finally {
+      setReEnriching(false)
+    }
+  }
+
+  const photo = detail?.photo_url || null
+  const zoneCfg = ZONE_CONFIG[detail?.zone || zone]
+  const nutri = detail?.nutrition_per_100g || null
+  const slot = detail?.slot || null
+  const age = detail ? daysOld(detail.added) : 0
+  const shelfDays = SHELF_LIFE[detail?.zone || zone]
+  const freshnessPct = Math.min(age / shelfDays, 1)
+  const daysLeft = Math.max(0, Math.ceil(shelfDays - age))
+
+  return (
+    <div
+      role="dialog" aria-modal="true" aria-label={`Details for ${name}`}
+      style={{
+        position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 300,
+        display: 'flex', alignItems: 'flex-end',
+      }}
+      onClick={e => { if (e.target === e.currentTarget) onClose() }}
+    >
+      <div style={{
+        background: 'var(--card)', borderRadius: '20px 20px 0 0',
+        padding: '14px 20px 32px', width: '100%', maxHeight: '92vh', overflowY: 'auto',
+        animation: 'slideUp 0.28s cubic-bezier(0.32,0.72,0,1)', position: 'relative',
+      }}>
+        <button className="sheet-close" onClick={onClose} aria-label="Close"
+          style={{ position: 'absolute', top: 14, right: 16, zIndex: 2 }}>×</button>
+        <div style={{ width: 36, height: 5, background: 'var(--gray4)', borderRadius: 3, margin: '2px auto 14px' }} />
+
+        {/* ── Header: photo + name + brand + size ── */}
+        <div style={{ display: 'flex', gap: 14, alignItems: 'flex-start', marginBottom: 14 }}>
+          <div style={{
+            width: 96, height: 96, flexShrink: 0,
+            borderRadius: 14, background: 'var(--gray6)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            overflow: 'hidden', boxShadow: '0 1px 4px rgba(0,0,0,0.08)',
+          }}>
+            {photo ? (
+              <img src={photo} alt={name}
+                style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none' }} />
+            ) : (
+              <NotoIcon name={detail?.name || name} size={68} />
+            )}
+          </div>
+          <div style={{ flex: 1, minWidth: 0, paddingRight: 28 }}>
+            <div style={{ fontSize: 22, fontWeight: 700, lineHeight: 1.15, letterSpacing: '-0.3px' }}>
+              {detail?.name || name}
+            </div>
+            {detail?.brand && (
+              <div style={{ fontSize: 13, color: 'var(--label2)', marginTop: 2, fontWeight: 500 }}>
+                {detail.brand}
+              </div>
+            )}
+            <div style={{ fontSize: 12, color: 'var(--label3)', marginTop: 6, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              {detail?.size && <span>{detail.size}</span>}
+              {detail?.size && detail?.packaging && <span style={{ opacity: 0.5 }}>·</span>}
+              {detail?.packaging && <span style={{ textTransform: 'capitalize' }}>{detail.packaging}</span>}
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--label3)', marginTop: 6, display: 'flex', alignItems: 'center', gap: 4 }}>
+              <span style={{ display: 'inline-block', width: 8, height: 8, borderRadius: 2, background: zoneCfg.accent }} />
+              <span>{zoneCfg.label}</span>
+              {slot && <span style={{ opacity: 0.5 }}>·</span>}
+              {slot && <span>Shelf {slot.shelf + 1}, slot {slot.col + 1}</span>}
+            </div>
+          </div>
+        </div>
+
+        {error && (
+          <div style={{ background: '#FFEFEC', color: 'var(--red)', padding: '10px 14px', borderRadius: 10, fontSize: 13, marginBottom: 14 }}>
+            Couldn't load details — {error}
+          </div>
+        )}
+
+        {/* ── Freshness ── */}
+        <Section label="Freshness">
+          <div style={{ fontSize: 13, color: 'var(--label2)', marginBottom: 6 }}>
+            {detail?.added ? <>Added {detail.added} · {daysLeft} day{daysLeft === 1 ? '' : 's'} left</> : 'Newly added'}
+          </div>
+          <div style={{ height: 6, borderRadius: 4, background: 'var(--gray6)', overflow: 'hidden' }}>
+            <div style={{
+              width: `${Math.max(8, freshnessPct * 100)}%`,
+              height: '100%',
+              background: freshnessPct >= 0.85 ? 'var(--red)'
+                       : freshnessPct >= 0.55 ? 'var(--orange)'
+                       : 'var(--green)',
+              transition: 'width 200ms ease',
+            }} />
+          </div>
+        </Section>
+
+        {/* ── Nutrition ── skeleton while fetching, hidden once we know there's nothing to show */}
+        {!detail && !error && (
+          <Section label="Nutrition">
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 8 }}>
+              {[0, 1, 2, 3].map(i => (
+                <div key={i} style={{ height: 56, background: 'var(--gray6)', borderRadius: 10, animation: 'pulse 1.4s ease-in-out infinite' }} />
+              ))}
+            </div>
+          </Section>
+        )}
+        {detail && nutri && (
+          <Section label="Nutrition (per 100g)">
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 6 }}>
+              {[
+                { label: 'kcal',    value: nutri.kcal,       color: 'var(--blue)' },
+                { label: 'protein', value: nutri.protein_g,  color: 'var(--orange)', suffix: 'g' },
+                { label: 'carbs',   value: nutri.carbs_g,    color: 'var(--green)', suffix: 'g' },
+                { label: 'fat',     value: nutri.fat_g,      color: 'var(--purple)', suffix: 'g' },
+              ].map(s => (
+                <div key={s.label} style={{ background: 'var(--gray6)', borderRadius: 10, padding: '8px 4px', textAlign: 'center' }}>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: s.color }}>
+                    {s.value != null ? <>{s.value}{(s as { suffix?: string }).suffix || ''}</> : '—'}
+                  </div>
+                  <div style={{ fontSize: 10, color: 'var(--label3)', textTransform: 'uppercase', letterSpacing: 0.5 }}>{s.label}</div>
+                </div>
+              ))}
+            </div>
+            {detail.allergens && detail.allergens.length > 0 && (
+              <div style={{ marginTop: 8, fontSize: 12, color: 'var(--label2)' }}>
+                Allergens: {detail.allergens.map(a => <span key={a} style={{
+                  display: 'inline-block', background: '#F4E5C2', color: '#8B6914',
+                  padding: '2px 8px', borderRadius: 6, marginRight: 4, fontSize: 11, fontWeight: 600,
+                  textTransform: 'capitalize',
+                }}>{a}</span>)}
+              </div>
+            )}
+          </Section>
+        )}
+
+        {/* ── Inventory ── */}
+        {detail && (detail.cost != null || detail.store || detail.unit_size_g != null) && (
+          <Section label="Inventory">
+            <div style={{ fontSize: 14, color: 'var(--label)' }}>
+              {detail.cost != null && (
+                <span style={{ fontWeight: 700 }}>£{detail.cost.toFixed(2)}</span>
+              )}
+              {detail.cost != null && detail.store && <span style={{ color: 'var(--label3)' }}> · </span>}
+              {detail.store && <span style={{ color: 'var(--label2)' }}>{detail.store}</span>}
+            </div>
+            {(detail.unit_size_g != null || detail.quantity_g != null) && (
+              <div style={{ fontSize: 13, color: 'var(--label2)', marginTop: 4 }}>
+                {detail.quantity_g != null && detail.unit_size_g
+                  ? <>{formatGrams(detail.quantity_g)} of {formatGrams(detail.unit_size_g)} left</>
+                  : detail.unit_size_g
+                  ? <>{formatGrams(detail.unit_size_g)} pack</>
+                  : null}
+              </div>
+            )}
+          </Section>
+        )}
+
+        {/* ── Price history ── */}
+        {detail && detail.recent_prices.length > 0 && (
+          <Section label="Price history">
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {detail.recent_prices.slice(0, 5).map((p, i) => (
+                <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
+                  <span style={{ color: 'var(--label2)' }}>{p.store || '—'}</span>
+                  <span style={{ display: 'flex', gap: 8, color: 'var(--label)' }}>
+                    <span style={{ fontWeight: 600 }}>£{p.cost.toFixed(2)}</span>
+                    <span style={{ color: 'var(--label3)' }}>{p.date}</span>
+                  </span>
+                </div>
+              ))}
+            </div>
+          </Section>
+        )}
+
+        {/* ── Confidence + source footer ── */}
+        {detail && detail.confidence && detail.confidence !== 'unknown' && (
+          <div style={{ fontSize: 11, color: 'var(--label3)', marginBottom: 14, textAlign: 'center' }}>
+            Data from {detail.source} · {detail.confidence} confidence
+          </div>
+        )}
+
+        {/* ── Actions ── */}
+        <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+          <button onClick={reEnrich} disabled={reEnriching}
+            style={{
+              flex: 1, padding: '12px 8px', borderRadius: 12, border: '1.5px solid var(--separator)',
+              background: 'var(--card)', color: 'var(--label)', fontSize: 14, fontWeight: 600,
+              cursor: 'pointer', opacity: reEnriching ? 0.5 : 1,
+            }}>
+            {reEnriching ? '…' : '↻ Re-enrich'}
+          </button>
+        </div>
+        <button className="btn-destructive" onClick={onRemove} style={{ width: '100%', marginBottom: 8 }}>
+          Remove from {zoneCfg.label}
+        </button>
+        <button onClick={onClose}
+          style={{ width: '100%', background: 'none', border: 'none', color: 'var(--blue)', fontSize: 16, fontWeight: 600, cursor: 'pointer', padding: 10 }}>
+          Close
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function Section({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div style={{ marginBottom: 14 }}>
+      <div style={{
+        fontSize: 11, fontWeight: 700, color: 'var(--label3)',
+        textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 6,
+      }}>{label}</div>
+      {children}
+    </div>
+  )
+}
+
 export default function Fridge() {
   const [data, setData] = useState<FridgeData>({ fridge: [], pantry: [], condiments: [], freezer: [] })
+  const [slots, setSlots] = useState<SlotMap>({})
   const [learnedShelfLife, setLearnedShelfLife] = useState<ShelfLifeMap>({})
   const [meals, setMeals] = useState<Meal[]>([])
   const [loadingMeals, setLoadingMeals] = useState(false)
   const [showMeals, setShowMeals] = useState(false)
-  // Tap-to-expand meal recipe state. mealDetails caches results so re-tapping
-  // a card doesn't re-pay the model token cost. expandedMealIdx === null when
-  // collapsed; the index corresponds to position in the meals[] array.
   const [expandedMealIdx, setExpandedMealIdx] = useState<number | null>(null)
   const [mealDetails, setMealDetails] = useState<Record<string, MealDetail | 'loading' | 'error'>>({})
   const [showAdd, setShowAdd] = useState(false)
@@ -1029,9 +1303,122 @@ export default function Fridge() {
   const [scanning, setScanning] = useState(false)
   const [scanStatus, setScanStatus] = useState<string | null>(null)
   const [barcodeScanning, setBarcodeScanning] = useState(false)
-  const [removeModal, setRemoveModal] = useState<{ name: string; zone: Zone } | null>(null)
+  const [detailModal, setDetailModal] = useState<{ name: string; zone: Zone } | null>(null)
+  const [activeDragName, setActiveDragName] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const barcodeInputRef = useRef<HTMLInputElement>(null)
+
+  // PointerSensor with distance:8 means a tap (<8px) doesn't start a drag.
+  // The inner button's onClick fires normally for taps; only real drags
+  // activate dnd-kit. Phone-friendly without needing a long-press.
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }))
+
+  // Find an item by name across zones (for drag-overlay rendering and the
+  // drag-end swap logic that needs to know what was on the drop target).
+  const itemByName = useMemo(() => {
+    const map = new Map<string, { item: FridgeItem; zone: Zone }>()
+    ;(['fridge', 'pantry', 'freezer', 'condiments'] as Zone[]).forEach(z => {
+      data[z]?.forEach(it => map.set(it.name, { item: it, zone: z }))
+    })
+    return map
+  }, [data])
+
+  function findSlotForName(name: string): SlotPos | null {
+    return slots[name] || null
+  }
+
+  // Build the inverse map: who's currently in slot s? Used by onDragEnd to
+  // detect "occupied" drop targets so we can swap.
+  function findNameInSlot(zone: Zone, shelf: number, col: number): string | null {
+    for (const [name, pos] of Object.entries(slots)) {
+      if (pos.zone === zone && pos.shelf === shelf && pos.col === col) return name
+    }
+    // Fallback: if slot_memory doesn't have this slot, derive from buildShelfGrid
+    // semantics — the items list and our placement rule give the same answer.
+    const items = data[zone] || []
+    const grid = buildShelfGrid(items, slots, zone)
+    return grid[shelf]?.[col]?.name || null
+  }
+
+  function handleDragStart(e: DragStartEvent) {
+    const id = String(e.active.id)
+    if (id.startsWith('item:')) setActiveDragName(id.slice(5))
+  }
+
+  async function handleDragEnd(e: DragEndEvent) {
+    setActiveDragName(null)
+    if (!e.over) return
+    const overId = String(e.over.id)
+    const activeId = String(e.active.id)
+    if (!overId.startsWith('slot:') || !activeId.startsWith('item:')) return
+
+    const draggedName = activeId.slice(5)
+    const [, zoneStr, shelfStr, colStr] = overId.split(':')
+    const zone = zoneStr as Zone
+    const shelf = parseInt(shelfStr, 10)
+    const col = parseInt(colStr, 10)
+
+    const fromPos = findSlotForName(draggedName)
+    const occupantName = findNameInSlot(zone, shelf, col)
+
+    // Build the new slot map. Optimistic state update; PUT in background.
+    const next: SlotMap = { ...slots }
+
+    if (occupantName && occupantName !== draggedName) {
+      // Swap. Occupant takes dragged item's old slot (or stays put if dragged
+      // item had no recorded slot — find first free in source zone).
+      const draggedZoneNow = itemByName.get(draggedName)?.zone || zone
+      const occupantZoneNow = itemByName.get(occupantName)?.zone || zone
+      const occupantTarget: SlotPos = fromPos
+        ? { zone: fromPos.zone, shelf: fromPos.shelf, col: fromPos.col }
+        : firstFreeSlot(draggedZoneNow, next, draggedName)
+      next[draggedName] = { zone, shelf, col }
+      next[occupantName] = occupantTarget
+      // If swap crosses zones, persist zone change in the items list too.
+      if (zone !== draggedZoneNow) await moveItemBetweenZones(draggedName, draggedZoneNow, zone)
+      if (occupantTarget.zone !== occupantZoneNow) await moveItemBetweenZones(occupantName, occupantZoneNow, occupantTarget.zone)
+    } else {
+      // Empty slot: just place. If cross-zone, also move item between lists.
+      const draggedZoneNow = itemByName.get(draggedName)?.zone || zone
+      next[draggedName] = { zone, shelf, col }
+      if (zone !== draggedZoneNow) await moveItemBetweenZones(draggedName, draggedZoneNow, zone)
+    }
+
+    setSlots(next)
+    try {
+      await api.putSlots(next)
+    } catch {
+      showToast('Could not save layout', 'err')
+    }
+  }
+
+  function firstFreeSlot(zone: Zone, slotMap: SlotMap, ignoreName?: string): SlotPos {
+    const occupied = new Set<string>()
+    for (const [name, pos] of Object.entries(slotMap)) {
+      if (name === ignoreName) continue
+      if (pos.zone === zone) occupied.add(`${pos.shelf}:${pos.col}`)
+    }
+    for (let s = 0; s < TOTAL_SHELVES; s++) {
+      for (let c = 0; c < PER_SHELF; c++) {
+        if (!occupied.has(`${s}:${c}`)) return { zone, shelf: s, col: c }
+      }
+    }
+    return { zone, shelf: 0, col: 0 } // overflow — overlay onto top-left
+  }
+
+  // Cross-zone drag: re-add into the destination zone, remove from source.
+  // FastAPI's add_fridge_item appends; remove deletes by substring match.
+  async function moveItemBetweenZones(name: string, from: Zone, to: Zone) {
+    if (from === to) return
+    try {
+      await api.addFridgeItem(name, to)
+      await api.removeFridgeItem(name)
+      const updated = await api.getFridge()
+      setData(updated)
+    } catch {
+      showToast(`Couldn’t move ${name}`, 'err')
+    }
+  }
 
   const allItems = Object.values(data).flat()
   const totalItems = allItems.length
@@ -1050,6 +1437,7 @@ export default function Fridge() {
         .flatMap(z => d[z].map((it: FridgeItem) => it.name))
       if (names.length) api.getShelfLife(names).then(setLearnedShelfLife).catch(() => {})
     })
+    api.getSlots().then(setSlots).catch(() => { /* slot persistence is best-effort */ })
   }, [])
   useEffect(() => {
     try { localStorage.setItem('grocery_done', JSON.stringify(groceryDone)) } catch { /* ignore quota errors */ }
@@ -1149,6 +1537,21 @@ export default function Fridge() {
       setScanStatus(`\u2713 Added ${added} items${storeLabel}: ${preview}${more}`)
       const updated = await api.getFridge()
       setData(updated)
+      // Background batch enrichment \u2014 fills nutrition + brand + allergens
+      // for everything we just added, with the receipt's store/cost/size as
+      // hints so price history gets a real entry. Fire-and-forget; we
+      // re-pull /fridge after it lands so cards swap to real photos.
+      const todayIso = new Date().toISOString().slice(0, 10)
+      const batch = detected.map(it => ({
+        name: it.name,
+        hints: {
+          store: storeName,
+          cost: it.cost ?? null,
+          size: it.size ?? null,
+          date: todayIso,
+        },
+      }))
+      void api.enrichBatch(batch).then(() => api.getFridge()).then(setData).catch(() => {})
     } catch (err) {
       console.error('Receipt scan error:', err)
       setScanStatus('Scan failed \u2014 check your connection and try again')
@@ -1176,14 +1579,17 @@ export default function Fridge() {
         return
       }
       const section = inferSection(product.name)
-      // Pass the OFF photo through so the card has a real product image
-      // immediately. lookupBarcode now returns image_url alongside name.
+      // Pass the OFF photo through immediately for fast UI; full enrichment
+      // (nutrition, brand, allergens, packaging) lands in the background.
       await api.addFridgeItem(product.name, section, {
         photo_url: product.image_url ?? null,
       })
       const updated = await api.getFridge()
       setData(updated)
       setScanStatus(`✓ Added ${product.name} to ${ZONE_CONFIG[section].label}`)
+      // Background enrichment with the barcode itself — high-confidence path
+      // (OFF API barcode lookup, full record).
+      void api.enrichItem({ name: product.name, barcode: code }).catch(() => {})
     } catch {
       setScanStatus('Barcode add failed - try again')
     } finally {
@@ -1193,13 +1599,17 @@ export default function Fridge() {
     }
   }
 
-  async function confirmRemove() {
-    if (!removeModal) return
-    const name = removeModal.name
+  async function removeByName(name: string) {
     await api.removeFridgeItem(name)
     const updated = await api.getFridge()
     setData(updated)
-    setRemoveModal(null)
+    // Drop the slot entry too — keeps slot_memory tidy.
+    setSlots(prev => {
+      const next = { ...prev }
+      delete next[name]
+      return next
+    })
+    setDetailModal(null)
     if (navigator.vibrate) navigator.vibrate(20)
     showToast(`Removed ${name}`)
   }
@@ -1215,12 +1625,14 @@ export default function Fridge() {
     setShowAdd(false)
     if (navigator.vibrate) navigator.vibrate(10)
     showToast(`Added ${name} to ${ZONE_CONFIG[addZone].label}`)
-    // Background photo lookup. Resolves into KV server-side; we re-fetch the
-    // fridge once the lookup returns so the new card swaps from emoji → photo
-    // without a reload. Failure is silent — emoji fallback is fine.
-    void api.lookupPhoto(name).then(r => {
-      if (r.photo_url) {
-        return api.addFridgeItem(name, addZone, { photo_url: r.photo_url })
+    // Background AI enrichment. Replaces the prior photo-only lookup with
+    // full OFF + Gemini cascade — fills photo, brand, nutrition, allergens,
+    // packaging in one round-trip. We re-pull /fridge once it returns so the
+    // card swaps from emoji → photo without a reload. Silent failure: emoji
+    // fallback + missing nutrition is still useful.
+    void api.enrichItem({ name }).then(r => {
+      if (r.meta?.photo_url) {
+        return api.addFridgeItem(name, addZone, { photo_url: r.meta.photo_url })
           .then(() => api.getFridge())
           .then(setData)
       }
@@ -1314,25 +1726,39 @@ export default function Fridge() {
           </div>
         )}
 
-        {/* ── Appliance views ── fridge + pantry get the cozy 3D doll-house
-            treatment. Freezer + condiments fall back to the legacy grid since
-            they're usually empty/sparse and the appliance metaphor is overkill. */}
-        {data.fridge.length > 0 && (
-          <Appliance
-            kind="fridge"
-            items={data.fridge}
-            onRemove={(name, z) => setRemoveModal({ name, zone: z })}
-            learnedShelfLife={learnedShelfLife}
-          />
-        )}
-        {data.pantry.length > 0 && (
-          <Appliance
-            kind="pantry"
-            items={data.pantry}
-            onRemove={(name, z) => setRemoveModal({ name, zone: z })}
-            learnedShelfLife={learnedShelfLife}
-          />
-        )}
+        {/* ── Appliance views ── fridge + pantry get the cartoon doll-house
+            treatment with drag-and-drop slot persistence. Freezer + condiments
+            stay in the legacy grid (usually sparse, no slot model needed). */}
+        <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+          {data.fridge.length > 0 && (
+            <Appliance
+              kind="fridge"
+              items={data.fridge}
+              slots={slots}
+              learnedShelfLife={learnedShelfLife}
+              activeDragName={activeDragName}
+              onTapItem={(name, z) => setDetailModal({ name, zone: z })}
+            />
+          )}
+          {data.pantry.length > 0 && (
+            <Appliance
+              kind="pantry"
+              items={data.pantry}
+              slots={slots}
+              learnedShelfLife={learnedShelfLife}
+              activeDragName={activeDragName}
+              onTapItem={(name, z) => setDetailModal({ name, zone: z })}
+            />
+          )}
+          <DragOverlay dropAnimation={null}>
+            {activeDragName ? (() => {
+              const found = itemByName.get(activeDragName)
+              if (!found) return null
+              return <ApplianceItem item={found.item} zone={found.zone} idx={0} learnedDays={learnedShelfLife[found.item.name]} />
+            })() : null}
+          </DragOverlay>
+        </DndContext>
+
         {(['freezer', 'condiments'] as Zone[]).map(zone => {
           const items = data[zone] ?? []
           if (items.length === 0) return null
@@ -1341,7 +1767,7 @@ export default function Fridge() {
               key={zone}
               zone={zone}
               items={items}
-              onRemove={(name, z) => setRemoveModal({ name, zone: z })}
+              onRemove={(name, z) => setDetailModal({ name, zone: z })}
               learnedShelfLife={learnedShelfLife}
             />
           )
@@ -1475,21 +1901,14 @@ export default function Fridge() {
         )}
       </div>
 
-      {/* ── Remove sheet ── */}
-      {removeModal && (
-        <div style={{ position:'fixed', inset:0, background:'rgba(0,0,0,0.5)', zIndex:300, display:'flex', alignItems:'flex-end' }}
-          onClick={e => { if (e.target === e.currentTarget) setRemoveModal(null) }}>
-          <div style={{ background:'var(--card)', borderRadius:'20px 20px 0 0', padding:'20px 20px 44px', width:'100%', animation:'slideUp 0.28s cubic-bezier(0.32,0.72,0,1)', position:'relative' }}>
-            <button className="sheet-close" onClick={() => setRemoveModal(null)} style={{ position:'absolute', top:16, right:16 }}>×</button>
-            <div style={{ width:36, height:5, background:'var(--gray4)', borderRadius:3, margin:'0 auto 18px' }} />
-            <div style={{ fontSize:17, fontWeight:600, marginBottom:4 }}>Remove from fridge?</div>
-            <div style={{ fontSize:15, color:'var(--label2)', marginBottom:24 }}>
-              {getEmoji(removeModal.name)} {removeModal.name}
-            </div>
-            <button className="btn-destructive" onClick={confirmRemove} style={{ width:'100%', marginBottom:12 }}>Remove</button>
-            <button onClick={() => setRemoveModal(null)} style={{ width:'100%', background:'none', border:'none', color:'var(--blue)', fontSize:17, fontWeight:600, cursor:'pointer', padding:12 }}>Keep it</button>
-          </div>
-        </div>
+      {/* ── Item detail modal ── replaces the bare "Remove?" sheet */}
+      {detailModal && (
+        <ItemDetailModal
+          name={detailModal.name}
+          zone={detailModal.zone}
+          onClose={() => setDetailModal(null)}
+          onRemove={() => removeByName(detailModal.name)}
+        />
       )}
 
       {/* ── Add item sheet ── */}
