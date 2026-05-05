@@ -7,6 +7,7 @@ import GoalsPage from './pages/Goals'
 import Skincare from './pages/Skincare'
 import Lists from './pages/Lists'
 import Agenda from './pages/Agenda'
+import Routines from './pages/Routines'
 import CameraSheet from './components/CameraSheet'
 import { api } from './api/client'
 import type { FridgeData } from './api/client'
@@ -14,9 +15,9 @@ import { registerToastHandler } from './toast'
 import type { Theme } from './main'
 import './App.css'
 
-type Tab = 'today' | 'nutrition' | 'fridge' | 'workout' | 'goals' | 'skincare' | 'lists' | 'agenda'
+type Tab = 'today' | 'nutrition' | 'fridge' | 'workout' | 'goals' | 'skincare' | 'lists' | 'agenda' | 'routines'
 
-// 4 visible tabs. Goals/Skincare/Lists/Agenda accessible via Today's quick actions.
+// 4 visible tabs. Goals/Skincare/Lists/Agenda/Routines accessible via Today's quick actions.
 const TABS: { id: Tab; label: string }[] = [
   { id: 'today',     label: 'Today'    },
   { id: 'nutrition', label: 'Nutrition'},
@@ -172,6 +173,7 @@ export default function App({ onToggleTheme, theme }: Props) {
         {tab === 'goals'     && <GoalsPage />}
         {tab === 'lists'     && <Lists />}
         {tab === 'agenda'    && <Agenda />}
+        {tab === 'routines'  && <Routines />}
       </div>
 
       {/* Tab Bar — 2 tabs | camera FAB | 2 tabs */}

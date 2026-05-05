@@ -95,7 +95,7 @@ function SkeletonHero() {
   )
 }
 
-type Tab = 'today' | 'nutrition' | 'fridge' | 'workout' | 'goals' | 'skincare' | 'lists' | 'agenda'
+type Tab = 'today' | 'nutrition' | 'fridge' | 'workout' | 'goals' | 'skincare' | 'lists' | 'agenda' | 'routines'
 interface Props {
   onNavigate: (tab: Tab) => void
   onToggleTheme: () => void
@@ -367,6 +367,14 @@ export default function Today({ onNavigate, onToggleTheme, themeIcon }: Props) {
               {shoppingCount === null ? '—' : shoppingCount}<span style={{ fontSize: 13, fontWeight: 500, color: 'var(--label2)' }}> {shoppingCount === 1 ? 'item' : 'items'}</span>
             </div>
             <div style={{ fontSize: 11, color: 'var(--label3)', marginTop: 2 }}>to buy</div>
+          </button>
+          {/* Routines — meditate / vitamins / journal etc. Spans both cols. */}
+          <button onClick={() => onNavigate('routines')} style={{ gridColumn: '1 / -1', background: 'transparent', border: 'none', borderRadius: 12, padding: '12px 12px', cursor: 'pointer', textAlign: 'left', WebkitTapHighlightColor: 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+            <div>
+              <div style={{ fontSize: 11, color: 'var(--label2)', fontWeight: 600, marginBottom: 4, letterSpacing: 0.4 }}>ROUTINES</div>
+              <div style={{ fontSize: 13, color: 'var(--label3)' }}>tap to log meditate · vitamins · journal · read · stretch</div>
+            </div>
+            <span style={{ fontSize: 13, color: 'var(--label3)' }}>❯</span>
           </button>
         </div>
 

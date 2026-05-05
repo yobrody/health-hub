@@ -240,6 +240,11 @@ export const api = {
   clearList: (listName: string) =>
     request<{ ok: boolean }>(`/lists/${listName}`, { method: 'DELETE' }),
 
+  // Routines (skincare, vitamins, etc — single-tap daily check-ins with streak)
+  getRoutine: (name: string) => request<RoutineData>(`/routines/${encodeURIComponent(name)}`),
+  logRoutine: (name: string) =>
+    request<{ ok: boolean; date: string }>(`/routines/${encodeURIComponent(name)}/log`, { method: 'POST' }),
+
   // Agenda
   getAgendaToday: () => request<AgendaData>('/agenda/today'),
   addAgendaItem: (title: string, notes?: string) =>
@@ -346,6 +351,8 @@ export interface WeekStats {
 }
 export interface ListItemData { id: string; text: string; checked: boolean; added: string }
 export interface ListData { name: string; items: ListItemData[] }
+export interface RoutineLogEntry { date: string; logged_at: string }
+export interface RoutineData { name: string; done_today: boolean; streak: number; log: RoutineLogEntry[] }
 export interface AgendaItemData {
   id: string; title: string; notes?: string | null
   scheduled_date: string; done: boolean; created_at: string; done_at?: string | null
