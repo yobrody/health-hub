@@ -28,15 +28,33 @@
 
 ### Typography
 
-- **Heading Font:** Caveat
-- **Body Font:** Quicksand
-- **Mood:** handwritten, personal, friendly, casual, warm, charming
-- **Google Fonts:** [Caveat + Quicksand](https://fonts.google.com/share?selection.family=Caveat:wght@400;500;600;700|Quicksand:wght@300;400;500;600;700)
+> **Overridden 2026-05-05:** Skill's first pick (Caveat+Quicksand) was tonally wrong — handwritten font clashes with Health Hub's iOS aesthetic. Re-queried with iOS/Apple terms; final pick below.
+
+- **Font Family:** Inter (single family, weights 300-700)
+- **Mood:** spatial, legible, system, clean, neutral — designed as the SF Pro digital sibling
+- **Used by:** Vercel, Linear, Stripe, Notion, Cursor — the modern-premium-product gold standard
+- **Google Fonts:** [Inter](https://fonts.google.com/share?selection.family=Inter:wght@300;400;500;600;700)
 
 **CSS Import:**
 ```css
-@import url('https://fonts.googleapis.com/css2?family=Caveat:wght@400;500;600;700&family=Quicksand:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
 ```
+
+**Tailwind Config:**
+```js
+fontFamily: { sans: ['Inter', '-apple-system', 'system-ui', 'sans-serif'] }
+```
+
+**Why Inter over the original Caveat pick:**
+- Caveat is handwritten — would feel out of place on a list-card iOS-style PWA
+- Inter looks like SF Pro on screens, falls back to SF Pro on Apple devices (still gets the native feel)
+- Single family means no second font request — faster cold load
+- Optical sizing built-in for crisp rendering at small mobile sizes
+
+**Runner-ups considered:**
+- *Figtree + Noto Sans* (Medical Clean) — clinical, slightly less warm
+- *Satoshi + General Sans* (Premium Sans) — beautiful but on Fontshare not Google, extra hosting setup
+- *Lora + Raleway* (Wellness Calm) — already tried on `try-wellness-calm-fonts` branch — too spa-flavoured
 
 ### Spacing Variables
 
