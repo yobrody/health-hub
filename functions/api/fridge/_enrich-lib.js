@@ -218,6 +218,9 @@ Return only the JSON object — no prose, no markdown fences.`
 
   // gemini-2.5-flash is on the free tier as of 2026-05; 2.0-flash has been
   // moved to paid-only. Verify with ListModels if quota issues recur.
+  // thinkingConfig.thinkingBudget=0 — 2.5-flash defaults to reasoning-with-
+  // hidden-thinking which burns the maxOutputTokens budget. Off for structured
+  // extraction.
   const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`
   const ctrl = new AbortController()
   const t = setTimeout(() => ctrl.abort(), 8000)
@@ -227,7 +230,12 @@ Return only the JSON object — no prose, no markdown fences.`
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { responseMimeType: 'application/json', temperature: 0.2 },
+        generationConfig: {
+          responseMimeType: 'application/json',
+          temperature: 0.2,
+          maxOutputTokens: 2048,
+          thinkingConfig: { thinkingBudget: 0 },
+        },
       }),
       signal: ctrl.signal,
     })

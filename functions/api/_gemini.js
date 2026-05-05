@@ -1,10 +1,10 @@
 /**
- * Shared Gemini 2.5 Flash vision helper for CF Pages Functions.
+ * Shared Gemini 2.5 Flash helper for CF Pages Functions — vision + text.
  *
  * Why direct Google instead of OpenRouter: the free tier on Google AI Studio
  * gives ~15 RPM / 1500 RPD on gemini-2.5-flash, which is plenty for personal
- * use, with no credit consumption. Same model class used to be reached via
- * OpenRouter `google/gemini-2.0-flash-001`, which charged credits.
+ * use, with no credit consumption. Used to be reached via OpenRouter
+ * `google/gemini-2.0-flash-001`, which charged credits.
  *
  * Note 2026-05: gemini-2.0-flash has been gated to paid tier; gemini-2.5-flash
  * is the free-tier successor. Verify with ListModels if quota errors recur.
@@ -12,6 +12,49 @@
 
 const MODEL = 'gemini-2.5-flash'
 const ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`
+
+/**
+ * Text-only Gemini call expecting JSON.
+ * @returns {Promise<{ ok: true, text: string } | { ok: false, status: number, error: string }>}
+ */
+export async function geminiTextJSON({
+  apiKey, prompt, maxTokens = 800, temperature = 0.4, timeoutMs = 25000,
+}) {
+  if (!apiKey) return { ok: false, status: 503, error: 'GEMINI_API_KEY not configured' }
+  const ctrl = new AbortController()
+  const t = setTimeout(() => ctrl.abort(), timeoutMs)
+  try {
+    const res = await fetch(`${ENDPOINT}?key=${apiKey}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        generationConfig: {
+          responseMimeType: 'application/json',
+          temperature,
+          maxOutputTokens: maxTokens,
+          // Disable thinking — these are structured-extraction tasks, not
+          // reasoning. Without this, 2.5-flash burns the token budget on
+          // hidden thinking before emitting output and we get MAX_TOKENS.
+          thinkingConfig: { thinkingBudget: 0 },
+        },
+      }),
+      signal: ctrl.signal,
+    })
+    if (!res.ok) {
+      const errTxt = await res.text()
+      return { ok: false, status: res.status, error: errTxt.slice(0, 300) }
+    }
+    const data = await res.json()
+    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || ''
+    if (!text) return { ok: false, status: 502, error: 'empty response from Gemini' }
+    return { ok: true, text }
+  } catch (e) {
+    return { ok: false, status: 502, error: 'gemini fetch failed: ' + String(e) }
+  } finally {
+    clearTimeout(t)
+  }
+}
 
 /**
  * Call Gemini Flash with an image + text prompt, expecting a JSON response.

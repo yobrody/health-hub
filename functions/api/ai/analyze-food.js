@@ -19,7 +19,7 @@
  * Migrated 2026-05-05 from OpenRouter (paid credits) to direct Google AI
  * Studio free tier (gemini-2.5-flash).
  */
-import { geminiVisionJSON } from '../_gemini-vision.js'
+import { geminiVisionJSON } from '../_gemini.js'
 
 const CORS = {
   'Content-Type': 'application/json',

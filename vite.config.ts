@@ -24,7 +24,13 @@ async function callGeminiVision(apiKey: string, prompt: string, imageBase64: str
           { inline_data: { mime_type: mimeType, data: imageBase64 } },
           { text: prompt },
         ]}],
-        generationConfig: { responseMimeType: 'application/json', temperature: 0.2, maxOutputTokens: maxTokens },
+        generationConfig: {
+          responseMimeType: 'application/json',
+          temperature: 0.2,
+          maxOutputTokens: maxTokens,
+          // Disable 2.5-flash hidden thinking so the budget goes to output.
+          thinkingConfig: { thinkingBudget: 0 },
+        },
       }),
     })
     if (!r.ok) return { ok: false as const, status: r.status, error: (await r.text()).slice(0, 300) }

@@ -25,7 +25,7 @@ docker run -d --name health-hub-api \
 
 ```
 HEALTH_API_KEY=...
-ANTHROPIC_API_KEY=...
+GEMINI_API_KEY=...   # Google AI Studio — free tier (gemini-2.5-flash)
 ```
 
 ## Storage

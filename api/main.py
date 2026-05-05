@@ -15,7 +15,7 @@ from dotenv import load_dotenv
 load_dotenv(Path(__file__).parent / ".env")
 
 API_KEY = os.getenv("HEALTH_API_KEY", "change-me")
-ANTHROPIC_KEY = os.getenv("ANTHROPIC_API_KEY", "")
+GEMINI_KEY = os.getenv("GEMINI_API_KEY", "")
 WORKSPACE = Path("/home/lucky/.openclaw/workspace/health")
 DATA_DIR = Path(__file__).parent / "data"
 DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -32,6 +32,62 @@ def require_key(key: str = Depends(api_key_header)):
 
 def today() -> str:
     return date.today().isoformat()
+
+# ── GEMINI HELPER ─────────────────────────────────────────────────────
+# Direct Google AI Studio (free tier). gemini-2.0-flash got moved to paid
+# in 2026-05; gemini-2.5-flash is the current free-tier flagship.
+_GEMINI_ENDPOINT = (
+    "https://generativelanguage.googleapis.com/v1beta/models/"
+    "gemini-2.5-flash:generateContent"
+)
+
+def gemini_call(prompt: str, image_b64: str = None, mime_type: str = "image/jpeg",
+                max_tokens: int = 800, temperature: float = 0.4) -> dict:
+    """Call Gemini Flash with optional vision. Returns parsed JSON dict.
+    Raises HTTPException on failure so callers don't need to error-handle."""
+    if not GEMINI_KEY:
+        raise HTTPException(status_code=503, detail="GEMINI_API_KEY not configured")
+    import urllib.request, urllib.error
+    parts = []
+    if image_b64:
+        parts.append({"inline_data": {"mime_type": mime_type, "data": image_b64}})
+    parts.append({"text": prompt})
+    body = json.dumps({
+        "contents": [{"role": "user", "parts": parts}],
+        "generationConfig": {
+            "responseMimeType": "application/json",
+            "temperature": temperature,
+            "maxOutputTokens": max_tokens,
+            # Disable 2.5-flash hidden thinking — these are structured
+            # extractions, not reasoning. Without this, thinking eats the
+            # token budget before any output is emitted.
+            "thinkingConfig": {"thinkingBudget": 0},
+        },
+    }).encode()
+    req = urllib.request.Request(
+        f"{_GEMINI_ENDPOINT}?key={GEMINI_KEY}",
+        data=body,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            data = json.loads(r.read().decode())
+    except urllib.error.HTTPError as e:
+        body_txt = e.read().decode()[:300]
+        raise HTTPException(status_code=502, detail=f"Gemini error {e.code}: {body_txt}")
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Gemini fetch failed: {e}")
+    text = (data.get("candidates", [{}])[0]
+                .get("content", {})
+                .get("parts", [{}])[0]
+                .get("text", ""))
+    if not text:
+        raise HTTPException(status_code=502, detail="empty response from Gemini")
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError as e:
+        raise HTTPException(status_code=422, detail=f"Invalid JSON from model: {e}")
 
 def food_file(d: str = None) -> Path:
     d = d or today()
@@ -361,11 +417,7 @@ async def scan_receipt(input: ScanInput, key=Depends(require_key)):
     the client iterates and calls /fridge/item per item so that user-side
     confirmation/edits can happen first.
     """
-    if not ANTHROPIC_KEY:
-        raise HTTPException(status_code=503, detail="ANTHROPIC_API_KEY not configured")
-    import anthropic as ac
     media_type = input.mimeType or "image/jpeg"
-    client = ac.Anthropic(api_key=ANTHROPIC_KEY)
     prompt = (
         "Look at this grocery store receipt. Extract the purchased food and drink items.\n\n"
         "Return ONLY valid JSON, no markdown or explanation:\n"
@@ -386,22 +438,7 @@ async def scan_receipt(input: ScanInput, key=Depends(require_key)):
         "- SKIP non-food (foil, bags, cleaning, toiletries), totals, VAT, discounts, header rows\n"
         '- If a name contains "/" add both as separate items'
     )
-    resp = client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=2000,
-        messages=[{"role": "user", "content": [
-            {"type": "image", "source": {"type": "base64", "media_type": media_type, "data": input.image}},
-            {"type": "text", "text": prompt}
-        ]}]
-    )
-    raw = resp.content[0].text.strip()
-    obj_match = re.search(r"\{[\s\S]*\}", raw)
-    if not obj_match:
-        raise HTTPException(status_code=422, detail="Could not parse receipt response")
-    try:
-        parsed = json.loads(obj_match.group())
-    except json.JSONDecodeError as e:
-        raise HTTPException(status_code=422, detail=f"Invalid JSON from model: {e}")
+    parsed = gemini_call(prompt, image_b64=input.image, mime_type=media_type, max_tokens=2000, temperature=0.2)
     raw_items = parsed.get("items") or []
     valid_sections = {"fridge", "freezer", "pantry", "condiments"}
     items = [
@@ -425,29 +462,20 @@ async def scan_receipt(input: ScanInput, key=Depends(require_key)):
 # ── MEALS AI ──────────────────────────────────────────────────────────
 @app.post("/ai/meals")
 def suggest_meals(key=Depends(require_key)):
-    if not ANTHROPIC_KEY:
-        raise HTTPException(status_code=503, detail="ANTHROPIC_API_KEY not configured")
-    import anthropic as ac
     fridge = read_fridge()
     goals = read_goals()
     all_items = [i["name"] for sec in fridge.values() for i in sec]
     if not all_items:
         return {"meals": [{"name": "Fridge is empty", "ingredients": [], "kcal_estimate": 0}]}
-    client = ac.Anthropic(api_key=ANTHROPIC_KEY)
-    resp = client.messages.create(
-        model="claude-haiku-4-5-20251001",
-        max_tokens=512,
-        messages=[{"role": "user", "content": (
-            f"Fridge contents: {', '.join(all_items)}. "
-            f"Daily calorie goal: ~{goals.get('calories', 2200)} kcal, protein: ~{goals.get('protein', 160)}g. "
-            "Suggest exactly 3 practical meals using these ingredients. "
-            'Return JSON array: [{"name": "Meal Name", "ingredients": ["item1"], "kcal_estimate": 600}]'
-        )}]
+    prompt = (
+        f"Fridge contents: {', '.join(all_items)}. "
+        f"Daily calorie goal: ~{goals.get('calories', 2200)} kcal, protein: ~{goals.get('protein', 160)}g. "
+        "Suggest exactly 3 practical meals using these ingredients. "
+        'Return ONLY this JSON (no markdown): {"meals":[{"name":"Meal Name","ingredients":["item1"],"kcal_estimate":600}]}'
     )
-    raw = resp.content[0].text.strip()
-    m = re.search(r"\[.*\]", raw, re.DOTALL)
-    meals = json.loads(m.group()) if m else []
-    return {"meals": meals}
+    parsed = gemini_call(prompt, max_tokens=600, temperature=0.6)
+    meals = parsed.get("meals") if isinstance(parsed, dict) else parsed
+    return {"meals": meals if isinstance(meals, list) else []}
 
 class MealDetailInput(BaseModel):
     name: str
@@ -459,34 +487,19 @@ def meal_detail(input: MealDetailInput, key=Depends(require_key)):
     tap-to-expand so the cheap /ai/meals listing stays cheap (just names +
     kcal estimates) and the expensive recipe generation only fires when the
     user actually picks one."""
-    if not ANTHROPIC_KEY:
-        raise HTTPException(status_code=503, detail="ANTHROPIC_API_KEY not configured")
-    import anthropic as ac
-    client = ac.Anthropic(api_key=ANTHROPIC_KEY)
-    resp = client.messages.create(
-        model="claude-haiku-4-5-20251001",
-        max_tokens=800,
-        messages=[{"role": "user", "content": (
-            f"Recipe for: {input.name}\n"
-            f"Ingredients available: {', '.join(input.ingredients) if input.ingredients else '(none specified)'}\n\n"
-            "Return ONLY this JSON (no markdown, no commentary):\n"
-            '{"prep_minutes": 15, "cook_minutes": 20, "servings": 1, '
-            '"steps": ["Step 1...", "Step 2...", "..."], '
-            '"kcal": 620, "protein_g": 42, "carbs_g": 60, "fat_g": 22}\n\n'
-            "Rules:\n"
-            "- 4-8 short cooking steps (one sentence each, action-first)\n"
-            "- Macros are per serving\n"
-            "- Be realistic about portions (one serving for an active adult)"
-        )}]
+    prompt = (
+        f"Recipe for: {input.name}\n"
+        f"Ingredients available: {', '.join(input.ingredients) if input.ingredients else '(none specified)'}\n\n"
+        "Return ONLY this JSON (no markdown, no commentary):\n"
+        '{"prep_minutes": 15, "cook_minutes": 20, "servings": 1, '
+        '"steps": ["Step 1...", "Step 2...", "..."], '
+        '"kcal": 620, "protein_g": 42, "carbs_g": 60, "fat_g": 22}\n\n'
+        "Rules:\n"
+        "- 4-8 short cooking steps (one sentence each, action-first)\n"
+        "- Macros are per serving\n"
+        "- Be realistic about portions (one serving for an active adult)"
     )
-    raw = resp.content[0].text.strip()
-    m = re.search(r"\{[\s\S]*\}", raw)
-    if not m:
-        raise HTTPException(status_code=422, detail="Could not parse recipe response")
-    try:
-        return json.loads(m.group())
-    except json.JSONDecodeError as e:
-        raise HTTPException(status_code=422, detail=f"Invalid JSON from model: {e}")
+    return gemini_call(prompt, max_tokens=800, temperature=0.5)
 
 # ── WORKOUTS ──────────────────────────────────────────────────────────
 WORKOUTS_FILE = DATA_DIR / "workouts.json"
