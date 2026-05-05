@@ -1,3 +1,9 @@
+@import "tailwindcss";
+
+/* Tailwind v4 layered UNDER existing CSS variables + component classes.
+   All current inline styles, .card, .btn-primary etc keep working unchanged.
+   New work can opt into Tailwind utility classes. */
+
 :root,
 :root[data-theme='light'] {
   --tab-bar-bg: rgba(255,255,255,0.92);
@@ -57,7 +63,7 @@ html, body, #root { height: 100%; overscroll-behavior: none; }
 
 body {
   margin: 0;
-  font-family: -apple-system, 'SF Pro Text', 'Helvetica Neue', Arial, sans-serif;
+  font-family: 'Inter', -apple-system, 'SF Pro Text', 'Helvetica Neue', Arial, sans-serif;
   background: radial-gradient(circle at top, color-mix(in srgb, var(--blue) 12%, var(--bg)), var(--bg) 36%);
   color: var(--label);
   -webkit-font-smoothing: antialiased;
@@ -66,7 +72,7 @@ body {
 }
 
 input, textarea, button, select {
-  font-family: -apple-system, 'SF Pro Text', 'Helvetica Neue', Arial, sans-serif;
+  font-family: 'Inter', -apple-system, 'SF Pro Text', 'Helvetica Neue', Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
 }
 
