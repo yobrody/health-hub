@@ -35,6 +35,9 @@ export async function onRequestOptions() {
 
 const VALID_SECTIONS = new Set(['fridge', 'freezer', 'pantry', 'condiments'])
 const VALID_MEALS = new Set(['Breakfast', 'Lunch', 'Snack', 'Dinner'])
+const VALID_LISTS = new Set(['groceries', 'errands', 'shopping'])
+const VALID_PRIORITIES = new Set(['low', 'normal', 'urgent'])
+const KNOWN_ROUTINES = new Set(['meditate', 'vitamins', 'journal', 'read', 'stretch'])
 
 function clampNumber(v, min, max) {
   if (typeof v !== 'number' || !Number.isFinite(v)) return null
@@ -87,6 +90,28 @@ Available action types:
    Section: dairy/produce/eggs/meat → fridge; ice cream/frozen → freezer;
    canned/dry/snacks/bread → pantry; sauces/oils → condiments.
 
+3. log_water — record glasses of water drunk today
+   args: { count: number }
+   Use for "two glasses of water", "had a pint", "drank 500ml" (round to glasses ~250ml).
+   Daily goal is 8 glasses.
+
+4. mark_routine — mark a daily routine done
+   args: { name: "meditate"|"vitamins"|"journal"|"read"|"stretch" }
+   Use for "meditated", "took my vitamins", "did 10 mins of journaling",
+   "read a chapter", "stretched". Match the action to the closest routine name.
+
+5. add_agenda — add a task to today's plan
+   args: { title: string, priority?: "low"|"normal"|"urgent" }
+   Use for "remind me to call mum", "I need to fix the bike", "todo: book dentist".
+   Default priority is "normal"; "urgent"/"asap"/"important" → "urgent";
+   "if I get round to it"/"sometime" → "low".
+
+6. add_list_item — add to a shopping/errands/groceries list
+   args: { list: "groceries"|"errands"|"shopping", text: string }
+   Use for "add tomatoes to my groceries list", "I need to buy a new charger",
+   "errand: pick up parcel from PO". Default list is "groceries" for food
+   items, "shopping" for non-food consumer goods, "errands" for tasks.
+
 Return ONLY this JSON (no markdown):
 {
   "actions": [ { "type": "...", ...args } ],
@@ -107,6 +132,18 @@ User: "3 eggs and 3 pieces of bacon and a can of pineapple from aldi"
   {"type":"log_food","name":"bacon","count":3,"kcal":43,"protein_g":3,"meal":"Breakfast"},
   {"type":"add_fridge","name":"pineapple","section":"pantry","store":"Aldi","size":"can","unit_count":1}
 ],"summary":"Logged eggs + bacon to breakfast and added a can of pineapple from Aldi to your pantry."}
+
+User: "had two glasses of water and meditated for 10 minutes"
+{"actions":[
+  {"type":"log_water","count":2},
+  {"type":"mark_routine","name":"meditate"}
+],"summary":"Logged 2 glasses of water and marked meditation done."}
+
+User: "remind me to call mum and add tomatoes to groceries"
+{"actions":[
+  {"type":"add_agenda","title":"call mum","priority":"normal"},
+  {"type":"add_list_item","list":"groceries","text":"tomatoes"}
+],"summary":"Added 'call mum' to today's plan and tomatoes to your groceries list."}
 
 User: "${prompt.replace(/"/g, '\\"')}"`
 
@@ -155,6 +192,24 @@ User: "${prompt.replace(/"/g, '\\"')}"`
       const uc = clampNumber(a.unit_count, 1, 200); if (uc) out.unit_count = uc
       const c = clampNumber(a.cost, 0, 500); if (c != null) out.cost = c
       cleaned.push(out)
+    } else if (a.type === 'log_water') {
+      const count = clampNumber(a.count, 1, 12)
+      if (!count) continue
+      cleaned.push({ type: 'log_water', count })
+    } else if (a.type === 'mark_routine') {
+      const rname = String(a.name || '').trim().toLowerCase().slice(0, 30)
+      if (!KNOWN_ROUTINES.has(rname)) continue
+      cleaned.push({ type: 'mark_routine', name: rname })
+    } else if (a.type === 'add_agenda') {
+      const title = String(a.title || '').trim().slice(0, 200)
+      if (!title) continue
+      const priority = VALID_PRIORITIES.has(a.priority) ? a.priority : 'normal'
+      cleaned.push({ type: 'add_agenda', title, priority })
+    } else if (a.type === 'add_list_item') {
+      const text = String(a.text || '').trim().slice(0, 120)
+      if (!text) continue
+      const list = VALID_LISTS.has(a.list) ? a.list : 'groceries'
+      cleaned.push({ type: 'add_list_item', list, text })
     }
   }
 

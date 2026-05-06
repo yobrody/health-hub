@@ -133,7 +133,7 @@ Rules:
             }
             const hour = new Date().getHours()
             const meal = hour < 11 ? 'Breakfast' : hour < 15 ? 'Lunch' : hour < 18 ? 'Snack' : 'Dinner'
-            const sysPrompt = `You translate one short message about the user's day into structured actions for a personal health app.\n\nAvailable action types:\n1. log_food — { name, count?, kcal, protein_g, meal? } (per-unit kcal/protein)\n2. add_fridge — { name, section, store?, size?, unit_size_g?, unit_count?, cost? }\n\nReturn ONLY: {"actions": [...], "summary": "one short past-tense confirmation"}\n\nDefault meal if not stated: "${meal}".\n\nUser: "${cleaned.replace(/"/g, '\\"')}"`
+            const sysPrompt = `You translate one short message about the user's day into structured actions for a personal health app.\n\nAvailable action types:\n1. log_food — { name, count?, kcal, protein_g, meal?, date? }\n2. add_fridge — { name, section, store?, size?, unit_size_g?, unit_count?, cost? }\n3. log_water — { count } (glasses, 1-12)\n4. mark_routine — { name: meditate|vitamins|journal|read|stretch }\n5. add_agenda — { title, priority?: low|normal|urgent }\n6. add_list_item — { list: groceries|errands|shopping, text }\n\nReturn ONLY: {"actions": [...], "summary": "one short past-tense confirmation"}\n\nDefault meal if not stated: "${meal}".\n\nUser: "${cleaned.replace(/"/g, '\\"')}"`
             const apiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${geminiKey}`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -293,12 +293,17 @@ export default defineConfig(({ mode }) => {
       tailwindcss(),
       localAiPlugin(geminiKey),
       VitePWA({
-        // 'prompt' so the in-app UpdatePrompt component drives the upgrade.
-        // Was 'autoUpdate' which silently swapped assets — meant users could
-        // run stale JS until they happened to fully close + reopen the tab.
-        // Now they see "New version ready — Update" and one tap reloads.
-        registerType: 'prompt',
-        injectRegister: 'auto',
+        // 'autoUpdate' silently swaps the SW + assets. Combined with
+        // skipWaiting + clientsClaim and a controllerchange listener in
+        // main.tsx that reloads the page when the new SW takes control,
+        // this is the closest we can get to "deploy lands instantly on
+        // every open client" — including iOS PWAs which would otherwise
+        // hold stale assets indefinitely. <UpdatePrompt /> stays mounted
+        // as belt-and-suspenders if the auto-flow somehow misses.
+        registerType: 'autoUpdate',
+        // false because UpdatePrompt registers via virtual:pwa-register/react;
+        // 'auto' would inject a second basic registration that races.
+        injectRegister: false,
         includeAssets: ['icon.svg', 'maskable-icon.svg'],
         manifest: {
           name: 'Health Hub',

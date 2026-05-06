@@ -298,6 +298,29 @@ export default function Today({ onNavigate }: Props) {
             unit_size_g: a.unit_size_g ?? null,
             unit_count: a.unit_count ?? null,
           })
+        } else if (a.type === 'log_water') {
+          // Hydration is browser-local (localStorage water_intake). Increment
+          // the running count rather than overwriting it. Counter resets on
+          // date change, same key the HydrationCard reads.
+          try {
+            const todayKey = new Date().toISOString().slice(0, 10)
+            const raw = localStorage.getItem('water_intake')
+            const cur = raw ? JSON.parse(raw) as { date: string; count: number } : null
+            const base = cur && cur.date === todayKey ? cur.count : 0
+            const next = Math.min(base + a.count, 12)
+            localStorage.setItem('water_intake', JSON.stringify({ date: todayKey, count: next }))
+            // Nudge re-render of HydrationCard via a storage event in the same tab
+            window.dispatchEvent(new StorageEvent('storage', { key: 'water_intake' }))
+          } catch { /* localStorage quota — non-fatal */ }
+        } else if (a.type === 'mark_routine') {
+          await api.logRoutine(a.name)
+        } else if (a.type === 'add_agenda') {
+          await api.addAgendaItem(a.title)
+          // Priority is stored client-side via localStorage in agenda-priority
+          // helpers; the AI's priority hint can land later via setItemPriority,
+          // but for v1 we ignore it (default normal) so the action is single-call.
+        } else if (a.type === 'add_list_item') {
+          await api.addListItem(a.list, a.text)
         }
       } catch (err) {
         failed.push({ action: a, error: String(err).slice(0, 120) })
@@ -350,6 +373,19 @@ export default function Today({ onNavigate }: Props) {
           unit_size_g: a.unit_size_g ?? null,
           unit_count: a.unit_count ?? null,
         })
+      } else if (a.type === 'log_water') {
+        const todayKey = new Date().toISOString().slice(0, 10)
+        const raw = localStorage.getItem('water_intake')
+        const cur = raw ? JSON.parse(raw) as { date: string; count: number } : null
+        const base = cur && cur.date === todayKey ? cur.count : 0
+        localStorage.setItem('water_intake', JSON.stringify({ date: todayKey, count: Math.min(base + a.count, 12) }))
+        window.dispatchEvent(new StorageEvent('storage', { key: 'water_intake' }))
+      } else if (a.type === 'mark_routine') {
+        await api.logRoutine(a.name)
+      } else if (a.type === 'add_agenda') {
+        await api.addAgendaItem(a.title)
+      } else if (a.type === 'add_list_item') {
+        await api.addListItem(a.list, a.text)
       }
       setAiFailed(prev => prev.filter((_, i) => i !== idx))
       api.getToday().then(setData).catch(() => {})
@@ -553,27 +589,44 @@ export default function Today({ onNavigate }: Props) {
                 {aiPreview.summary}
               </div>
               <div className="flex flex-col gap-1.5 mb-3">
-                {aiPreview.actions.map((a, i) => (
-                  <div key={i} className="flex items-center gap-2 text-[12px] text-[var(--c-label-faint)]">
-                    {a.type === 'log_food' ? (
-                      <>
-                        <span className="inline-block w-1 h-1 rounded-full bg-[var(--c-orange)]" />
-                        <span>
+                {aiPreview.actions.map((a, i) => {
+                  // Per-action-type colour dot + readable summary line
+                  const typeStyle: Record<AiAction['type'], string> = {
+                    log_food: 'bg-[var(--c-orange)]',
+                    add_fridge: 'bg-[var(--c-green)]',
+                    log_water: 'bg-[var(--c-accent)]',
+                    mark_routine: 'bg-[var(--c-purple,#a78bfa)]',
+                    add_agenda: 'bg-[var(--c-yellow,#fbbf24)]',
+                    add_list_item: 'bg-[var(--c-green)]',
+                  }
+                  return (
+                    <div key={i} className="flex items-center gap-2 text-[12px] text-[var(--c-label-faint)]">
+                      <span className={`inline-block w-1 h-1 rounded-full ${typeStyle[a.type]}`} />
+                      <span>
+                        {a.type === 'log_food' && (<>
                           {a.count > 1 ? `${a.count} ` : ''}{a.name}
-                          <span className="text-[var(--c-label-faint)]"> · ~{a.kcal * a.count} kcal · {a.protein_g * a.count}g protein → {a.meal}</span>
-                        </span>
-                      </>
-                    ) : (
-                      <>
-                        <span className="inline-block w-1 h-1 rounded-full bg-[var(--c-green)]" />
-                        <span>
+                          <span className="text-[var(--c-label-faint)]"> · ~{a.kcal * a.count} kcal · {a.protein_g * a.count}g protein → {a.meal}{a.date ? ` · ${a.date}` : ''}</span>
+                        </>)}
+                        {a.type === 'add_fridge' && (<>
                           {a.size ? `${a.size} of ` : ''}{a.name}
                           <span className="text-[var(--c-label-faint)]"> → {a.section}{a.store ? ` · ${a.store}` : ''}</span>
-                        </span>
-                      </>
-                    )}
-                  </div>
-                ))}
+                        </>)}
+                        {a.type === 'log_water' && (<>
+                          {a.count} glass{a.count > 1 ? 'es' : ''} of water
+                        </>)}
+                        {a.type === 'mark_routine' && (<>
+                          Routine: {a.name} <span className="text-[var(--c-label-faint)]">→ done</span>
+                        </>)}
+                        {a.type === 'add_agenda' && (<>
+                          Plan: {a.title}<span className="text-[var(--c-label-faint)]">{a.priority !== 'normal' ? ` · ${a.priority}` : ''}</span>
+                        </>)}
+                        {a.type === 'add_list_item' && (<>
+                          {a.text}<span className="text-[var(--c-label-faint)]"> → {a.list} list</span>
+                        </>)}
+                      </span>
+                    </div>
+                  )
+                })}
               </div>
               <div className="flex gap-2">
                 <button
@@ -608,7 +661,16 @@ export default function Today({ onNavigate }: Props) {
                     className="flex items-center justify-between text-left bg-transparent border border-[var(--c-border)] rounded-md px-2 py-1.5 hover:border-[var(--c-accent)] transition-colors"
                   >
                     <span className="text-[12px] text-[var(--c-label-dim)] truncate">
-                      {f.action.type === 'log_food' ? `${f.action.name} → ${f.action.meal}` : `${f.action.name} → ${f.action.section}`}
+                      {(() => {
+                        const a = f.action
+                        if (a.type === 'log_food') return `${a.name} → ${a.meal}`
+                        if (a.type === 'add_fridge') return `${a.name} → ${a.section}`
+                        if (a.type === 'log_water') return `${a.count} water`
+                        if (a.type === 'mark_routine') return `routine: ${a.name}`
+                        if (a.type === 'add_agenda') return `plan: ${a.title}`
+                        if (a.type === 'add_list_item') return `${a.text} → ${a.list}`
+                        return 'action'
+                      })()}
                     </span>
                     <span className="text-[11px] text-[var(--c-label-faint)] flex-shrink-0 ml-2">↻</span>
                   </button>

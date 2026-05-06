@@ -1065,6 +1065,65 @@ function ItemDetailModal({ name, zone, onClose, onRemove }: {
     }
   }
 
+  /**
+   * Estimate macros for the portion the user just ate. Tries hardest source
+   * first: remaining quantity_g × nutrition_per_100g; falls back to unit_size_g
+   * (assume full pack), then a 100g default if we only know macros-per-100g.
+   * Returns null if we have nothing to log — the caller will skip the log
+   * step and just remove. Never throws.
+   */
+  function computeAteMacros(d: FridgeItemDetail): { kcal: number; protein_g: number; portion_g: number } | null {
+    const np = d.nutrition_per_100g
+    if (!np || typeof np.kcal !== 'number') return null
+    // What grams did they consume?
+    const grams =
+      typeof d.quantity_g === 'number' && d.quantity_g > 0 ? d.quantity_g
+      : typeof d.unit_size_g === 'number' && d.unit_size_g > 0 ? d.unit_size_g
+      : typeof d.typical_size_g === 'number' && d.typical_size_g > 0 ? d.typical_size_g
+      : 100
+    const factor = grams / 100
+    return {
+      kcal: Math.round(np.kcal * factor),
+      protein_g: Math.round((np.protein_g ?? 0) * factor),
+      portion_g: Math.round(grams),
+    }
+  }
+
+  function mealForNow(): 'Breakfast' | 'Lunch' | 'Snack' | 'Dinner' {
+    const h = new Date().getHours()
+    if (h < 11) return 'Breakfast'
+    if (h < 15) return 'Lunch'
+    if (h < 18) return 'Snack'
+    return 'Dinner'
+  }
+
+  // "I ate it" — log estimated macros to today, then remove from fridge.
+  // Common path because Brody (and likely anyone) often removes items
+  // because they ate them but didn't track the macros (audit feedback
+  // 2026-05-06). When we can't estimate (no nutrition data), still remove
+  // — the alternative is forcing the user to use the camera flow first,
+  // which slows down a fridge cleanup pass.
+  async function ateAndRemove() {
+    if (!detail) { onRemove(); return }
+    const macros = computeAteMacros(detail)
+    try {
+      if (macros) {
+        await api.addFood({
+          meal: mealForNow(),
+          description: macros.portion_g === 100 ? detail.name : `${macros.portion_g}g ${detail.name}`,
+          kcal: macros.kcal,
+          protein_g: macros.protein_g,
+        })
+        showToast(`Logged ${detail.name} (~${macros.kcal} kcal, ${macros.protein_g}g protein)`)
+      } else {
+        showToast('Removed (couldn’t estimate macros — no nutrition data)', 'info')
+      }
+    } catch {
+      showToast('Logged failed but removing anyway', 'err')
+    }
+    onRemove()
+  }
+
   const photo = detail?.photo_url || null
   const zoneCfg = ZONE_CONFIG[detail?.zone || zone]
   const nutri = detail?.nutrition_per_100g || null
@@ -1251,8 +1310,27 @@ function ItemDetailModal({ name, zone, onClose, onRemove }: {
             {reEnriching ? '…' : '↻ Refresh data'}
           </button>
         </div>
+        {/* Primary action when removing because you ATE it — logs estimated
+            macros to today's calorie log, then removes. Most "remove" taps
+            are post-consumption; without this button the user would lose
+            the macros silently. Falls back to plain remove if we have no
+            nutrition data to estimate from. */}
+        {detail && detail.nutrition_per_100g && (() => {
+          const m = computeAteMacros(detail)
+          return (
+            <button onClick={ateAndRemove}
+              style={{
+                width: '100%', marginBottom: 8,
+                padding: '13px 8px', borderRadius: 12, border: 'none',
+                background: 'var(--green)', color: '#fff', fontSize: 15, fontWeight: 700,
+                cursor: 'pointer',
+              }}>
+              I ate it{m ? ` · log ~${m.kcal} kcal, ${m.protein_g}g protein` : ''}
+            </button>
+          )
+        })()}
         <button className="btn-destructive" onClick={onRemove} style={{ width: '100%', marginBottom: 8 }}>
-          Remove from {zoneCfg.label}
+          {detail && detail.nutrition_per_100g ? 'Remove (without logging)' : `Remove from ${zoneCfg.label}`}
         </button>
         <button onClick={onClose}
           style={{ width: '100%', background: 'none', border: 'none', color: 'var(--blue)', fontSize: 16, fontWeight: 600, cursor: 'pointer', padding: 10 }}>

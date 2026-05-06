@@ -4,6 +4,21 @@ import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.tsx'
 
+// Auto-reload the page when a newly-installed service worker takes control.
+// Pairs with VitePWA's registerType:'autoUpdate' + skipWaiting + clientsClaim
+// to make a fresh deploy land on every open client (including iOS PWAs)
+// without needing the user to manually refresh. Guard against the very
+// first SW activation on a fresh install — controllerchange fires once
+// then with no prior controller, which we don't want to reload-loop on.
+if ('serviceWorker' in navigator) {
+  let alreadyReloading = false
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (alreadyReloading) return
+    alreadyReloading = true
+    window.location.reload()
+  })
+}
+
 export type Theme = 'light' | 'dark' | 'system'
 
 function applyTheme(theme: Theme) {

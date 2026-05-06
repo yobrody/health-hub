@@ -417,6 +417,15 @@ export type AiAction =
   // "yesterday", "last night", "this morning", etc.; otherwise unset = today.
   | { type: 'log_food'; name: string; count: number; kcal: number; protein_g: number; meal: 'Breakfast' | 'Lunch' | 'Snack' | 'Dinner'; date?: string }
   | { type: 'add_fridge'; name: string; section: 'fridge' | 'freezer' | 'pantry' | 'condiments'; store?: string; size?: string; unit_size_g?: number; unit_count?: number; cost?: number }
+  // Glasses of water (1-12). Frontend writes to localStorage water_intake;
+  // backend has no notion of hydration today.
+  | { type: 'log_water'; count: number }
+  // Mark a daily routine done — calls /routines/{name}/log on the VPS.
+  | { type: 'mark_routine'; name: 'meditate' | 'vitamins' | 'journal' | 'read' | 'stretch' }
+  // Add a task to today's plan — calls POST /agenda.
+  | { type: 'add_agenda'; title: string; priority: 'low' | 'normal' | 'urgent' }
+  // Add an item to a list — calls POST /lists/{list}/items.
+  | { type: 'add_list_item'; list: 'groceries' | 'errands' | 'shopping'; text: string }
 export interface AiActResponse {
   ok: boolean
   summary: string
