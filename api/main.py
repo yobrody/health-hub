@@ -277,9 +277,14 @@ def write_slots(slots: dict):
     tmp.replace(SLOT_FILE)
 
 def drop_slot_for(name: str):
+    """Drop the slot_memory entry for an item being removed.
+    Audit B-2: was substring match — now exact (case-insensitive). If the
+    caller used ?contains=true on the delete, this still only drops the
+    exact slot key; that's fine — orphan slot entries are harmless and
+    get GC'd by the next PUT /fridge/slots."""
     slots = read_slots()
     name_lower = name.lower()
-    changed = [k for k in slots if name_lower in k.lower()]
+    changed = [k for k in slots if k.lower() == name_lower]
     if changed:
         for k in changed:
             del slots[k]
@@ -350,13 +355,24 @@ def add_fridge_item(item: FridgeItem, key=Depends(require_key)):
     return {"ok": True}
 
 @app.delete("/fridge/item/{name}")
-def remove_fridge_item(name: str, key=Depends(require_key)):
+def remove_fridge_item(name: str, contains: bool = False, key=Depends(require_key)):
+    """Delete an item by name. Default match is EXACT (case-insensitive); pass
+    ?contains=true to fall back to substring match.
+
+    Audit B-2: substring-by-default was dangerous — deleting "honey" would
+    nuke "honeycomb cereal", deleting "salt" would nuke "salted butter".
+    The cross-zone drag path now passes ?contains=false (default); legacy
+    callers can opt in if they really need substring matching.
+    """
     data = read_fridge()
     name_lower = name.lower()
     removed = False
     for section in data:
         before = len(data[section])
-        data[section] = [i for i in data[section] if name_lower not in i["name"].lower()]
+        if contains:
+            data[section] = [i for i in data[section] if name_lower not in i["name"].lower()]
+        else:
+            data[section] = [i for i in data[section] if i["name"].lower() != name_lower]
         if len(data[section]) < before:
             removed = True
     if not removed:

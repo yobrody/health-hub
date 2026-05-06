@@ -55,12 +55,26 @@ export async function onRequest(context) {
                 const metaStr = await kv.get(key)
                 if (metaStr) {
                   const meta = JSON.parse(metaStr)
+                  // Audit B-3: pass the full enriched record through so
+                  // list views can show brand / nutrition / allergens
+                  // without an extra per-item GET. Was only size/cost/
+                  // store/photo_url before; cards couldn't show brand.
                   return {
                     ...item,
                     size: meta.size ?? null,
                     cost: meta.cost ?? null,
                     store: meta.store ?? null,
                     photo_url: meta.photo_url ?? null,
+                    brand: meta.brand ?? null,
+                    barcode: meta.barcode ?? null,
+                    nutrition_per_100g: meta.nutrition_per_100g ?? null,
+                    typical_size_g: meta.typical_size_g ?? null,
+                    packaging: meta.packaging ?? null,
+                    allergens: meta.allergens ?? null,
+                    categories: meta.categories ?? null,
+                    shelf_life_days_sealed: meta.shelf_life_days_sealed ?? null,
+                    shelf_life_days_opened: meta.shelf_life_days_opened ?? null,
+                    confidence: meta.confidence ?? null,
                   }
                 }
               } catch {}
