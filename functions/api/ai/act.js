@@ -159,6 +159,18 @@ Available action types:
    "yesterday morning I was 64.3" → date=yesterday. Same-day re-logs
    overwrite (the most recent reading wins).
 
+8. consume_fridge — decrement remaining stock of a fridge item
+   args: { name: string, grams?: number, count?: number }  (one of grams/count required)
+   PAIR THIS WITH log_food whenever the user eats something they probably
+   have in stock — e.g. eggs, milk, yogurt, chicken, cheese, butter, bread.
+   "ate 2 eggs" → log_food (calories) + consume_fridge {name:"eggs",count:2}
+   "ate 180g chicken thighs" → log_food + consume_fridge {name:"chicken thighs",grams:180}
+   "drank a glass of milk" → log_food + consume_fridge {name:"milk",grams:250}
+   Skip for restaurant / on-the-go items they obviously didn't have stocked
+   (e.g. "had a meal deal", "got a coffee from work"). Use lowercase name.
+   Backend matches name as case-insensitive substring across the whole fridge,
+   so partial names work (e.g. "yogurt" matches "Greek yogurt 500g").
+
 Return ONLY this JSON (no markdown):
 {
   "actions": [ { "type": "...", ...args } ],
@@ -188,6 +200,13 @@ User: "had two glasses of water and meditated for 10 minutes"
 
 User: "weighed 64.5 this morning"
 {"actions":[{"type":"log_weight","kg":64.5}],"summary":"Logged 64.5 kg."}
+
+User: "ate 4 eggs scrambled with butter for breakfast"
+{"actions":[
+  {"type":"log_food","name":"4 scrambled eggs with butter","count":1,"kcal":360,"protein_g":24,"meal":"Breakfast"},
+  {"type":"consume_fridge","name":"eggs","count":4},
+  {"type":"consume_fridge","name":"butter","grams":10}
+],"summary":"Logged scrambled eggs to breakfast and dropped 4 eggs + 10g butter from your fridge."}
 
 User: "had my breakfast"
 {"actions":[{"type":"log_food","name":"Standard breakfast","count":1,"kcal":750,"protein_g":35,"meal":"Breakfast"}],"summary":"Logged your standard breakfast (~750 kcal, 35g protein)."}
@@ -280,6 +299,20 @@ User: "${prompt.replace(/"/g, '\\"')}"`
           if (days >= -1 && days <= 30) out.date = a.date
         }
       }
+      cleaned.push(out)
+    } else if (a.type === 'consume_fridge') {
+      const name = String(a.name || '').trim().toLowerCase().slice(0, 80)
+      if (!name) continue
+      // Cap grams/count at sane levels — a single meal isn't 5 kg of chicken
+      // or 100 eggs, so wild values are model hallucinations rather than
+      // real intent. Match server-side limits would be looser, but this
+      // protects the fridge log from one bad parse nuking a stock count.
+      const grams = clampNumber(a.grams, 1, 2000)
+      const count = clampNumber(a.count, 1, 50)
+      if (grams == null && count == null) continue
+      const out = { type: 'consume_fridge', name }
+      if (grams != null) out.grams = grams
+      if (count != null) out.count = count
       cleaned.push(out)
     }
   }

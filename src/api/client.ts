@@ -444,6 +444,12 @@ export type AiAction =
   // Log a body-weight reading — calls POST /weight. date optional (YYYY-MM-DD).
   // Same-day re-logs overwrite, matching the morning weigh-in convention.
   | { type: 'log_weight'; kg: number; date?: string }
+  // Decrement a fridge item's remaining stock instead of removing it. Pairs
+  // naturally with log_food when the user eats SOME of a stocked item — e.g.
+  // "ate 2 eggs" decrements the egg count by 2 (and a separate log_food
+  // captures the calories). Backend matches name case-insensitively across
+  // all sections; first match wins. Either grams OR count, not both.
+  | { type: 'consume_fridge'; name: string; grams?: number; count?: number }
 export interface AiActResponse {
   ok: boolean
   summary: string

@@ -5,6 +5,7 @@ import type { TodayData, WeekStats, FridgeData, AiAction, AiActResponse } from '
 import { PROGRAM, getNextDay } from '../program'
 import type { DayName } from '../program'
 import { loadProducts, lowStockProducts } from '../lib/skincare-products'
+import { computeWeightTrend } from '../lib/weight-trend'
 
 // =============================================================================
 // C-PREVIEW: Dark + bento + monospaced data
@@ -119,24 +120,6 @@ function BigNumber({ value, unit, color, mono = true }: { value: string | number
       {unit && <span className="text-[14px] text-[var(--c-label-dim)] ml-1.5 font-normal">{unit}</span>}
     </div>
   )
-}
-
-/** Compute latest weight + 7-day delta from a sorted entries list. Pulled
- *  out of the WeightTile render so the impure Date.now() call lives in
- *  the data-fetch path, not in render — keeping React 19 hook lint happy. */
-function computeWeightTrend(entries: { date: string; kg: number }[]) {
-  const sorted = [...entries].sort((a, b) => a.date.localeCompare(b.date))
-  const latest = sorted[sorted.length - 1]
-  const ref = Date.now() - 7 * 86400000
-  const week = sorted.find(w => {
-    const d = new Date(w.date + 'T12:00:00Z').getTime()
-    return d <= ref + 86400000 && d >= ref - 3 * 86400000
-  })
-  return {
-    entries: sorted,
-    latest,
-    delta: latest && week ? latest.kg - week.kg : null,
-  }
 }
 
 /** Today bento tile for body weight. Shows latest reading + 7-day delta
@@ -391,6 +374,30 @@ export default function Today({ onNavigate }: Props) {
           localStorage.setItem('weight_log', JSON.stringify(next))
         } catch { /* localStorage unavailable */ }
         return
+      case 'consume_fridge': {
+        // Decrement remaining stock. The backend returns 404 if the item
+        // isn't in the fridge — treat that as a soft fail (the user may
+        // have eaten something they hadn't stocked) so it doesn't break
+        // the rest of the action batch. Hard errors (network/500) still
+        // surface so the user knows the AI batch didn't fully apply.
+        const input: { grams?: number; count?: number } = {}
+        if (typeof a.grams === 'number') input.grams = a.grams
+        if (typeof a.count === 'number') input.count = a.count
+        // Validator guarantees at least one is set, but belt-and-braces:
+        if (input.grams === undefined && input.count === undefined) return
+        try {
+          await api.consumeFridgeItem(a.name, input)
+        } catch (err) {
+          const msg = String(err)
+          if (msg.includes('404') || msg.toLowerCase().includes('not found')) {
+            // Soft-fail: log and move on so the food log still applies.
+            console.warn(`consume_fridge: '${a.name}' not in fridge, skipping decrement`)
+            return
+          }
+          throw err
+        }
+        return
+      }
       default: {
         // Exhaustiveness guard — if a new AiAction variant lands without
         // a handler here, TS will refuse to compile.
@@ -683,6 +690,7 @@ export default function Today({ onNavigate }: Props) {
                     add_agenda: 'bg-[var(--c-yellow,#fbbf24)]',
                     add_list_item: 'bg-[var(--c-green)]',
                     log_weight: 'bg-[var(--c-accent)]',
+                    consume_fridge: 'bg-[var(--c-orange)]',
                   }
                   return (
                     <div key={i} className="flex items-center gap-2 text-[12px] text-[var(--c-label-faint)]">
@@ -711,6 +719,10 @@ export default function Today({ onNavigate }: Props) {
                         {a.type === 'log_weight' && (<>
                           Weight: {a.kg.toFixed(1)} kg
                           {a.date && <span className="text-[var(--c-label-faint)]"> · {a.date}</span>}
+                        </>)}
+                        {a.type === 'consume_fridge' && (<>
+                          Used {a.grams != null ? `${a.grams}g` : a.count != null ? `${a.count}×` : ''} {a.name}
+                          <span className="text-[var(--c-label-faint)]"> · fridge stock</span>
                         </>)}
                       </span>
                     </div>
@@ -759,6 +771,7 @@ export default function Today({ onNavigate }: Props) {
                         if (a.type === 'add_agenda') return `plan: ${a.title}`
                         if (a.type === 'add_list_item') return `${a.text} → ${a.list}`
                         if (a.type === 'log_weight') return `weight: ${a.kg.toFixed(1)}kg`
+                        if (a.type === 'consume_fridge') return `used ${a.grams != null ? `${a.grams}g` : `${a.count}×`} ${a.name}`
                         return 'action'
                       })()}
                     </span>
