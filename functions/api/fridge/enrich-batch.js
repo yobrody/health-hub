@@ -56,14 +56,20 @@ async function enrichOne(name, barcode, hints, kv, env) {
   }
 
   const merged = mergeEnrichment(existing, layers)
+  const layersContributed = layers.some(l => l?.enriched)
   if (hints) {
     if (hints.cost != null) merged.cost = hints.cost
     if (hints.store) merged.store = hints.store
     if (hints.size) merged.size = hints.size
     await appendPriceHistory(kv, name, hints)
   }
-  merged.name = merged.name || name
-  await writeMeta(kv, name, merged)
+  // Skip the KV write when nothing actually changed and we already have a
+  // record. Mirrors enrich.js so a 429-only batch doesn't burn KV writes
+  // re-saving identical records for already-enriched items.
+  if (layersContributed || hints || !existing) {
+    merged.name = merged.name || name
+    await writeMeta(kv, name, merged)
+  }
   return merged
 }
 

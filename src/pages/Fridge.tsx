@@ -1372,8 +1372,28 @@ export default function Fridge() {
       next[draggedName] = { zone, shelf, col }
       next[occupantName] = occupantTarget
       // If swap crosses zones, persist zone change in the items list too.
-      if (zone !== draggedZoneNow) await moveItemBetweenZones(draggedName, draggedZoneNow, zone)
-      if (occupantTarget.zone !== occupantZoneNow) await moveItemBetweenZones(occupantName, occupantZoneNow, occupantTarget.zone)
+      // When BOTH items change zones, removes must happen before either add —
+      // FastAPI's remove deletes by substring match across all zones, so a
+      // remove("honey") could nuke a freshly-added "honeycomb" if order is
+      // remove-A → add-A → remove-B → add-B. Doing both removes first avoids
+      // any substring overlap collision.
+      const draggedCrosses = zone !== draggedZoneNow
+      const occupantCrosses = occupantTarget.zone !== occupantZoneNow
+      if (draggedCrosses && occupantCrosses) {
+        try {
+          await api.removeFridgeItem(draggedName)
+          await api.removeFridgeItem(occupantName)
+          await api.addFridgeItem(draggedName, zone)
+          await api.addFridgeItem(occupantName, occupantTarget.zone)
+          const updated = await api.getFridge()
+          setData(updated)
+        } catch {
+          showToast(`Couldn’t complete swap`, 'err')
+        }
+      } else {
+        if (draggedCrosses) await moveItemBetweenZones(draggedName, draggedZoneNow, zone)
+        if (occupantCrosses) await moveItemBetweenZones(occupantName, occupantZoneNow, occupantTarget.zone)
+      }
     } else {
       // Empty slot: just place. If cross-zone, also move item between lists.
       const draggedZoneNow = itemByName.get(draggedName)?.zone || zone
