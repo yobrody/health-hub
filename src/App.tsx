@@ -87,7 +87,10 @@ interface Props {
 export default function App({ onToggleTheme, theme }: Props) {
   const [tab, setTab] = useState<Tab>('today')
   const [showOnboarding, setShowOnboarding] = useState(false)
-  const [name, setName] = useState('Brody')
+  // Audit P2-8: empty default; onboarding will fill it. The Today header
+  // hides the "Brody" suffix when name is empty, so a fresh install reads
+  // 'Good morning' rather than 'Good morning, Brody' before sign-up.
+  const [name, setName] = useState('')
   const [calories, setCalories] = useState('2800')
   const [protein, setProtein] = useState('140')
   const [toast, setToast] = useState<ToastState>(null)
@@ -144,7 +147,9 @@ export default function App({ onToggleTheme, theme }: Props) {
 
   function saveOnboarding() {
     const profile = {
-      name: name.trim() || 'Brody',
+      // Empty name falls through to a friendly "there" rather than baking
+      // the developer's name into every install (audit P2-8).
+      name: name.trim() || 'there',
       calories: Number(calories) || 2800,
       protein: Number(protein) || 140,
     }
@@ -162,9 +167,34 @@ export default function App({ onToggleTheme, theme }: Props) {
   // checks for the literal 'auto' to render the SVG.
   const themeIcon = theme === 'dark' ? '☀' : theme === 'light' ? '☾' : 'auto'
 
+  // Pages reachable only by tile-click (not in the bottom nav) get a small
+  // back-to-Today chevron, fixed top-left, so the route isn't a one-way
+  // trip (audit P1-5). The bottom nav still works for jumping anywhere.
+  const SECONDARY_TABS = new Set<Tab>(['skincare', 'goals', 'lists', 'agenda', 'routines'])
+
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       <div style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
+        {SECONDARY_TABS.has(tab) && (
+          <button
+            onClick={() => setTab('today')}
+            aria-label="Back to Today"
+            style={{
+              position: 'absolute', top: 'max(14px, env(safe-area-inset-top, 0px) + 14px)', left: 12,
+              width: 36, height: 36, borderRadius: 18,
+              background: 'var(--card, rgba(255,255,255,0.9))',
+              border: '0.5px solid var(--separator, rgba(0,0,0,0.1))',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              cursor: 'pointer', zIndex: 50,
+              backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)',
+            }}
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M15 18l-6-6 6-6"/>
+            </svg>
+          </button>
+        )}
         {tab === 'today'     && <Today onNavigate={setTab} onToggleTheme={onToggleTheme} themeIcon={themeIcon} />}
         {tab === 'nutrition' && <Nutrition onNavigate={setTab as (tab: string) => void} />}
         {tab === 'fridge'    && <Fridge />}

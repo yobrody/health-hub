@@ -154,6 +154,8 @@ function WaterTracker() {
           <button
             key={i}
             onClick={() => set(i < count ? i : i + 1)}
+            aria-label={i < count ? `Glass ${i + 1} (drunk) — tap to undo` : `Mark glass ${i + 1} drunk`}
+            aria-pressed={i < count}
             className={`h-8 rounded-md border transition-colors ${
               i < count
                 ? 'bg-[var(--c-accent)] border-[var(--c-accent)]'
@@ -175,13 +177,10 @@ interface Props {
 }
 
 export default function Today({ onNavigate }: Props) {
-  // C-PREVIEW: force dark theme on the document so the existing tab bar / page chrome
-  // renders dark to match the new aesthetic. Restored on unmount.
-  useEffect(() => {
-    const prev = document.documentElement.dataset.theme
-    document.documentElement.dataset.theme = 'dark'
-    return () => { if (prev) document.documentElement.dataset.theme = prev; else delete document.documentElement.dataset.theme }
-  }, [])
+  // Audit P2-12: forced-dark useEffect removed. The page now respects the
+  // user's chosen theme (light / dark / system). Was a leftover from the
+  // C-aesthetic preview; staying dark on a light-mode device made the page
+  // look broken on first install.
 
   const [data, setData] = useState<TodayData | null>(null)
   const [loading, setLoading] = useState(true)
@@ -199,7 +198,9 @@ export default function Today({ onNavigate }: Props) {
   const [fridgeData, setFridgeData] = useState<FridgeData | null>(null)
   const [agendaCount, setAgendaCount] = useState<{ open: number; total: number } | null>(null)
   const [shoppingCount, setShoppingCount] = useState<number | null>(null)
-  const [displayName, setDisplayName] = useState('Brody')
+  // Friendly fallback before the profile loads (audit P2-8 — was hardcoded
+  // to 'Brody'). Real name is read from localStorage / API on mount.
+  const [displayName, setDisplayName] = useState('there')
   const inputRef = useRef<HTMLInputElement>(null)
 
   const now = new Date()
@@ -561,21 +562,29 @@ export default function Today({ onNavigate }: Props) {
             </div>
           </Card>
 
-          {/* Skincare — half */}
+          {/* Skincare — half. Two clear "Morning"/"Evening" rows with a
+              checkmark when done; trailing 'routine' subtitle removed —
+              read as a confused third item rather than a section caption
+              (audit P1-4). */}
           <Card onClick={() => onNavigate('skincare')}>
             <div className="flex items-center justify-between mb-2">
               <CardLabel>Skincare</CardLabel>
               <Icon.Sparkles size={16} className="text-[var(--c-label-faint)]" />
             </div>
-            <div className="flex items-center gap-2 text-[16px] font-semibold" style={{ fontFamily: "'JetBrains Mono', ui-monospace, monospace" }}>
-              <span className={skincareStatus.am ? 'text-[var(--c-green)]' : 'text-[var(--c-label-faint)]'}>
-                AM {skincareStatus.am ? '✓' : '○'}
-              </span>
-              <span className={skincareStatus.pm ? 'text-[var(--c-green)]' : 'text-[var(--c-label-faint)]'}>
-                PM {skincareStatus.pm ? '✓' : '○'}
-              </span>
+            <div className="flex flex-col gap-1.5 mt-1 text-[14px]">
+              <div className={`flex items-center justify-between ${skincareStatus.am ? 'text-[var(--c-label)]' : 'text-[var(--c-label-faint)]'}`}>
+                <span>Morning</span>
+                <span className={skincareStatus.am ? 'text-[var(--c-green)]' : 'text-[var(--c-label-faint)]'} style={{ fontFamily: "'JetBrains Mono', ui-monospace, monospace" }}>
+                  {skincareStatus.am ? '✓' : '○'}
+                </span>
+              </div>
+              <div className={`flex items-center justify-between ${skincareStatus.pm ? 'text-[var(--c-label)]' : 'text-[var(--c-label-faint)]'}`}>
+                <span>Evening</span>
+                <span className={skincareStatus.pm ? 'text-[var(--c-green)]' : 'text-[var(--c-label-faint)]'} style={{ fontFamily: "'JetBrains Mono', ui-monospace, monospace" }}>
+                  {skincareStatus.pm ? '✓' : '○'}
+                </span>
+              </div>
             </div>
-            <div className="text-[11px] text-[var(--c-label-faint)] mt-2">routine</div>
           </Card>
 
           {/* Shopping — half. Set the one-shot Lists hint so we land on the
@@ -644,7 +653,9 @@ export default function Today({ onNavigate }: Props) {
           >
             <Icon.Alert size={18} className="text-[var(--c-orange)] flex-shrink-0" />
             <div className="flex-1 min-w-0">
-              <div className="text-[13px] font-semibold text-[var(--c-orange)]">Use these soon</div>
+              {/* Match the Fridge page's banner phrasing — was 'Use these
+                  soon' here vs 'Eat soon' there (audit P1-12). */}
+              <div className="text-[13px] font-semibold text-[var(--c-orange)]">Eat soon</div>
               <div className="text-[12px] text-[var(--c-label-dim)] truncate mt-0.5">
                 {staleFridgeItems.map(i => i.name).join(' · ')}
               </div>

@@ -31,7 +31,7 @@ function ConfidenceBadge({ confidence }: { confidence: FoodAnalysis['confidence'
 
 interface NutritionProps { onNavigate?: (tab: string) => void }
 
-export default function Nutrition({ onNavigate }: NutritionProps) {
+export default function Nutrition({ onNavigate: _onNavigate }: NutritionProps) {
   const [data, setData] = useState<TodayData | null>(null)
   const [history, setHistory] = useState<HistoryDay[]>([])
   const [showAdd, setShowAdd] = useState(false)
@@ -217,12 +217,9 @@ export default function Nutrition({ onNavigate }: NutritionProps) {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
           <div style={{ fontSize: 30, fontWeight: 700 }}>Nutrition</div>
           <div style={{ display: 'flex', gap: 8 }}>
-            {onNavigate && (
-              <button className="action-pill" onClick={() => onNavigate('fridge')}
-                style={{ background: 'var(--green)', color: '#fff' }}>
-                Fridge
-              </button>
-            )}
+            {/* Audit P1-11: removed the 'Fridge' shortcut button. Bottom nav
+                already has Fridge one tap away; the pill in this header bar
+                read like a filter chip. */}
             {/* Toggle between today's meal log (default) and the photo gallery
                 of meals logged via the camera. Label always shows where you'll
                 go on tap, not the current state — matching iOS app conventions. */}

@@ -646,14 +646,10 @@ function PantrySvg({ itemCount }: { itemCount: number }) {
       <line x1="32" y1="355" x2="208" y2="355" stroke="#FFE7A8" strokeWidth="0.6" opacity="0.5"/>
       <line x1="34" y1="358" x2="206" y2="358" stroke="#5C3D14" strokeWidth="0.4" opacity="0.5"/>
 
-      {/* === BOTTOM DRAWER === */}
-      <rect x="30" y="402" width="180" height="32" rx="3"
-            fill="#A07847" stroke="#1F1B14" strokeWidth="2.2"/>
-      <rect x="34" y="406" width="172" height="24" rx="2"
-            fill="none" stroke="#7C5828" strokeWidth="1" opacity="0.7"/>
-      {/* Small brass drawer pull */}
-      <rect x="106" y="416" width="28" height="6" rx="2"
-            fill="url(#pa-knob)" stroke="#1F1B14" strokeWidth="1.6"/>
+      {/* Bottom drawer removed (audit P2-1). After the doors-removed polish
+          this read as a closed drawer base under an otherwise open-faced
+          cabinet — inconsistent metaphor. The wooden frame edge below the
+          interior cutaway gives enough bottom-grounding without the drawer. */}
 
       {/* === FEET === */}
       <ellipse cx="50" cy="456" rx="14" ry="6" fill="#5C3D14" stroke="#1F1B14" strokeWidth="2"/>
@@ -962,6 +958,10 @@ function ApplianceItem({ item, zone, onTap, learnedDays, idx }: {
  * as full appliances (they're typically empty / sparse and the grid still
  * reads well for them).
  */
+// TODO(audit P2-11): freezer + condiments still render as a flat grid while
+// fridge + pantry have full cartoon SVG appliances. Visual inconsistency.
+// Deferred — needs ~150 LOC of new SVG illustrations for two more
+// compartments. Items inside DO use NotoIcon for parity.
 function ZoneSection({ zone, items, onRemove, learnedShelfLife }: {
   zone: Zone
   items: FridgeItem[]
@@ -1247,7 +1247,8 @@ function ItemDetailModal({ name, zone, onClose, onRemove }: {
               background: 'var(--card)', color: 'var(--label)', fontSize: 14, fontWeight: 600,
               cursor: 'pointer', opacity: reEnriching ? 0.5 : 1,
             }}>
-            {reEnriching ? '…' : '↻ Re-enrich'}
+            {/* Audit P2-10: was 'Re-enrich' which read as jargon. */}
+            {reEnriching ? '…' : '↻ Refresh data'}
           </button>
         </div>
         <button className="btn-destructive" onClick={onRemove} style={{ width: '100%', marginBottom: 8 }}>

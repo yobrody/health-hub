@@ -455,7 +455,7 @@ export default function CameraSheet({ open, onClose, fridgeData, onFridgeUpdated
               </svg>
               <div>
                 <div>Log Food</div>
-                <div style={{ fontSize: 13, fontWeight: 400, opacity: 0.82, marginTop: 2 }}>Photo → AI identifies items + macros</div>
+                <div style={{ fontSize: 13, fontWeight: 400, opacity: 0.82, marginTop: 2 }}>Take a photo, AI estimates kcal + macros</div>
               </div>
             </button>
 
@@ -490,7 +490,7 @@ export default function CameraSheet({ open, onClose, fridgeData, onFridgeUpdated
               <div>
                 <div>Scan Barcode</div>
                 <div style={{ fontSize: 13, fontWeight: 400, opacity: 0.82, marginTop: 2 }}>
-                  Log food or add to fridge
+                  Add a packaged item to the fridge
                 </div>
               </div>
             </button>

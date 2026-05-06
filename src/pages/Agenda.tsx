@@ -11,16 +11,20 @@ import {
 } from '../lib/agenda-priority'
 
 const PRIORITY_OPTS = [
+  // Audit P1-7: ascending priority order so it reads left→right as
+  // increasing urgency (was Normal | Urgent | Low, mid → high → low).
+  { id: 'low',    label: 'Low',    color: 'var(--label3)' },
   { id: 'normal', label: 'Normal', color: 'var(--blue)' },
   { id: 'urgent', label: 'Urgent', color: 'var(--red)' },
-  { id: 'low',    label: 'Low',    color: 'var(--label3)' },
 ] as const
 
 const loadPriorities = () => loadPrioritiesFromStorage(localStorage)
 const savePriorities = (map: Record<string, Priority>) => savePrioritiesToStorage(localStorage, map)
 
 function todayLabel() {
-  return new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })
+  // Match the rest of the app — short weekday + numeric + short month
+  // (audit P2-3). Was 'Wednesday 6 May'; now 'Wed 6 May'.
+  return new Date().toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })
 }
 
 export default function Agenda() {

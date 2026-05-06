@@ -398,21 +398,11 @@ function DayCard({ day, isNext, onStart }: { day: ProgramDay; isNext: boolean; o
       borderRadius: 16, padding: '16px 16px 12px',
       border: isNext ? 'none' : '1px solid var(--separator)',
     }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
-        <div>
-          <div style={{ fontSize: 18, fontWeight: 700, color: isNext ? '#fff' : 'var(--label)' }}>{day.name}</div>
-          <div style={{ fontSize: 13, color: isNext ? 'rgba(255,255,255,0.75)' : 'var(--label2)', marginTop: 2 }}>{day.focus}</div>
-        </div>
-        <button
-          onClick={onStart}
-          style={{
-            background: isNext ? 'rgba(255,255,255,0.22)' : 'var(--blue)',
-            color: '#fff', border: 'none', borderRadius: 20,
-            padding: '8px 18px', fontSize: 14, fontWeight: 700, cursor: 'pointer',
-          }}
-        >{isNext ? 'Begin' : 'Start'}</button>
+      <div style={{ marginBottom: 10 }}>
+        <div style={{ fontSize: 18, fontWeight: 700, color: isNext ? '#fff' : 'var(--label)' }}>{day.name}</div>
+        <div style={{ fontSize: 13, color: isNext ? 'rgba(255,255,255,0.75)' : 'var(--label2)', marginTop: 2 }}>{day.focus}</div>
       </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 3, marginBottom: isNext ? 12 : 0 }}>
         {day.exercises.slice(0, 4).map((ex, i) => (
           <div key={i} style={{ fontSize: 13, color: isNext ? 'rgba(255,255,255,0.8)' : 'var(--label2)' }}>
             {ex.sets}×{ex.repRange} {ex.name}
@@ -424,6 +414,29 @@ function DayCard({ day, isNext, onStart }: { day: ProgramDay; isNext: boolean; o
           </div>
         )}
       </div>
+      {/* Begin button at thumb-bottom (audit P1-10). Was at top-right of the
+          card, far from the exercise list — eye flow on a phone read awkward. */}
+      {isNext && (
+        <button
+          onClick={onStart}
+          style={{
+            width: '100%', marginTop: 4,
+            background: 'rgba(255,255,255,0.95)',
+            color: 'var(--blue)', border: 'none', borderRadius: 12,
+            padding: '11px 0', fontSize: 15, fontWeight: 700, cursor: 'pointer',
+          }}
+        >Begin</button>
+      )}
+      {!isNext && (
+        <button
+          onClick={onStart}
+          style={{
+            background: 'none', color: 'var(--blue)', border: 'none',
+            padding: '6px 0 0 0', fontSize: 13, fontWeight: 600, cursor: 'pointer',
+            alignSelf: 'flex-start',
+          }}
+        >Start →</button>
+      )}
     </div>
   )
 }
@@ -1042,21 +1055,29 @@ export default function Workout() {
             no extra fetch. Brody asked for "see your consistency". */}
         <ConsistencyCalendar workouts={workouts} />
 
-        {/* PRs */}
-        {Object.keys(prs).length > 0 && (
-          <>
-            <div className="section-label">Personal Records</div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
-              {Object.entries(prs).slice(0, 6).map(([ex, pr]) => (
-                <div key={ex} style={{ background: 'var(--card)', borderRadius: 12, padding: '10px 14px', minWidth: 140, flex: '1 1 140px' }}>
-                  <div style={{ fontSize: 12, color: 'var(--label2)', marginBottom: 4 }}>{ex}</div>
-                  <div style={{ fontSize: 18, fontWeight: 700 }}>{pr.weight_kg}kg <span style={{ fontSize: 14, fontWeight: 400 }}>× {pr.reps}</span></div>
-                  <div style={{ marginTop: 4, fontSize: 11, fontWeight: 700, color: '#B8860B', background: '#FFD70033', borderRadius: 8, padding: '2px 7px', display: 'inline-block' }}>PR</div>
-                </div>
-              ))}
-            </div>
-          </>
-        )}
+        {/* PRs — strength PRs only (audit P2-5). Bodybuilding strength PRs
+            sit in the 1–12 rep range; over 15 reps is endurance not strength
+            and was previously shown as e.g. "20kg × 50" PR which read as a
+            mistake. We filter here rather than in the backend so the data
+            stays intact for future endurance/volume views. */}
+        {(() => {
+          const strengthPRs = Object.entries(prs).filter(([, pr]) => pr.reps > 0 && pr.reps <= 12)
+          if (strengthPRs.length === 0) return null
+          return (
+            <>
+              <div className="section-label">Personal Records</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
+                {strengthPRs.slice(0, 6).map(([ex, pr]) => (
+                  <div key={ex} style={{ background: 'var(--card)', borderRadius: 12, padding: '10px 14px', minWidth: 140, flex: '1 1 140px' }}>
+                    <div style={{ fontSize: 12, color: 'var(--label2)', marginBottom: 4 }}>{ex}</div>
+                    <div style={{ fontSize: 18, fontWeight: 700 }}>{pr.weight_kg}kg <span style={{ fontSize: 14, fontWeight: 400 }}>× {pr.reps}</span></div>
+                    <div style={{ marginTop: 4, fontSize: 11, fontWeight: 700, color: '#B8860B', background: '#FFD70033', borderRadius: 8, padding: '2px 7px', display: 'inline-block' }}>PR</div>
+                  </div>
+                ))}
+              </div>
+            </>
+          )
+        })()}
 
         {/* Recent workouts — only completed sessions (audit P0-5).
             Filter rules:
