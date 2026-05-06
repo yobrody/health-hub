@@ -287,6 +287,40 @@ input, textarea, button, select {
   to   { transform: translateY(0); opacity: 1; }
 }
 
+/* Success burst on AI Apply — eight sparkles fan out from the centre of
+   the AI card, fade as they travel. Each .ai-spark uses CSS variables for
+   per-particle direction so we don't need eight keyframes. */
+@keyframes aiSparkBurst {
+  0%   {
+    transform: translate(0, 0) scale(0.4);
+    opacity: 0;
+  }
+  20%  {
+    opacity: 1;
+    transform: translate(calc(var(--dx) * 0.4), calc(var(--dy) * 0.4)) scale(1);
+  }
+  100% {
+    transform: translate(var(--dx), var(--dy)) scale(0.6);
+    opacity: 0;
+  }
+}
+.ai-spark {
+  position: absolute;
+  left: 50%; top: 50%;
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  pointer-events: none;
+  animation: aiSparkBurst 0.95s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* Soft pulse on the success-state checkmark itself */
+@keyframes aiSuccessPulse {
+  0%   { transform: scale(0.6); opacity: 0; }
+  40%  { transform: scale(1.18); opacity: 1; }
+  60%  { transform: scale(0.96); }
+  100% { transform: scale(1); opacity: 1; }
+}
+
 /* ── Sheet close button ─────────────────────────────────────────────── */
 .sheet-close {
   width: 30px; height: 30px;

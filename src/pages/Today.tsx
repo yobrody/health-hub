@@ -84,18 +84,19 @@ function StatBadge({ delta, kind }: { delta: string; kind: 'up' | 'down' | 'neut
   )
 }
 
-function Card({ children, className = '', onClick, span }: {
+function Card({ children, className = '', onClick, span, style }: {
   children: React.ReactNode
   className?: string
   onClick?: () => void
   span?: 'full' | 'half'
+  style?: React.CSSProperties
 }) {
   const Comp = onClick ? 'button' : 'div'
   return (
     <Comp
       onClick={onClick}
       className={`bg-[var(--c-card)] border border-[var(--c-border)] rounded-xl p-4 text-left transition-colors ${onClick ? 'cursor-pointer hover:border-[#3F3F46] active:bg-[#1F1F23]' : ''} ${span === 'full' ? 'col-span-2' : ''} ${className}`}
-      style={{ WebkitTapHighlightColor: 'transparent' }}
+      style={{ WebkitTapHighlightColor: 'transparent', ...style }}
     >
       {children}
     </Comp>
@@ -433,7 +434,36 @@ export default function Today({ onNavigate }: Props) {
         {/* AI assistant — single freeform input. Replaces the old two-input
             Quick Log. Type "3 eggs and bacon, can of pineapple from Aldi" →
             Gemini parses → preview chip → tap to apply. */}
-        <Card className="mb-3">
+        <Card className="mb-3" style={{ position: 'relative', overflow: 'visible' }}>
+          {/* Spark burst on success — eight particles fanning out from card
+              centre, fade as they travel. CSS handles the math via per-spark
+              direction variables. Mounted under the success-state branch so
+              it auto-cleans when state flips back to idle. */}
+          {aiState === 'success' && (
+            <div aria-hidden="true" style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
+              {[
+                { dx:  60, dy: -50, color: 'var(--c-green)' },
+                { dx:  90, dy:   0, color: 'var(--c-accent)' },
+                { dx:  60, dy:  50, color: 'var(--c-orange)' },
+                { dx:   0, dy:  85, color: 'var(--c-green)' },
+                { dx: -60, dy:  50, color: 'var(--c-accent)' },
+                { dx: -90, dy:   0, color: 'var(--c-orange)' },
+                { dx: -60, dy: -50, color: 'var(--c-green)' },
+                { dx:   0, dy: -85, color: 'var(--c-accent)' },
+              ].map((s, i) => (
+                <span
+                  key={i}
+                  className="ai-spark"
+                  style={{
+                    background: s.color,
+                    ['--dx' as string]: `${s.dx}px`,
+                    ['--dy' as string]: `${s.dy}px`,
+                    animationDelay: `${i * 18}ms`,
+                  }}
+                />
+              ))}
+            </div>
+          )}
           <div className="flex items-center justify-between mb-2">
             <CardLabel>Tell me what's up</CardLabel>
             {aiState === 'parsing' && (
@@ -443,7 +473,8 @@ export default function Today({ onNavigate }: Props) {
               </span>
             )}
             {aiState === 'success' && (
-              <span className="text-[11px] text-[var(--c-green)] flex items-center gap-1 font-medium">
+              <span className="text-[11px] text-[var(--c-green)] flex items-center gap-1 font-medium"
+                    style={{ animation: 'aiSuccessPulse 0.5s cubic-bezier(0.34, 1.56, 0.64, 1) both' }}>
                 <Icon.CheckCircle size={14} className="text-[var(--c-green)]" />
                 done
               </span>

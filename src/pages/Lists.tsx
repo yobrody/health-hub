@@ -146,7 +146,7 @@ export default function Lists() {
           <div style={{ textAlign: 'center', color: 'var(--label3)', padding: 32 }}>Loading...</div>
         ) : items.length === 0 ? (
           <div style={{ textAlign: 'center', color: 'var(--label3)', padding: 32, fontSize: 15 }}>
-            Nothing on the list yet
+            Nothing on the list yet — type one in above
           </div>
         ) : (
           <>
