@@ -124,13 +124,27 @@ function BigNumber({ value, unit, color, mono = true }: { value: string | number
 function WaterTracker() {
   const GOAL = 8
   const todayKey = new Date().toDateString()
-  const [count, setCount] = useState(() => {
+  function readCount(): number {
     try {
       const s = localStorage.getItem('water_intake')
       if (s) { const p = JSON.parse(s); if (p.date === todayKey) return p.count }
     } catch { /* localStorage unavailable / corrupted JSON — fall through to 0 */ }
     return 0
-  })
+  }
+  const [count, setCount] = useState(readCount)
+
+  // Subscribe to storage updates so the AI's log_water action visibly fills
+  // the dots without a reload. Browsers only fire 'storage' cross-tab by
+  // default, so applyAiActions also dispatches a synthetic event in-tab.
+  useEffect(() => {
+    const handler = (e: StorageEvent) => {
+      if (e.key && e.key !== 'water_intake') return
+      setCount(readCount())
+    }
+    window.addEventListener('storage', handler)
+    return () => window.removeEventListener('storage', handler)
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- readCount uses todayKey from closure; reading is fine
+  }, [])
 
   function set(n: number) {
     const next = Math.max(0, Math.min(12, n))
@@ -327,24 +341,27 @@ export default function Today({ onNavigate }: Props) {
       }
     }
 
-    // Show success state, then dismiss + refresh
-    setAiState('success')
-    setTimeout(() => {
-      setAiPrompt('')
-      setAiPreview(null)
-      setAiState('idle')
-    }, 1400)
-
     // Re-fetch authoritative state in the background
     api.getToday().then(setData).catch(() => {})
     api.getFridge().then(setFridgeData).catch(() => {})
 
     if (failed.length === 0) {
+      // Full success — celebrate (sparkles, "done" pill, calorie-bar pulse).
+      setAiState('success')
+      setTimeout(() => {
+        setAiPrompt('')
+        setAiPreview(null)
+        setAiState('idle')
+      }, 1400)
       showToast(aiPreview.summary || 'Done')
       setAiFailed([])
     } else {
-      // Surface partial-failures so the user sees what didn't go through
-      // and can retry just those actions instead of silently losing them.
+      // Partial failure — DON'T fire the success animation (would mislead
+      // when half the batch didn't go through). Skip straight to idle and
+      // surface the retry chip with what failed.
+      setAiPrompt('')
+      setAiPreview(null)
+      setAiState('idle')
       setAiFailed(failed)
       showToast(`${aiPreview.actions.length - failed.length} done, ${failed.length} failed`, 'err')
     }

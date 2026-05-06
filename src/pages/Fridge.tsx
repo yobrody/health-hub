@@ -1109,8 +1109,8 @@ function ItemDetailModal({ name, zone, onClose, onRemove }: {
   async function ateAndRemove() {
     if (!detail) { onRemove(name); return }
     const macros = computeAteMacros(detail)
-    try {
-      if (macros) {
+    if (macros) {
+      try {
         await api.addFood({
           meal: mealForNow(),
           description: macros.portion_g === 100 ? detail.name : `${macros.portion_g}g ${detail.name}`,
@@ -1118,11 +1118,15 @@ function ItemDetailModal({ name, zone, onClose, onRemove }: {
           protein_g: macros.protein_g,
         })
         showToast(`Logged ${detail.name} (~${macros.kcal} kcal, ${macros.protein_g}g protein)`)
-      } else {
-        showToast('Removed (couldn’t estimate macros — no nutrition data)', 'info')
+      } catch (err) {
+        // Don't remove on log failure — the user wanted "log AND remove";
+        // doing only the remove silently loses the macros. Surface the
+        // error so they can retry instead of getting half the action.
+        showToast(`Couldn't log — ${String(err).slice(0, 60)}`, 'err')
+        return
       }
-    } catch {
-      showToast('Logged failed but removing anyway', 'err')
+    } else {
+      showToast('Removed (couldn’t estimate macros — no nutrition data)', 'info')
     }
     onRemove(detail.name)
   }
@@ -1701,26 +1705,19 @@ export default function Fridge() {
   }
 
   async function removeByName(name: string) {
-    // Try exact match first (1 row at a time on dupes). If the backend says
-    // 404, fall back to substring match — handles edge cases where the
-    // displayed name has casing/whitespace that doesn't match storage.
+    // Exact match only (one row at a time on duplicates). The detail modal
+    // passes `detail.name` (the canonical stored name from /fridge/item),
+    // so 404s should be rare. We previously fell back to ?contains=true,
+    // but that path nukes ALL substring matches across every zone — too
+    // dangerous for an automatic retry. If exact-match 404s, surface the
+    // error instead of silently deleting unrelated items.
     try {
       await api.removeFridgeItem(name)
     } catch (err) {
       const msg = String(err)
-      if (msg.includes('404') || msg.includes('not found')) {
-        try {
-          await api.removeFridgeItem(name, { contains: true })
-        } catch (err2) {
-          showToast(`Couldn't remove "${name}" — ${String(err2).slice(0, 60)}`, 'err')
-          setDetailModal(null)
-          return
-        }
-      } else {
-        showToast(`Remove failed — ${msg.slice(0, 60)}`, 'err')
-        setDetailModal(null)
-        return
-      }
+      showToast(`Couldn't remove "${name}" — ${msg.slice(0, 60)}`, 'err')
+      setDetailModal(null)
+      return
     }
     const updated = await api.getFridge()
     setData(updated)

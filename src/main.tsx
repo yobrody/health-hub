@@ -7,12 +7,19 @@ import App from './App.tsx'
 // Auto-reload the page when a newly-installed service worker takes control.
 // Pairs with VitePWA's registerType:'autoUpdate' + skipWaiting + clientsClaim
 // to make a fresh deploy land on every open client (including iOS PWAs)
-// without needing the user to manually refresh. Guard against the very
-// first SW activation on a fresh install — controllerchange fires once
-// then with no prior controller, which we don't want to reload-loop on.
+// without needing the user to manually refresh.
+//
+// Two suppressions are necessary to avoid a spurious reload on first paint:
+//   • If there's no controller when the listener mounts, the very next
+//     controllerchange is the *initial* SW activation on a fresh install —
+//     we ignore that one. Otherwise the user reloads immediately on first
+//     visit, which is jarring + can flicker the splash screen.
+//   • Once we DO trigger a reload, latch a flag so we don't fire twice.
 if ('serviceWorker' in navigator) {
   let alreadyReloading = false
+  let suppressInitialActivation = !navigator.serviceWorker.controller
   navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (suppressInitialActivation) { suppressInitialActivation = false; return }
     if (alreadyReloading) return
     alreadyReloading = true
     window.location.reload()

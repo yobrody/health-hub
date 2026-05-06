@@ -60,15 +60,55 @@ export async function onRequestPost(context) {
   if (!prompt) return json({ error: 'prompt required' }, 400)
 
   const now = new Date()
-  const hour = now.getUTCHours()  // close enough for meal inference; user's TZ ~UTC
+  // Use Europe/London time (the user's actual locale) for meal-of-day +
+  // date computation. Was using UTC which drifted: at 00:30 BST a "today"
+  // log would write to yesterday's file because UTC was still 23:30 the
+  // previous day. Intl handles BST/GMT switches automatically.
+  const fmt = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Europe/London',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', hour12: false,
+  })
+  const parts = Object.fromEntries(fmt.formatToParts(now).map(p => [p.type, p.value]))
+  const hour = parseInt(parts.hour, 10)
+  const todayIso = `${parts.year}-${parts.month}-${parts.day}`
+  const yParts = Object.fromEntries(new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Europe/London',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(new Date(now.getTime() - 86400000)).map(p => [p.type, p.value]))
+  const yesterdayIso = `${yParts.year}-${yParts.month}-${yParts.day}`
   const defaultMeal = defaultMealForHour(hour)
-  const todayIso = now.toISOString().slice(0, 10)
-  const yesterdayIso = new Date(now.getTime() - 86400000).toISOString().slice(0, 10)
 
   const sysPrompt = `You translate one short message about the user's day into structured actions for a personal health app.
 
 Today's date: ${todayIso} (${defaultMeal} time of day).
 Yesterday: ${yesterdayIso}.
+
+The user has these SAVED MEAL TEMPLATES — when the message mentions any of
+the aliases (case-insensitive), emit ONE log_food action with the template's
+canonical name + total kcal + total protein, NOT individual items:
+
+  • "Standard breakfast" — 80g oats, 25g whey, 25g PB, 1 banana
+    aliases: "breakfast", "oats bowl", "morning oats", "standard breakfast", "my breakfast"
+    meal: Breakfast | kcal: 750 | protein_g: 35
+
+  • "Standard lunch" — 180g chicken thighs, 200g rice, 1 tbsp olive oil, veg
+    aliases: "lunch", "standard lunch", "my lunch", "chicken bowl", "chicken and rice"
+    meal: Lunch | kcal: 800 | protein_g: 50
+
+  • "Standard dinner" — chicken or beef mince, rice/pasta, veg
+    aliases: "dinner", "standard dinner", "my dinner"
+    meal: Dinner | kcal: 800 | protein_g: 50
+
+  • "Yogurt snack" — 250g Greek yogurt, 15g PB, honey/fruit
+    aliases: "yogurt snack", "greek yogurt bowl", "yogurt", "afternoon snack", "post-workout snack"
+    meal: Snack | kcal: 400 | protein_g: 28
+
+If the user says "had my breakfast" or "standard lunch", emit ONE log_food
+with name="Standard breakfast" (or whichever matched), the template's full
+kcal and protein_g, count=1, meal as listed above. DO NOT split into multiple
+items — the user wants the saved-meal shortcut. They can fall back to typing
+the items individually if they want detail.
 
 Available action types:
 1. log_food — log eaten food to the calorie/protein log
@@ -138,6 +178,15 @@ User: "had two glasses of water and meditated for 10 minutes"
   {"type":"log_water","count":2},
   {"type":"mark_routine","name":"meditate"}
 ],"summary":"Logged 2 glasses of water and marked meditation done."}
+
+User: "had my breakfast"
+{"actions":[{"type":"log_food","name":"Standard breakfast","count":1,"kcal":750,"protein_g":35,"meal":"Breakfast"}],"summary":"Logged your standard breakfast (~750 kcal, 35g protein)."}
+
+User: "standard lunch and a yogurt snack"
+{"actions":[
+  {"type":"log_food","name":"Standard lunch","count":1,"kcal":800,"protein_g":50,"meal":"Lunch"},
+  {"type":"log_food","name":"Yogurt snack","count":1,"kcal":400,"protein_g":28,"meal":"Snack"}
+],"summary":"Logged your standard lunch and a yogurt snack."}
 
 User: "remind me to call mum and add tomatoes to groceries"
 {"actions":[

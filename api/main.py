@@ -348,8 +348,54 @@ class FridgeItem(BaseModel):
 
 @app.post("/fridge/item")
 def add_fridge_item(item: FridgeItem, key=Depends(require_key)):
+    """Add an item to a fridge section.
+
+    Dedup behaviour: if an item with the same name (case-insensitive) already
+    exists in the same section, MERGE rather than appending a new row. This
+    stops receipt scans from creating duplicate cards every time the user
+    re-shops the same staples.
+
+    Merge rules:
+      • unit_count: sum existing + new (so 2 then 3 eggs = 5)
+      • quantity_count: sum existing + new (so we don't reset what was eaten)
+      • unit_size_g: take the new value if provided, else keep existing
+      • quantity_g: sum existing + new (e.g. opened 500g pack + new 500g pack)
+      • added: bumped to today (latest restock wins)
+
+    A user who really wants two separate rows can rename the second one.
+    """
     data = read_fridge()
     added = date.today().strftime("%d %b")
+    name_lower = item.name.lower().strip()
+    section = data.setdefault(item.section, [])
+
+    # Find existing duplicate in the same zone.
+    existing_idx = None
+    for idx, row in enumerate(section):
+        if row.get("name", "").lower().strip() == name_lower:
+            existing_idx = idx
+            break
+
+    if existing_idx is not None:
+        # Merge into the existing row.
+        row = section[existing_idx]
+        row["added"] = added  # latest restock
+        if item.unit_size_g is not None:
+            # New pack takes precedence for unit_size_g (might be a different size pack)
+            row["unit_size_g"] = item.unit_size_g
+        # Sum quantities so post-consume amounts aren't lost.
+        new_qty_g = item.quantity_g if item.quantity_g is not None else item.unit_size_g
+        if new_qty_g is not None:
+            row["quantity_g"] = (row.get("quantity_g") or 0) + new_qty_g
+        if item.unit_count is not None:
+            row["unit_count"] = (row.get("unit_count") or 0) + item.unit_count
+        new_qty_c = item.quantity_count if item.quantity_count is not None else item.unit_count
+        if new_qty_c is not None:
+            row["quantity_count"] = (row.get("quantity_count") or 0) + new_qty_c
+        write_fridge(data)
+        return {"ok": True, "merged": True, "name": row["name"]}
+
+    # No existing row — append fresh.
     record = {"name": item.name, "added": added}
     if item.unit_size_g is not None:
         record["unit_size_g"] = item.unit_size_g
@@ -365,9 +411,9 @@ def add_fridge_item(item: FridgeItem, key=Depends(require_key)):
         )
     elif item.quantity_count is not None:
         record["quantity_count"] = item.quantity_count
-    data.setdefault(item.section, []).append(record)
+    section.append(record)
     write_fridge(data)
-    return {"ok": True}
+    return {"ok": True, "merged": False}
 
 @app.delete("/fridge/item/{name}")
 def remove_fridge_item(name: str, contains: bool = False, key=Depends(require_key)):
@@ -394,20 +440,19 @@ def remove_fridge_item(name: str, contains: bool = False, key=Depends(require_ke
     name_lower = name.lower()
     removed = False
     for section in data:
-        if contains:
-            before = len(data[section])
-            data[section] = [i for i in data[section] if name_lower not in i["name"].lower()]
-            if len(data[section]) < before:
+        # Both paths now remove only the FIRST matching row, then break.
+        # Was: contains=true would nuke every substring match across every
+        # zone in one call — too dangerous (a typo could clear the fridge).
+        # If you genuinely want to bulk-delete, send N separate DELETE calls.
+        for idx, item in enumerate(data[section]):
+            existing = item["name"].lower()
+            match = (name_lower in existing) if contains else (existing == name_lower)
+            if match:
+                del data[section][idx]
                 removed = True
-        else:
-            # Exact-match: remove just the first occurrence in this section.
-            for idx, item in enumerate(data[section]):
-                if item["name"].lower() == name_lower:
-                    del data[section][idx]
-                    removed = True
-                    break
-            if removed:
-                break  # only one row total, not one per zone
+                break
+        if removed:
+            break
     if not removed:
         raise HTTPException(status_code=404, detail=f"Item not found")
     write_fridge(data)
