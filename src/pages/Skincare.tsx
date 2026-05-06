@@ -293,9 +293,12 @@ export default function Skincare() {
                     </div>
                   )}
                 </div>
-                <span className={done ? 'badge badge-green' : 'badge'} style={!done ? { background: 'var(--gray6)', color: 'var(--label2)' } : undefined}>
-                  {done ? 'Done' : 'Tap'}
-                </span>
+                {/* Show only the "Done" pill when actually done; an empty
+                    state needs no explicit "Tap" label since the whole tile
+                    is the tap target (audit P1-9). */}
+                {done && (
+                  <span className="badge badge-green">Done</span>
+                )}
               </button>
             )
           })}

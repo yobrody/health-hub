@@ -99,9 +99,13 @@ export default function Routines() {
                 <span style={{ fontSize: 28, lineHeight: 1, flexShrink: 0 }}>{r.icon}</span>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--label)' }}>{r.label}</div>
-                  <div style={{ fontSize: 13, color: 'var(--label2)', marginTop: 2 }}>
-                    {streak > 0 ? `🔥 ${streak} day${streak === 1 ? '' : 's'}` : 'No streak yet'}
-                  </div>
+                  {/* Hide the streak row until streak ≥ 1; "No streak yet"
+                      repeating on every card was visual noise (audit P1-8). */}
+                  {streak > 0 && (
+                    <div style={{ fontSize: 13, color: 'var(--label2)', marginTop: 2 }}>
+                      🔥 {streak} day{streak === 1 ? '' : 's'}
+                    </div>
+                  )}
                 </div>
                 {done ? (
                   <span style={{

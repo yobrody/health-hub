@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef } from 'react'
 import { api } from '../api/client'
 import { showToast } from '../toast'
-import type { TodayData, WeekStats, FridgeData } from '../api/client'
+import type { TodayData, WeekStats, FridgeData, AiAction, AiActResponse } from '../api/client'
 import { PROGRAM, getNextDay } from '../program'
 import type { DayName } from '../program'
 import { loadProducts, lowStockProducts } from '../lib/skincare-products'
@@ -185,9 +185,15 @@ export default function Today({ onNavigate }: Props) {
 
   const [data, setData] = useState<TodayData | null>(null)
   const [loading, setLoading] = useState(true)
-  const [quickEntry, setQuickEntry] = useState('')
-  const [quickKcal, setQuickKcal] = useState('')
-  const [submitting, setSubmitting] = useState(false)
+  // Natural-language assistant state. Replaces the old two-input quick-log
+  // (text + manual kcal). User types one freeform line; Gemini parses to
+  // structured actions; user confirms; actions execute.
+  const [aiPrompt, setAiPrompt] = useState('')
+  const [aiState, setAiState] = useState<'idle' | 'parsing' | 'preview' | 'applying' | 'success'>('idle')
+  const [aiPreview, setAiPreview] = useState<AiActResponse | null>(null)
+  // Pulse the calorie bar when actions land. Triggers a one-shot CSS animation
+  // by mounting a key change.
+  const [barPulseKey, setBarPulseKey] = useState(0)
   const [nextWorkout, setNextWorkout] = useState<DayName>('Upper A')
   const [weekStats, setWeekStats] = useState<WeekStats | null>(null)
   const [fridgeData, setFridgeData] = useState<FridgeData | null>(null)
@@ -217,31 +223,103 @@ export default function Today({ onNavigate }: Props) {
     api.getProfile().then(profile => { if (profile.name) setDisplayName(profile.name) }).catch(() => {})
   }, [])
 
-  async function handleQuickLog(e: React.FormEvent) {
+  async function handleAiSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (!quickEntry || !quickKcal) return
-    const kcalNum = parseInt(quickKcal)
-    const meal = hour < 11 ? 'Breakfast' : hour < 15 ? 'Lunch' : hour < 18 ? 'Snack' : 'Dinner'
-    const t = new Date().toTimeString().slice(0, 5)
-    setData(prev => prev ? {
-      ...prev,
-      total_kcal: prev.total_kcal + kcalNum,
-      entries: [...prev.entries, { time: t, meal, items: `- ${quickEntry} (~${kcalNum} kcal)`, kcal: kcalNum, protein_g: 0 }],
-    } : prev)
-    const savedEntry = quickEntry
-    setQuickEntry(''); setQuickKcal('')
-    if (navigator.vibrate) navigator.vibrate(10)
-    inputRef.current?.focus()
-    setSubmitting(true)
+    const prompt = aiPrompt.trim()
+    if (!prompt || aiState !== 'idle') return
+    setAiState('parsing')
     try {
-      await api.addFood({ meal, description: savedEntry, kcal: kcalNum })
-      showToast(`${savedEntry} logged`)
-      api.getToday().then(setData).catch(() => {})
-    } catch {
-      showToast('Failed to save', 'err')
-    } finally {
-      setSubmitting(false)
+      const resp = await api.parseAct(prompt)
+      if (!resp.ok || !resp.actions.length) {
+        setAiState('idle')
+        showToast(resp.error || "I couldn't understand that — try again", 'err')
+        return
+      }
+      setAiPreview(resp)
+      setAiState('preview')
+    } catch (err) {
+      setAiState('idle')
+      showToast(`AI error — ${String(err)}`.slice(0, 80), 'err')
     }
+  }
+
+  async function applyAiActions() {
+    if (!aiPreview) return
+    setAiState('applying')
+    // Optimistic update for log_food actions (instant calorie bar fill).
+    const totalKcalDelta = aiPreview.actions.reduce((sum, a) =>
+      a.type === 'log_food' ? sum + (a.kcal * a.count) : sum, 0)
+    const totalProteinDelta = aiPreview.actions.reduce((sum, a) =>
+      a.type === 'log_food' ? sum + (a.protein_g * a.count) : sum, 0)
+    if (totalKcalDelta > 0) {
+      const t = new Date().toTimeString().slice(0, 5)
+      setData(prev => prev ? {
+        ...prev,
+        total_kcal: prev.total_kcal + totalKcalDelta,
+        entries: [...prev.entries, ...aiPreview.actions
+          .filter((a): a is Extract<AiAction, { type: 'log_food' }> => a.type === 'log_food')
+          .map(a => ({
+            time: t, meal: a.meal,
+            items: `- ${a.count > 1 ? `${a.count} ` : ''}${a.name} (~${a.kcal * a.count} kcal)`,
+            kcal: a.kcal * a.count, protein_g: a.protein_g * a.count,
+          }))],
+      } : prev)
+      // Trigger the bar-pulse animation
+      setBarPulseKey(k => k + 1)
+    }
+    if (navigator.vibrate) navigator.vibrate([10, 30, 10])
+
+    // Execute every action. Failures collected, not blocking.
+    const errors: string[] = []
+    for (const a of aiPreview.actions) {
+      try {
+        if (a.type === 'log_food') {
+          // VPS /food expects ONE entry — emit one call per food unit's total.
+          await api.addFood({
+            meal: a.meal,
+            description: a.count > 1 ? `${a.count} ${a.name}` : a.name,
+            kcal: a.kcal * a.count,
+            protein_g: a.protein_g * a.count,
+          })
+        } else if (a.type === 'add_fridge') {
+          await api.addFridgeItem(a.name, a.section, {
+            store: a.store ?? null,
+            size: a.size ?? null,
+            cost: a.cost ?? null,
+            unit_size_g: a.unit_size_g ?? null,
+            unit_count: a.unit_count ?? null,
+          })
+        }
+      } catch (err) {
+        errors.push(`${a.type === 'log_food' ? a.name : a.name}: ${String(err)}`)
+      }
+    }
+
+    // Show success state, then dismiss + refresh
+    setAiState('success')
+    setTimeout(() => {
+      setAiPrompt('')
+      setAiPreview(null)
+      setAiState('idle')
+    }, 1400)
+
+    // Re-fetch authoritative state in the background
+    api.getToday().then(setData).catch(() => {})
+    api.getFridge().then(setFridgeData).catch(() => {})
+
+    if (errors.length === 0) {
+      showToast(aiPreview.summary || 'Done')
+    } else {
+      showToast(`Done with ${errors.length} error${errors.length > 1 ? 's' : ''}`, 'err')
+    }
+    // bound unused for noUnusedLocals
+    void totalProteinDelta
+  }
+
+  function cancelAi() {
+    setAiPreview(null)
+    setAiState('idle')
+    inputRef.current?.focus()
   }
 
   const total = data?.total_kcal ?? 0
@@ -318,10 +396,16 @@ export default function Today({ onNavigate }: Props) {
               / {goals.calories.toLocaleString()}
             </span>
           </div>
-          {/* Progress bar — sharp, full-width */}
-          <div className="h-1 bg-[var(--c-border)] rounded-full overflow-hidden mb-5">
-            <div className="h-full bg-[var(--c-accent)] rounded-full transition-[width] duration-700"
-                 style={{ width: `${Math.min(total / goals.calories, 1) * 100}%` }} />
+          {/* Progress bar — fills smoothly, pulses on AI-applied actions */}
+          <div className="h-1 bg-[var(--c-border)] rounded-full overflow-hidden mb-5 relative">
+            <div
+              key={`bar-${barPulseKey}`}
+              className="h-full bg-[var(--c-accent)] rounded-full transition-[width] duration-700"
+              style={{
+                width: `${Math.min(total / goals.calories, 1) * 100}%`,
+                animation: barPulseKey > 0 ? 'barPulse 0.9s ease-out' : undefined,
+              }}
+            />
           </div>
 
           {/* Protein sub-row */}
@@ -345,34 +429,95 @@ export default function Today({ onNavigate }: Props) {
           </div>
         </Card>
 
-        {/* Quick log — compact, inline */}
+        {/* AI assistant — single freeform input. Replaces the old two-input
+            Quick Log. Type "3 eggs and bacon, can of pineapple from Aldi" →
+            Gemini parses → preview chip → tap to apply. */}
         <Card className="mb-3">
-          <CardLabel>Quick log</CardLabel>
-          <form onSubmit={handleQuickLog} className="flex gap-2">
+          <div className="flex items-center justify-between mb-2">
+            <CardLabel>Tell me what's up</CardLabel>
+            {aiState === 'parsing' && (
+              <span className="text-[11px] text-[var(--c-label-faint)] flex items-center gap-1.5">
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-[var(--c-accent)] animate-pulse" />
+                thinking…
+              </span>
+            )}
+            {aiState === 'success' && (
+              <span className="text-[11px] text-[var(--c-green)] flex items-center gap-1 font-medium">
+                <Icon.CheckCircle size={14} className="text-[var(--c-green)]" />
+                done
+              </span>
+            )}
+          </div>
+          <form onSubmit={handleAiSubmit} className="flex gap-2">
             <input
               ref={inputRef}
-              className="flex-1 min-w-0 bg-[var(--c-bg)] border border-[var(--c-border)] rounded-lg px-3 py-2 text-[14px] text-[var(--c-label)] placeholder:text-[var(--c-label-faint)] focus:outline-none focus:border-[var(--c-accent)] transition-colors"
-              placeholder="What did you eat?"
-              value={quickEntry}
-              onChange={e => setQuickEntry(e.target.value)}
-            />
-            <input
-              className="!w-[80px] flex-shrink-0 bg-[var(--c-bg)] border border-[var(--c-border)] rounded-lg px-2 py-2 text-[14px] text-[var(--c-label)] placeholder:text-[var(--c-label-faint)] text-center focus:outline-none focus:border-[var(--c-accent)] transition-colors tabular-nums"
-              placeholder="kcal"
-              type="number"
-              inputMode="numeric"
-              value={quickKcal}
-              onChange={e => setQuickKcal(e.target.value)}
-              style={{ fontFamily: "'JetBrains Mono', ui-monospace, monospace" }}
+              className="flex-1 min-w-0 bg-[var(--c-bg)] border border-[var(--c-border)] rounded-lg px-3 py-2 text-[14px] text-[var(--c-label)] placeholder:text-[var(--c-label-faint)] focus:outline-none focus:border-[var(--c-accent)] transition-colors disabled:opacity-50"
+              placeholder='e.g. "3 eggs, bacon, can of pineapple from Aldi"'
+              value={aiPrompt}
+              onChange={e => setAiPrompt(e.target.value)}
+              disabled={aiState === 'parsing' || aiState === 'applying' || aiState === 'success'}
             />
             <button
               type="submit"
-              disabled={submitting || !quickEntry || !quickKcal}
-              className="bg-[var(--c-accent)] text-white rounded-lg px-4 py-2 text-[13px] font-semibold disabled:opacity-30 transition-opacity flex-shrink-0 uppercase tracking-wide"
+              disabled={!aiPrompt.trim() || aiState !== 'idle'}
+              aria-label="Send"
+              className="bg-[var(--c-accent)] text-white rounded-lg w-10 flex items-center justify-center disabled:opacity-30 transition-opacity flex-shrink-0"
             >
-              {submitting ? '...' : 'Add'}
+              {aiState === 'parsing' ? (
+                <span className="text-[13px] font-semibold">…</span>
+              ) : (
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M22 2 11 13" /><path d="m22 2-7 20-4-9-9-4z" />
+                </svg>
+              )}
             </button>
           </form>
+
+          {/* Preview chip — shown after parse, awaiting confirm */}
+          {aiState === 'preview' && aiPreview && (
+            <div className="mt-3 pt-3 border-t border-[var(--c-border)] animate-[slideUpSubtle_0.2s_ease-out]">
+              <div className="text-[13px] text-[var(--c-label-dim)] mb-3 leading-snug">
+                {aiPreview.summary}
+              </div>
+              <div className="flex flex-col gap-1.5 mb-3">
+                {aiPreview.actions.map((a, i) => (
+                  <div key={i} className="flex items-center gap-2 text-[12px] text-[var(--c-label-faint)]">
+                    {a.type === 'log_food' ? (
+                      <>
+                        <span className="inline-block w-1 h-1 rounded-full bg-[var(--c-orange)]" />
+                        <span>
+                          {a.count > 1 ? `${a.count} ` : ''}{a.name}
+                          <span className="text-[var(--c-label-faint)]"> · ~{a.kcal * a.count} kcal · {a.protein_g * a.count}g protein → {a.meal}</span>
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        <span className="inline-block w-1 h-1 rounded-full bg-[var(--c-green)]" />
+                        <span>
+                          {a.size ? `${a.size} of ` : ''}{a.name}
+                          <span className="text-[var(--c-label-faint)]"> → {a.section}{a.store ? ` · ${a.store}` : ''}</span>
+                        </span>
+                      </>
+                    )}
+                  </div>
+                ))}
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={applyAiActions}
+                  className="flex-1 bg-[var(--c-accent)] text-white rounded-lg px-3 py-2 text-[13px] font-semibold uppercase tracking-wide"
+                >
+                  Apply
+                </button>
+                <button
+                  onClick={cancelAi}
+                  className="px-3 py-2 text-[13px] text-[var(--c-label-faint)] hover:text-[var(--c-label)] transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
         </Card>
 
         {/* Bento grid — varied tile sizes */}
@@ -433,8 +578,12 @@ export default function Today({ onNavigate }: Props) {
             <div className="text-[11px] text-[var(--c-label-faint)] mt-2">routine</div>
           </Card>
 
-          {/* Shopping — half */}
-          <Card onClick={() => onNavigate('lists')}>
+          {/* Shopping — half. Set the one-shot Lists hint so we land on the
+              Shopping sub-list, not the default Groceries (audit P1-6). */}
+          <Card onClick={() => {
+            try { sessionStorage.setItem('lists_initial', 'shopping') } catch {}
+            onNavigate('lists')
+          }}>
             <div className="flex items-center justify-between mb-2">
               <CardLabel>Shopping</CardLabel>
               <Icon.ShoppingCart size={16} className="text-[var(--c-label-faint)]" />

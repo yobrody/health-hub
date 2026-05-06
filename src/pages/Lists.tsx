@@ -10,7 +10,17 @@ const LIST_NAMES = [
 ]
 
 export default function Lists() {
-  const [activeList, setActiveList] = useState('groceries')
+  // Initial sub-list: respect a one-shot hint set by the navigating page
+  // (e.g. Today's Shopping tile sets 'lists_initial' to 'shopping' so we
+  // open straight onto the right list rather than groceries by default).
+  const initial = (() => {
+    try {
+      const v = sessionStorage.getItem('lists_initial')
+      if (v) sessionStorage.removeItem('lists_initial')
+      return v && LIST_NAMES.some(l => l.id === v) ? v : 'groceries'
+    } catch { return 'groceries' }
+  })()
+  const [activeList, setActiveList] = useState(initial)
   const [items, setItems] = useState<ListItemData[]>([])
   const [loading, setLoading] = useState(false)
   const [input, setInput] = useState('')

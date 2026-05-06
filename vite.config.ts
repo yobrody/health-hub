@@ -112,6 +112,55 @@ Rules:
         })
       })
 
+      // POST /api/ai/act — natural-language assistant. Mirrors the prod CF
+      // function so dev gets the same parsed JSON without round-tripping
+      // to the live preview deployment.
+      server.middlewares.use('/api/ai/act', (req: IncomingMessage, res: ServerResponse, next: Connect.NextFunction) => {
+        if (req.method === 'OPTIONS') {
+          res.writeHead(204, { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'POST,OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type,X-Health-Key' })
+          res.end(); return
+        }
+        if (req.method !== 'POST') { next(); return }
+        const chunks: Buffer[] = []
+        req.on('data', (c: Buffer) => chunks.push(c))
+        req.on('end', async () => {
+          try {
+            const { prompt = '' } = JSON.parse(Buffer.concat(chunks).toString()) as { prompt?: string }
+            const cleaned = String(prompt).trim().slice(0, 600)
+            if (!cleaned) {
+              res.writeHead(400, { 'Content-Type': 'application/json' })
+              res.end(JSON.stringify({ error: 'prompt required', actions: [], summary: '' })); return
+            }
+            const hour = new Date().getHours()
+            const meal = hour < 11 ? 'Breakfast' : hour < 15 ? 'Lunch' : hour < 18 ? 'Snack' : 'Dinner'
+            const sysPrompt = `You translate one short message about the user's day into structured actions for a personal health app.\n\nAvailable action types:\n1. log_food — { name, count?, kcal, protein_g, meal? } (per-unit kcal/protein)\n2. add_fridge — { name, section, store?, size?, unit_size_g?, unit_count?, cost? }\n\nReturn ONLY: {"actions": [...], "summary": "one short past-tense confirmation"}\n\nDefault meal if not stated: "${meal}".\n\nUser: "${cleaned.replace(/"/g, '\\"')}"`
+            const apiRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${geminiKey}`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                contents: [{ role: 'user', parts: [{ text: sysPrompt }] }],
+                generationConfig: { responseMimeType: 'application/json', temperature: 0.3, maxOutputTokens: 800, thinkingConfig: { thinkingBudget: 0 } },
+              }),
+            })
+            if (!apiRes.ok) {
+              const errTxt = await apiRes.text()
+              res.writeHead(502, { 'Content-Type': 'application/json' })
+              res.end(JSON.stringify({ error: `AI error ${apiRes.status}`, detail: errTxt.slice(0, 150), actions: [], summary: '' })); return
+            }
+            const data = await apiRes.json() as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> }
+            const text = data.candidates?.[0]?.content?.parts?.[0]?.text || '{}'
+            let parsed: { actions?: unknown[]; summary?: string } = {}
+            try { parsed = JSON.parse(text) }
+            catch { res.writeHead(422, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'parse', actions: [], summary: '' })); return }
+            res.writeHead(200, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({ ok: true, summary: parsed.summary ?? '', actions: parsed.actions ?? [] }))
+          } catch (e) {
+            res.writeHead(500, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({ error: String(e), actions: [], summary: '' }))
+          }
+        })
+      })
+
       // POST /api/ai/analyze-food — food photo analysis
       // POST /api/ai/analyze-food — multi-item food analysis with home/out modes.
       // Mirrors functions/api/ai/analyze-food.js. Home mode cross-references the

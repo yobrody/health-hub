@@ -112,6 +112,13 @@ export const api = {
   },
 
   // AI meals — cheap listing of names + kcal estimates
+  // Natural-language assistant. Type one freeform line ("3 eggs and bacon
+  // and a can of pineapple from Aldi"); Gemini parses it into structured
+  // log_food + add_fridge actions. Frontend displays the summary + action
+  // count, then executes each action via existing endpoints on confirm.
+  parseAct: (prompt: string) =>
+    request<AiActResponse>('/ai/act', { method: 'POST', body: JSON.stringify({ prompt }) }),
+
   getMealSuggestions: () => request<{ meals: Meal[] }>('/ai/meals', { method: 'POST' }),
   // Detailed recipe + full macros for a single meal idea. Called on tap-to-expand
   // so we don't pay the recipe-generation token cost for ideas the user ignores.
@@ -403,6 +410,18 @@ export interface EnrichResult {
 }
 
 // Returned by GET /fridge/item/{name} — the rich payload the detail modal renders.
+// Structured action returned by /api/ai/act — Gemini parses a freeform user
+// message into one or more of these.
+export type AiAction =
+  | { type: 'log_food'; name: string; count: number; kcal: number; protein_g: number; meal: 'Breakfast' | 'Lunch' | 'Snack' | 'Dinner' }
+  | { type: 'add_fridge'; name: string; section: 'fridge' | 'freezer' | 'pantry' | 'condiments'; store?: string; size?: string; unit_size_g?: number; unit_count?: number; cost?: number }
+export interface AiActResponse {
+  ok: boolean
+  summary: string
+  actions: AiAction[]
+  error?: string
+}
+
 export interface FridgeItemDetail extends EnrichedRecord {
   name: string
   added: string | null

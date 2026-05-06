@@ -1462,10 +1462,13 @@ export default function Fridge() {
   // server-side via item.quantity_g / quantity_count and the camera Home flow
   // decrements via /fridge/item/{name}/consume.
 
-  const smartGrocery = [
-    ...alertItems.map(i => i.name),
-    ...STAPLES.filter(staple => !allItems.some(i => i.name.toLowerCase().includes(staple))),
-  ].filter((v, i, a) => a.indexOf(v) === i).slice(0, 10)
+  // Staples-to-restock list. Used to mix in alertItems (expiring) too, but
+  // those are already surfaced in the dedicated "Eat soon" banner above —
+  // duplicating them here was the audit P1-2 confusion. This list now ONLY
+  // shows staples the user doesn't have in the fridge.
+  const smartGrocery = STAPLES
+    .filter(staple => !allItems.some(i => i.name.toLowerCase().includes(staple)))
+    .slice(0, 10)
 
   // Adds expiring items + recommended staples to the persistent shopping list.
   // Uses the global toast (always visible at the bottom) instead of the inline
@@ -1668,11 +1671,8 @@ export default function Fridge() {
             <div style={{ fontSize: 13, color: 'var(--label2)', marginTop: 3, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
               <span>{totalItems} items</span>
               {totalSpend > 0 && <span style={{ color: 'var(--green)', fontWeight: 600 }}>{'£'}{totalSpend.toFixed(2)} stocked</span>}
-              {alertItems.length > 0 && (
-                <span style={{ color: oldItems.length > 0 ? 'var(--red)' : 'var(--orange)', fontWeight: 600 }}>
-                  {'\u26A0\uFE0F'} {alertItems.length} expiring
-                </span>
-              )}
+              {/* Expiring pill removed — banner below is the single source
+                  of truth for the count (audit P1-3). */}
             </div>
           </div>
           {/* Header action: only manual + Add. The bottom camera FAB
@@ -1710,11 +1710,14 @@ export default function Fridge() {
             <span style={{ fontSize: 18 }}>{oldItems.length > 0 ? '\u{1F6A8}' : '\u26A0\uFE0F'}</span>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontSize: 13, fontWeight: 700, color: oldItems.length > 0 ? 'var(--red)' : 'var(--orange)' }}>
-                {oldItems.length > 0 ? 'Past their best' : 'Eat soon'}
+                {oldItems.length > 0 ? `Past their best \u00B7 ${alertItems.length}` : `Eat soon \u00B7 ${alertItems.length}`}
               </div>
+              {/* Show first 3 names then "+N more" \u2014 single source of truth
+                  for the count; was showing 6 in header + 4 names + "+2"
+                  (audit P1-3). */}
               <div style={{ fontSize: 12, color: 'var(--label2)', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {alertItems.slice(0, 4).map(i => i.name).join(' \u00B7 ')}
-                {alertItems.length > 4 ? ` +${alertItems.length - 4}` : ''}
+                {alertItems.slice(0, 3).map(i => i.name).join(' \u00B7 ')}
+                {alertItems.length > 3 ? ` +${alertItems.length - 3} more` : ''}
               </div>
             </div>
             <button onClick={shareShoppingList} style={{
@@ -1799,10 +1802,12 @@ export default function Fridge() {
           </div>
         )}
 
-        {/* ── Smart grocery list ── */}
+        {/* ── Staples to restock ── distinct from the "Eat soon" banner above:
+            Eat soon = items you HAVE that are aging; this = staples you're
+            missing entirely. Same UI, different intent. */}
         {smartGrocery.length > 0 && (
           <>
-            <div className="section-label">Smart grocery list</div>
+            <div className="section-label">Staples to restock</div>
             <div className="card" style={{ marginBottom: 10 }}>
               {smartGrocery.map((item, idx) => {
                 const done = groceryDone.includes(item)
