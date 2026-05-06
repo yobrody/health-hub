@@ -3,6 +3,7 @@ import { api } from '../api/client'
 import { showToast } from '../toast'
 import type { WeekStats, Goals, GoalsUpdateInput } from '../api/client'
 import { MEAL_PLAN, DEFAULT_SCHEDULE, PROGRAM } from '../program'
+import { BUILD_SHA, BUILD_DATE } from '../build-info'
 import {
   analyzeWeightTrend,
   loadDirection,
@@ -348,6 +349,43 @@ export default function GoalsPage() {
             </div>
             <MiniBar value={workoutCount} goal={goals.gym_days} color="var(--green)" />
           </div>
+        </div>
+
+        {/* Build info + force-refresh — escape hatch when an iOS PWA gets
+            stuck on stale assets. Tap "Force refresh" to nuke the SW cache
+            + reload, no need to uninstall the home-screen app. */}
+        <div style={{
+          marginTop: 28, paddingTop: 18,
+          borderTop: '0.5px solid var(--separator)',
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          fontSize: 12, color: 'var(--label3)',
+        }}>
+          <span style={{ fontFamily: 'ui-monospace, monospace' }}>
+            build {BUILD_SHA} · {BUILD_DATE}
+          </span>
+          <button onClick={async () => {
+            // Best-effort: unregister all SWs + clear all caches + reload.
+            try {
+              if ('serviceWorker' in navigator) {
+                const regs = await navigator.serviceWorker.getRegistrations()
+                await Promise.all(regs.map(r => r.unregister()))
+              }
+              if ('caches' in window) {
+                const keys = await caches.keys()
+                await Promise.all(keys.map(k => caches.delete(k)))
+              }
+            } catch (err) {
+              console.warn('Force refresh: SW/cache cleanup failed', err)
+            }
+            location.reload()
+          }} style={{
+            background: 'none', border: '1px solid var(--separator)',
+            borderRadius: 8, padding: '4px 10px',
+            color: 'var(--label2)', fontSize: 12, fontWeight: 500,
+            cursor: 'pointer',
+          }}>
+            ↻ Force refresh
+          </button>
         </div>
 
       </div>

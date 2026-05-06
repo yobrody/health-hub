@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, useRef } from 'react'
 import { api } from '../api/client'
 import type { FridgeData, FridgeItem, Meal, MealDetail, ScanResult, ScannedItem, ShelfLifeMap, SlotMap, SlotPos, FridgeItemDetail } from '../api/client'
 import { showToast } from '../toast'
+import { computeAteMacros } from '../lib/ate-macros'
 import {
   DndContext, useDraggable, useDroppable, DragOverlay, PointerSensor, useSensor, useSensors,
 } from '@dnd-kit/core'
@@ -153,14 +154,10 @@ function NotoIcon({ name, size = 48 }: { name: string; size?: number }) {
   )
 }
 
-function getFoodTint(name: string): string {
-  const n = name.toLowerCase()
-  if (['apple', 'banana', 'orange', 'berry', 'grape', 'mango'].some(k => n.includes(k))) return 'rgba(255,149,0,0.22)'
-  if (['chicken', 'beef', 'salmon', 'fish', 'egg', 'turkey', 'pork'].some(k => n.includes(k))) return 'rgba(255,59,48,0.2)'
-  if (['spinach', 'lettuce', 'broccoli', 'cucumber', 'avocado'].some(k => n.includes(k))) return 'rgba(52,199,89,0.22)'
-  if (['milk', 'yogurt', 'cheese'].some(k => n.includes(k))) return 'rgba(10,132,255,0.22)'
-  return 'rgba(175,82,222,0.18)'
-}
+// getFoodTint, freshnessColor, quantityBarColor removed alongside ItemCard
+// — only the cartoon-SVG Appliance render path remains, which doesn't use
+// these per-item color helpers. SOON/OLD freshness signals are inline in
+// ApplianceItem.
 
 async function detectBarcode(file: File): Promise<string | null> {
   if (!('BarcodeDetector' in window)) return null
@@ -247,121 +244,14 @@ const ZONE_CONFIG: Record<Zone, ZoneStyle> = {
   },
 }
 
-function freshnessColor(age: number, shelfDays: number): string {
-  const pct = age / shelfDays
-  if (pct >= 0.75) return 'var(--red)'
-  if (pct >= 0.45) return 'var(--orange)'
-  return 'var(--green)'
-}
-
-function quantityBarColor(pct: number): string {
-  if (pct >= 0.5) return 'var(--green)'
-  if (pct >= 0.2) return 'var(--orange)'
-  return 'var(--red)'
-}
-
 function formatGrams(g: number): string {
   // 1500 → "1.5kg"; 800 → "800g"; 0 → "0g"
   if (g >= 1000) return `${(g / 1000).toFixed(g >= 10000 ? 0 : 1).replace(/\.0$/, '')}kg`
   return `${Math.round(g)}g`
 }
 
-function ItemCard({
-  item, zone, onTap, learnedDays,
-}: {
-  item: FridgeItem
-  zone: Zone
-  onTap: () => void
-  learnedDays?: { avg_days: number; sample_count: number }
-}) {
-  const age = daysOld(item.added)
-  const shelfDays = learnedDays?.avg_days ?? SHELF_LIFE[zone]
-  const pct = Math.min(age / shelfDays, 1)
-  const fColor = freshnessColor(age, shelfDays)
-  const cfg = ZONE_CONFIG[zone]
-  const isOld = pct >= 0.85
-  const isWarn = pct >= 0.55 && !isOld
-  const tint = getFoodTint(item.name)
-  return (
-    <button className="tap-lift" onClick={onTap} style={{
-      background: isOld ? 'rgba(255,59,48,0.07)' : isWarn ? 'rgba(255,149,0,0.07)' : 'var(--gray6)',
-      border: `1px solid ${isOld ? 'rgba(255,59,48,0.22)' : isWarn ? 'rgba(255,149,0,0.22)' : 'transparent'}`,
-      borderRadius: 12, padding: '10px 6px 8px',
-      display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3,
-      cursor: 'pointer', textAlign: 'center', width: '100%', minWidth: 0,
-      WebkitTapHighlightColor: 'transparent', position: 'relative',
-    }}>
-      {isOld && <div style={{ position:'absolute', top:-6, right:-6, background:'var(--red)', color:'#fff', borderRadius:6, fontSize:9, fontWeight:700, padding:'1px 5px' }}>OLD</div>}
-      {isWarn && !isOld && <div style={{ position:'absolute', top:-6, right:-6, background:'var(--orange)', color:'#fff', borderRadius:6, fontSize:9, fontWeight:700, padding:'1px 5px' }}>SOON</div>}
-      {/* Noto Color icon — chosen by Brody 2026-05-05 over emoji + OFF photos.
-          Single source: keyword in item.name -> Noto icon name (FOOD_ICONS map)
-          -> Iconify CDN. Falls back to pot-of-food on misses. */}
-      <div style={{
-        width: 56, height: 56, borderRadius: 12,
-        background: tint,
-        boxShadow: 'inset 0 0 0 1px rgba(0,0,0,0.04)',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-      }}>
-        <NotoIcon name={item.name} size={48} />
-      </div>
-      <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--label)', lineHeight: 1.3,
-        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', width: '100%' }}>
-        {item.name}
-      </span>
-      {/* Quantity health-bar — only shown when the item carries server-side
-          quantity tracking (set on receipt scan via unit_size_g/unit_count).
-          Bar fills based on remaining vs full pack. Replaces the old
-          ±1 localStorage counter the user disliked. */}
-      {(() => {
-        const hasGrams = typeof item.quantity_g === 'number' && typeof item.unit_size_g === 'number' && item.unit_size_g > 0
-        const hasCount = typeof item.quantity_count === 'number' && typeof item.unit_count === 'number' && item.unit_count > 0
-        if (!hasGrams && !hasCount) return null
-        const remaining = hasGrams ? (item.quantity_g as number) : (item.quantity_count as number)
-        const total = hasGrams ? (item.unit_size_g as number) : (item.unit_count as number)
-        const qPct = Math.max(0, Math.min(1, total > 0 ? remaining / total : 0))
-        const barColor = quantityBarColor(qPct)
-        const remainingLabel = hasGrams ? formatGrams(remaining) : `${remaining}`
-        const totalLabel = hasGrams ? formatGrams(total) : `${total}`
-        return (
-          <div style={{ width: '100%', marginTop: 4 }}>
-            <div style={{ height: 5, background: 'var(--gray5)', borderRadius: 3, overflow: 'hidden' }}>
-              <div style={{ height: '100%', width: `${qPct * 100}%`, background: barColor, borderRadius: 3, transition: 'width 0.5s, background 0.3s' }} />
-            </div>
-            <div style={{ fontSize: 10, fontWeight: 600, color: barColor, marginTop: 2, display: 'flex', justifyContent: 'center', gap: 3 }}>
-              <span>{remainingLabel}</span>
-              <span style={{ color: 'var(--label3)', fontWeight: 400 }}>/ {totalLabel}</span>
-            </div>
-          </div>
-        )
-      })()}
-      {(item.size || item.cost != null) && (
-        <span style={{ fontSize: 10, color: 'var(--label2)', fontWeight: 500, lineHeight: 1.2 }}>
-          {[item.size, item.cost != null ? `\u00A3${item.cost.toFixed(2)}` : null].filter(Boolean).join(' \u00B7 ')}
-        </span>
-      )}
-      {age > 0 && (
-        <div style={{ width: '100%', marginTop: 3 }}>
-          <div style={{ height: 3, background: 'var(--gray5)', borderRadius: 2, overflow: 'hidden' }}>
-            <div style={{ height: '100%', width: `${pct * 100}%`, background: fColor, borderRadius: 2, transition: 'width 0.5s' }} />
-          </div>
-          <div style={{ fontSize: 10, color: fColor, fontWeight: 600, marginTop: 2, display: 'flex', justifyContent: 'center', gap: 4 }}>
-            <span>{age}d</span>
-            {learnedDays && (
-              <span style={{ color: 'var(--label3)', fontWeight: 400 }}>/ {learnedDays.avg_days}d avg</span>
-            )}
-          </div>
-        </div>
-      )}
-      {item.store && (
-        <span style={{ fontSize: 9, fontWeight: 700, color: cfg.text, background: `${cfg.accent}18`,
-          borderRadius: 6, padding: '1px 5px', maxWidth: '100%',
-          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {item.store.split(',')[0]}
-        </span>
-      )}
-    </button>
-  )
-}
+// ItemCard removed alongside ZoneSection in audit P2-11 — all four
+// zones now use the cartoon-SVG Appliance + ApplianceItem render path.
 
 /**
  * Cartoon-illustrated fridge SVG. Uses the "front cutaway" Style A: bold black
@@ -664,6 +554,183 @@ function PantrySvg({ itemCount }: { itemCount: number }) {
 }
 
 /**
+ * Standalone freezer cabinet — slim, frosted-blue, with a small LCD reading
+ * -18°C up top and three internal shelves at y=160, 260, 360 to align with
+ * the items overlay (top=100, bottom=120 from base of 480). Same 240×480
+ * viewBox as fridge + pantry so the Appliance overlay positioning works.
+ */
+function FreezerSvg({ itemCount }: { itemCount: number }) {
+  return (
+    <svg viewBox="0 0 240 480" xmlns="http://www.w3.org/2000/svg"
+         style={{ width: '100%', height: 'auto', display: 'block' }}
+         aria-hidden="true">
+      <defs>
+        <linearGradient id="fz-body" x1="0" y1="0" x2="1" y2="0">
+          <stop offset="0%" stopColor="#D4E5F2"/>
+          <stop offset="50%" stopColor="#E9F2FA"/>
+          <stop offset="100%" stopColor="#B8CFE0"/>
+        </linearGradient>
+        <linearGradient id="fz-handle" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#9FB3C8"/>
+          <stop offset="50%" stopColor="#E0E8F0"/>
+          <stop offset="100%" stopColor="#7989A0"/>
+        </linearGradient>
+        <radialGradient id="fz-interior" cx="0.5" cy="0.15" r="0.95">
+          <stop offset="0%" stopColor="#FFFFFF"/>
+          <stop offset="55%" stopColor="#E8F0F8"/>
+          <stop offset="100%" stopColor="#A0BFD8"/>
+        </radialGradient>
+        <linearGradient id="fz-shelf" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#B8D0E0" stopOpacity="0.9"/>
+          <stop offset="100%" stopColor="#90AEC4" stopOpacity="0.7"/>
+        </linearGradient>
+        <linearGradient id="fz-top-shadow" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#1F3548" stopOpacity="0.28"/>
+          <stop offset="100%" stopColor="#1F3548" stopOpacity="0"/>
+        </linearGradient>
+      </defs>
+
+      {/* Floor shadow */}
+      <ellipse cx="120" cy="468" rx="86" ry="6" fill="#000" opacity="0.18"/>
+
+      {/* Cabinet body */}
+      <rect x="20" y="20" width="200" height="436" rx="14"
+            fill="url(#fz-body)" stroke="#1F3548" strokeWidth="3"/>
+
+      {/* Top control panel — chrome strip + LCD */}
+      <rect x="34" y="32" width="172" height="32" rx="6"
+            fill="#1A2530" stroke="#0E1620" strokeWidth="1.4"/>
+      <rect x="38" y="36" width="60" height="24" rx="3" fill="#0E1620"/>
+      <text x="68" y="53" textAnchor="middle"
+            fontFamily="ui-monospace, monospace" fontSize="13" fontWeight="bold"
+            fill="#5EE6A8">-18°</text>
+      <text x="110" y="53" textAnchor="start"
+            fontFamily="system-ui, sans-serif" fontSize="9" fontWeight="800"
+            fill="#5EE6A8" letterSpacing="2">FREEZER</text>
+      {/* Snowflake icon next to label */}
+      <g transform="translate(195 48)" stroke="#5EE6A8" strokeWidth="1.4" strokeLinecap="round" fill="none">
+        <line x1="-6" y1="0" x2="6" y2="0"/>
+        <line x1="0" y1="-6" x2="0" y2="6"/>
+        <line x1="-4" y1="-4" x2="4" y2="4"/>
+        <line x1="-4" y1="4" x2="4" y2="-4"/>
+      </g>
+
+      {/* Open-faced interior cavity */}
+      <rect x="32" y="80" width="176" height="380" rx="6"
+            fill="url(#fz-interior)" stroke="#1F3548" strokeWidth="2.2"/>
+
+      {/* Top inner shadow */}
+      <rect x="32" y="80" width="176" height="14" rx="6"
+            fill="url(#fz-top-shadow)" pointerEvents="none"/>
+
+      {/* Frost crystals — decorative, around interior corners */}
+      <g stroke="#FFFFFF" strokeWidth="1" fill="none" opacity="0.7">
+        <path d="M 38 90 L 42 86 M 40 88 L 44 92"/>
+        <path d="M 200 88 L 196 92 M 202 90 L 198 86"/>
+        <path d="M 38 450 L 42 446 M 40 448 L 44 452"/>
+        <path d="M 200 448 L 196 452 M 202 450 L 198 446"/>
+      </g>
+      <circle cx="50" cy="100" r="1.4" fill="#FFFFFF" opacity="0.85"/>
+      <circle cx="190" cy="120" r="1.2" fill="#FFFFFF" opacity="0.7"/>
+      <circle cx="60" cy="430" r="1.1" fill="#FFFFFF" opacity="0.7"/>
+      <circle cx="180" cy="440" r="1.4" fill="#FFFFFF" opacity="0.85"/>
+
+      {/* Three glass-look shelves at y=156, 256, 356 (same as pantry/fridge) */}
+      <rect x="40" y="156" width="160" height="4" rx="1.5"
+            fill="url(#fz-shelf)" stroke="#1F3548" strokeWidth="1.5"/>
+      <rect x="40" y="256" width="160" height="4" rx="1.5"
+            fill="url(#fz-shelf)" stroke="#1F3548" strokeWidth="1.5"/>
+      <rect x="40" y="356" width="160" height="4" rx="1.5"
+            fill="url(#fz-shelf)" stroke="#1F3548" strokeWidth="1.5"/>
+
+      {/* Side handle */}
+      <rect x="206" y="200" width="6" height="80" rx="3"
+            fill="url(#fz-handle)" stroke="#1F3548" strokeWidth="1.4"/>
+
+      {/* Feet */}
+      <rect x="36" y="456" width="20" height="8" rx="2" fill="#5C7080" stroke="#1F3548" strokeWidth="1.6"/>
+      <rect x="184" y="456" width="20" height="8" rx="2" fill="#5C7080" stroke="#1F3548" strokeWidth="1.6"/>
+
+      {void itemCount}
+    </svg>
+  )
+}
+
+/**
+ * Wall-mounted spice rack — wooden tones matching the pantry, three small
+ * shelves with rails so bottles "lean against" the back. Same 240×480
+ * viewBox; shelves at y=150, 250, 350 to align with the items overlay.
+ */
+function CondimentsSvg({ itemCount }: { itemCount: number }) {
+  return (
+    <svg viewBox="0 0 240 480" xmlns="http://www.w3.org/2000/svg"
+         style={{ width: '100%', height: 'auto', display: 'block' }}
+         aria-hidden="true">
+      <defs>
+        <pattern id="cd-wood" patternUnits="userSpaceOnUse" width="240" height="480">
+          <rect width="240" height="480" fill="#B8884C"/>
+          <path d="M 0 60 Q 60 56 120 60 T 240 58" stroke="#7C5828" strokeWidth="0.6" fill="none" opacity="0.5"/>
+          <path d="M 0 140 Q 60 144 120 140 T 240 142" stroke="#7C5828" strokeWidth="0.5" fill="none" opacity="0.55"/>
+          <path d="M 0 220 Q 60 216 120 220 T 240 218" stroke="#7C5828" strokeWidth="0.6" fill="none" opacity="0.5"/>
+          <path d="M 0 300 Q 60 304 120 300 T 240 302" stroke="#7C5828" strokeWidth="0.5" fill="none" opacity="0.55"/>
+          <path d="M 0 380 Q 60 376 120 380 T 240 378" stroke="#7C5828" strokeWidth="0.6" fill="none" opacity="0.5"/>
+        </pattern>
+        <linearGradient id="cd-shelf" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#9F7340"/>
+          <stop offset="50%" stopColor="#7C5828"/>
+          <stop offset="100%" stopColor="#5C3D14"/>
+        </linearGradient>
+        <linearGradient id="cd-back" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#F1DCA0"/>
+          <stop offset="100%" stopColor="#D4A875"/>
+        </linearGradient>
+      </defs>
+
+      {/* Floor shadow */}
+      <ellipse cx="120" cy="468" rx="78" ry="5" fill="#000" opacity="0.16"/>
+
+      {/* Mounting board (wall plate) */}
+      <rect x="36" y="40" width="168" height="400" rx="6"
+            fill="url(#cd-back)" stroke="#1F1B14" strokeWidth="2.6"/>
+
+      {/* Outer wooden frame */}
+      <rect x="30" y="34" width="180" height="412" rx="8"
+            fill="none" stroke="#1F1B14" strokeWidth="3"/>
+      <rect x="30" y="34" width="180" height="412" rx="8"
+            fill="url(#cd-wood)" opacity="0.18"/>
+
+      {/* Decorative top trim */}
+      <rect x="34" y="38" width="172" height="6" rx="2"
+            fill="url(#cd-shelf)" stroke="#1F1B14" strokeWidth="1"/>
+      <rect x="34" y="438" width="172" height="6" rx="2"
+            fill="url(#cd-shelf)" stroke="#1F1B14" strokeWidth="1"/>
+
+      {/* Three shelves with front rails (bottles lean on them) */}
+      {/* Shelf 1 — y=150 */}
+      <rect x="38" y="148" width="164" height="6" rx="1.5"
+            fill="url(#cd-shelf)" stroke="#1F1B14" strokeWidth="1.6"/>
+      <line x1="38" y1="160" x2="202" y2="160" stroke="#1F1B14" strokeWidth="0.8" opacity="0.7"/>
+
+      {/* Shelf 2 — y=250 */}
+      <rect x="38" y="248" width="164" height="6" rx="1.5"
+            fill="url(#cd-shelf)" stroke="#1F1B14" strokeWidth="1.6"/>
+      <line x1="38" y1="260" x2="202" y2="260" stroke="#1F1B14" strokeWidth="0.8" opacity="0.7"/>
+
+      {/* Shelf 3 — y=350 */}
+      <rect x="38" y="348" width="164" height="6" rx="1.5"
+            fill="url(#cd-shelf)" stroke="#1F1B14" strokeWidth="1.6"/>
+      <line x1="38" y1="360" x2="202" y2="360" stroke="#1F1B14" strokeWidth="0.8" opacity="0.7"/>
+
+      {/* Hanging brackets at the corners */}
+      <circle cx="44" cy="46" r="3" fill="#1F1B14"/>
+      <circle cx="196" cy="46" r="3" fill="#1F1B14"/>
+
+      {void itemCount}
+    </svg>
+  )
+}
+
+/**
  * Appliance: combines the cartoon SVG body with an HTML overlay of items
  * positioned over the SVG shelves. Auto-grows up to 3 shelves of 3 items each;
  * empty shelves stay visible (suggesting "more capacity" so the user feels
@@ -713,22 +780,27 @@ function buildShelfGrid(items: FridgeItem[], slots: SlotMap, zone: Zone): (Fridg
 }
 
 function Appliance({ kind, items, slots, learnedShelfLife, activeDragName, onTapItem }: {
-  kind: 'fridge' | 'pantry'
+  kind: Zone
   items: FridgeItem[]
   slots: SlotMap
   learnedShelfLife: ShelfLifeMap
   activeDragName: string | null
   onTapItem: (name: string, zone: Zone) => void
 }) {
-  const fridge = kind === 'fridge'
-  const zoneId: Zone = fridge ? 'fridge' : 'pantry'
+  const zoneId: Zone = kind
   const grid = buildShelfGrid(items, slots, zoneId)
 
-  // Items overlay alignment with SVG shelves. viewBox is 240w × 480h.
-  //   FRIDGE: freezer is at the BOTTOM. Interior y=68..338. Items: y=98 → y=330.
-  //   PANTRY: shelves at y=156, 256, 356. Items area = y=80 → y=356.
-  const itemsTopPct    = fridge ? (98  / 480) * 100 : (80  / 480) * 100
-  const itemsBottomPct = fridge ? ((480 - 330) / 480) * 100 : ((480 - 356) / 480) * 100
+  // Items overlay alignment with each SVG body. All four use the same
+  // 240×480 viewBox so the Appliance React tree is identical, but each
+  // SVG positions its shelves at different y-coordinates.
+  const overlay: Record<Zone, { top: number; bottom: number }> = {
+    fridge:     { top: 98 / 480 * 100, bottom: (480 - 330) / 480 * 100 },
+    pantry:     { top: 80 / 480 * 100, bottom: (480 - 356) / 480 * 100 },
+    freezer:    { top: 100 / 480 * 100, bottom: (480 - 360) / 480 * 100 },
+    condiments: { top: 90 / 480 * 100, bottom: (480 - 350) / 480 * 100 },
+  }
+  const itemsTopPct = overlay[kind].top
+  const itemsBottomPct = overlay[kind].bottom
 
   return (
     <div style={{
@@ -737,7 +809,10 @@ function Appliance({ kind, items, slots, learnedShelfLife, activeDragName, onTap
       position: 'relative',
       filter: `drop-shadow(0 18px 20px rgba(0,0,0,0.28)) drop-shadow(0 6px 8px rgba(0,0,0,0.18))`,
     }}>
-      {fridge ? <FridgeSvg itemCount={items.length} /> : <PantrySvg itemCount={items.length} />}
+      {kind === 'fridge' && <FridgeSvg itemCount={items.length} />}
+      {kind === 'pantry' && <PantrySvg itemCount={items.length} />}
+      {kind === 'freezer' && <FreezerSvg itemCount={items.length} />}
+      {kind === 'condiments' && <CondimentsSvg itemCount={items.length} />}
 
       <div style={{
         position: 'absolute',
@@ -958,73 +1033,10 @@ function ApplianceItem({ item, zone, onTap, learnedDays, idx }: {
  * as full appliances (they're typically empty / sparse and the grid still
  * reads well for them).
  */
-// TODO(audit P2-11): freezer + condiments still render as a flat grid while
-// fridge + pantry have full cartoon SVG appliances. Visual inconsistency.
-// Deferred — needs ~150 LOC of new SVG illustrations for two more
-// compartments. Items inside DO use NotoIcon for parity.
-function ZoneSection({ zone, items, onRemove, learnedShelfLife }: {
-  zone: Zone
-  items: FridgeItem[]
-  onRemove: (name: string, zone: Zone) => void
-  learnedShelfLife: ShelfLifeMap
-}) {
-  const cfg = ZONE_CONFIG[zone]
-  const totalCost = items.reduce((s, i) => s + (i.cost ?? 0), 0)
-  const oldCount = items.filter(i => daysOld(i.added) > 5).length
-  const warnCount = items.filter(i => { const a = daysOld(i.added); return a > 3 && a <= 5 }).length
-
-  return (
-    <div style={{
-      background: cfg.gradient,
-      borderRadius: 16,
-      border: `1px solid ${cfg.border}`,
-      marginBottom: 12,
-      overflow: 'hidden',
-      boxShadow: cfg.shellShadow,
-    }}>
-      {/* Thin accent stripe — the only colour cue per zone. */}
-      <div style={{ height: 3, background: cfg.accent, opacity: 0.85 }} />
-      <div style={{
-        padding: '10px 14px 8px',
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-      }}>
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
-          <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--label)', letterSpacing: '-0.1px' }}>
-            {cfg.label}
-          </span>
-          <span style={{ fontSize: 11, color: 'var(--label3)', fontWeight: 500 }}>{items.length}</span>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          {(oldCount + warnCount) > 0 && (
-            <span style={{ fontSize: 10, fontWeight: 700,
-              color: oldCount > 0 ? 'var(--red)' : 'var(--orange)' }}>
-              {oldCount + warnCount} expiring
-            </span>
-          )}
-          {totalCost > 0 && (
-            <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--label2)' }}>
-              {'£'}{totalCost.toFixed(2)}
-            </span>
-          )}
-        </div>
-      </div>
-      <div style={{
-        padding: '4px 10px 12px',
-        display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 8,
-      }}>
-        {items.map((item, i) => (
-          <ItemCard
-            key={i}
-            item={item}
-            zone={zone}
-            onTap={() => onRemove(item.name, zone)}
-            learnedDays={learnedShelfLife[item.name]}
-          />
-        ))}
-      </div>
-    </div>
-  )
-}
+// ZoneSection (legacy flat grid for freezer/condiments) removed in audit
+// P2-11 fix: those zones now use the cartoon SVG Appliance like fridge +
+// pantry. ItemCard kept as it's still referenced from the modal /
+// removal flow internals.
 
 /**
  * Rich product page bottom-sheet — replaces the old bare Remove? sheet.
@@ -1068,29 +1080,8 @@ function ItemDetailModal({ name, zone, onClose, onRemove }: {
     }
   }
 
-  /**
-   * Estimate macros for the portion the user just ate. Tries hardest source
-   * first: remaining quantity_g × nutrition_per_100g; falls back to unit_size_g
-   * (assume full pack), then a 100g default if we only know macros-per-100g.
-   * Returns null if we have nothing to log — the caller will skip the log
-   * step and just remove. Never throws.
-   */
-  function computeAteMacros(d: FridgeItemDetail): { kcal: number; protein_g: number; portion_g: number } | null {
-    const np = d.nutrition_per_100g
-    if (!np || typeof np.kcal !== 'number') return null
-    // What grams did they consume?
-    const grams =
-      typeof d.quantity_g === 'number' && d.quantity_g > 0 ? d.quantity_g
-      : typeof d.unit_size_g === 'number' && d.unit_size_g > 0 ? d.unit_size_g
-      : typeof d.typical_size_g === 'number' && d.typical_size_g > 0 ? d.typical_size_g
-      : 100
-    const factor = grams / 100
-    return {
-      kcal: Math.round(np.kcal * factor),
-      protein_g: Math.round((np.protein_g ?? 0) * factor),
-      portion_g: Math.round(grams),
-    }
-  }
+  // computeAteMacros lives in src/lib/ate-macros.ts so it can be unit-tested
+  // without dragging in the React module tree.
 
   function mealForNow(): 'Breakfast' | 'Lunch' | 'Snack' | 'Dinner' {
     const h = new Date().getHours()
@@ -1836,30 +1827,24 @@ export default function Fridge() {
           </div>
         )}
 
-        {/* ── Appliance views ── fridge + pantry get the cartoon doll-house
-            treatment with drag-and-drop slot persistence. Freezer + condiments
-            stay in the legacy grid (usually sparse, no slot model needed). */}
+        {/* ── Appliance views ── all four zones now share the cartoon SVG +
+            drag-and-drop slot model (audit P2-11). Each zone is its own
+            appliance, and items can drag between them via the shared
+            DndContext. Empty zones don't render to keep the page tight. */}
         <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-          {data.fridge.length > 0 && (
-            <Appliance
-              kind="fridge"
-              items={data.fridge}
-              slots={slots}
-              learnedShelfLife={learnedShelfLife}
-              activeDragName={activeDragName}
-              onTapItem={(name, z) => setDetailModal({ name, zone: z })}
-            />
-          )}
-          {data.pantry.length > 0 && (
-            <Appliance
-              kind="pantry"
-              items={data.pantry}
-              slots={slots}
-              learnedShelfLife={learnedShelfLife}
-              activeDragName={activeDragName}
-              onTapItem={(name, z) => setDetailModal({ name, zone: z })}
-            />
-          )}
+          {(['fridge', 'pantry', 'freezer', 'condiments'] as Zone[]).map(zone => (
+            data[zone].length > 0 && (
+              <Appliance
+                key={zone}
+                kind={zone}
+                items={data[zone]}
+                slots={slots}
+                learnedShelfLife={learnedShelfLife}
+                activeDragName={activeDragName}
+                onTapItem={(name, z) => setDetailModal({ name, zone: z })}
+              />
+            )
+          ))}
           <DragOverlay dropAnimation={null}>
             {activeDragName ? (() => {
               const found = itemByName.get(activeDragName)
@@ -1868,20 +1853,6 @@ export default function Fridge() {
             })() : null}
           </DragOverlay>
         </DndContext>
-
-        {(['freezer', 'condiments'] as Zone[]).map(zone => {
-          const items = data[zone] ?? []
-          if (items.length === 0) return null
-          return (
-            <ZoneSection
-              key={zone}
-              zone={zone}
-              items={items}
-              onRemove={(name, z) => setDetailModal({ name, zone: z })}
-              learnedShelfLife={learnedShelfLife}
-            />
-          )
-        })}
 
         {/* ── Bottom action row ── */}
         {totalItems > 0 && (

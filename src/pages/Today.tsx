@@ -262,6 +262,65 @@ export default function Today({ onNavigate }: Props) {
     }
   }
 
+  /**
+   * Execute one AiAction. Single source of truth — used by both the apply
+   * and retry paths. When a new AiAction variant is added, only this switch
+   * needs updating; TS exhaustiveness via the `never` default keeps both
+   * call sites consistent.
+   */
+  async function executeAction(a: AiAction): Promise<void> {
+    switch (a.type) {
+      case 'log_food':
+        await api.addFood({
+          meal: a.meal,
+          description: a.count > 1 ? `${a.count} ${a.name}` : a.name,
+          kcal: a.kcal * a.count,
+          protein_g: a.protein_g * a.count,
+          date: a.date,
+        })
+        return
+      case 'add_fridge':
+        await api.addFridgeItem(a.name, a.section, {
+          store: a.store ?? null,
+          size: a.size ?? null,
+          cost: a.cost ?? null,
+          unit_size_g: a.unit_size_g ?? null,
+          unit_count: a.unit_count ?? null,
+        })
+        return
+      case 'log_water':
+        // Hydration lives in localStorage; increment running count for the
+        // current day, then synthesize a storage event so WaterTracker re-reads.
+        try {
+          const todayKey = new Date().toDateString()
+          const raw = localStorage.getItem('water_intake')
+          const cur = raw ? JSON.parse(raw) as { date: string; count: number } : null
+          const base = cur && cur.date === todayKey ? cur.count : 0
+          const next = Math.min(base + a.count, 12)
+          localStorage.setItem('water_intake', JSON.stringify({ date: todayKey, count: next }))
+          window.dispatchEvent(new StorageEvent('storage', { key: 'water_intake' }))
+        } catch { /* localStorage quota — non-fatal */ }
+        return
+      case 'mark_routine':
+        await api.logRoutine(a.name)
+        return
+      case 'add_agenda':
+        await api.addAgendaItem(a.title)
+        // Priority is stored separately via setItemPriority — left for a future
+        // enhancement; v1 ignores the AI hint so the action is one round-trip.
+        return
+      case 'add_list_item':
+        await api.addListItem(a.list, a.text)
+        return
+      default: {
+        // Exhaustiveness guard — if a new AiAction variant lands without
+        // a handler here, TS will refuse to compile.
+        const _exhaustive: never = a
+        throw new Error(`Unhandled action type: ${(_exhaustive as { type: string }).type}`)
+      }
+    }
+  }
+
   async function applyAiActions() {
     if (!aiPreview) return
     setAiState('applying')
@@ -291,54 +350,13 @@ export default function Today({ onNavigate }: Props) {
     }
     if (navigator.vibrate) navigator.vibrate([10, 30, 10])
 
-    // Execute every action. Failures captured per-action so we can show
-    // them as a retry chip rather than silently swallowing.
+    // Execute every action via the shared executeAction helper. Failures
+    // captured per-action so the retry chip can re-fire just those rather
+    // than silently swallowing them.
     const failed: { action: AiAction; error: string }[] = []
     for (const a of aiPreview.actions) {
-      try {
-        if (a.type === 'log_food') {
-          await api.addFood({
-            meal: a.meal,
-            description: a.count > 1 ? `${a.count} ${a.name}` : a.name,
-            kcal: a.kcal * a.count,
-            protein_g: a.protein_g * a.count,
-            date: a.date,
-          })
-        } else if (a.type === 'add_fridge') {
-          await api.addFridgeItem(a.name, a.section, {
-            store: a.store ?? null,
-            size: a.size ?? null,
-            cost: a.cost ?? null,
-            unit_size_g: a.unit_size_g ?? null,
-            unit_count: a.unit_count ?? null,
-          })
-        } else if (a.type === 'log_water') {
-          // Hydration is browser-local (localStorage water_intake). Increment
-          // the running count rather than overwriting it. Counter resets on
-          // date change, same key the HydrationCard reads.
-          try {
-            const todayKey = new Date().toISOString().slice(0, 10)
-            const raw = localStorage.getItem('water_intake')
-            const cur = raw ? JSON.parse(raw) as { date: string; count: number } : null
-            const base = cur && cur.date === todayKey ? cur.count : 0
-            const next = Math.min(base + a.count, 12)
-            localStorage.setItem('water_intake', JSON.stringify({ date: todayKey, count: next }))
-            // Nudge re-render of HydrationCard via a storage event in the same tab
-            window.dispatchEvent(new StorageEvent('storage', { key: 'water_intake' }))
-          } catch { /* localStorage quota — non-fatal */ }
-        } else if (a.type === 'mark_routine') {
-          await api.logRoutine(a.name)
-        } else if (a.type === 'add_agenda') {
-          await api.addAgendaItem(a.title)
-          // Priority is stored client-side via localStorage in agenda-priority
-          // helpers; the AI's priority hint can land later via setItemPriority,
-          // but for v1 we ignore it (default normal) so the action is single-call.
-        } else if (a.type === 'add_list_item') {
-          await api.addListItem(a.list, a.text)
-        }
-      } catch (err) {
-        failed.push({ action: a, error: String(err).slice(0, 120) })
-      }
+      try { await executeAction(a) }
+      catch (err) { failed.push({ action: a, error: String(err).slice(0, 120) }) }
     }
 
     // Re-fetch authoritative state in the background
@@ -373,37 +391,7 @@ export default function Today({ onNavigate }: Props) {
     const entry = aiFailed[idx]
     if (!entry) return
     try {
-      const a = entry.action
-      if (a.type === 'log_food') {
-        await api.addFood({
-          meal: a.meal,
-          description: a.count > 1 ? `${a.count} ${a.name}` : a.name,
-          kcal: a.kcal * a.count,
-          protein_g: a.protein_g * a.count,
-          date: a.date,
-        })
-      } else if (a.type === 'add_fridge') {
-        await api.addFridgeItem(a.name, a.section, {
-          store: a.store ?? null,
-          size: a.size ?? null,
-          cost: a.cost ?? null,
-          unit_size_g: a.unit_size_g ?? null,
-          unit_count: a.unit_count ?? null,
-        })
-      } else if (a.type === 'log_water') {
-        const todayKey = new Date().toISOString().slice(0, 10)
-        const raw = localStorage.getItem('water_intake')
-        const cur = raw ? JSON.parse(raw) as { date: string; count: number } : null
-        const base = cur && cur.date === todayKey ? cur.count : 0
-        localStorage.setItem('water_intake', JSON.stringify({ date: todayKey, count: Math.min(base + a.count, 12) }))
-        window.dispatchEvent(new StorageEvent('storage', { key: 'water_intake' }))
-      } else if (a.type === 'mark_routine') {
-        await api.logRoutine(a.name)
-      } else if (a.type === 'add_agenda') {
-        await api.addAgendaItem(a.title)
-      } else if (a.type === 'add_list_item') {
-        await api.addListItem(a.list, a.text)
-      }
+      await executeAction(entry.action)
       setAiFailed(prev => prev.filter((_, i) => i !== idx))
       api.getToday().then(setData).catch(() => {})
       api.getFridge().then(setFridgeData).catch(() => {})
