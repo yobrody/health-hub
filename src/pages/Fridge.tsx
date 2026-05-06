@@ -591,6 +591,10 @@ function PantrySvg({ itemCount }: { itemCount: number }) {
           <stop offset="50%" stopColor="#A07847"/>
           <stop offset="100%" stopColor="#7C5828"/>
         </linearGradient>
+        <linearGradient id="pa-top-shadow" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#1F1B14" stopOpacity="0.32"/>
+          <stop offset="100%" stopColor="#1F1B14" stopOpacity="0"/>
+        </linearGradient>
       </defs>
 
       {/* === FLOOR SHADOW === */}
@@ -605,32 +609,19 @@ function PantrySvg({ itemCount }: { itemCount: number }) {
       <rect x="14" y="20" width="212" height="436" rx="6" ry="6"
             fill="url(#pa-wood)" stroke="#1F1B14" strokeWidth="3.8"/>
 
-      {/* === DOOR SPLIT === vertical line down the middle */}
-      <line x1="120" y1="22" x2="120" y2="454" stroke="#1F1B14" strokeWidth="2.2" opacity="0.85"/>
-      <line x1="121.5" y1="24" x2="121.5" y2="452" stroke="#FFFFFF" strokeWidth="0.8" opacity="0.4"/>
-
-      {/* === LEFT DOOR PANEL DETAILS === inset rectangle */}
-      <rect x="26" y="36" width="86" height="412" rx="3"
-            fill="none" stroke="#7C5828" strokeWidth="1.4" opacity="0.6"/>
-      {/* === RIGHT DOOR PANEL DETAILS === inset rectangle */}
-      <rect x="128" y="36" width="86" height="412" rx="3"
-            fill="none" stroke="#7C5828" strokeWidth="1.4" opacity="0.6"/>
-
-      {/* === BRASS KNOBS === at meeting line, raised 3D look */}
-      <g>
-        {/* Left door knob */}
-        <circle cx="110" cy="240" r="9" fill="url(#pa-knob)"
-                stroke="#1F1B14" strokeWidth="2.4"/>
-        <circle cx="107" cy="237" r="2.5" fill="#FFE7A8" opacity="0.85"/>
-        {/* Right door knob */}
-        <circle cx="130" cy="240" r="9" fill="url(#pa-knob)"
-                stroke="#1F1B14" strokeWidth="2.4"/>
-        <circle cx="127" cy="237" r="2.5" fill="#FFE7A8" opacity="0.85"/>
-      </g>
-
-      {/* === CABINET CUTAWAY (interior visible) === warm interior */}
-      <rect x="30" y="60" width="180" height="376" rx="4"
+      {/* === OPEN-FACED CABINET INTERIOR === no doors, just a wooden frame
+          surrounding the shelves. Earlier revision had a closed-door split,
+          panel insets, and brass knobs drawn behind the interior cutaway —
+          they peeked through above and below the cutaway and read as a
+          confused metaphor (closed doors AND open shelves at once). */}
+      <rect x="30" y="50" width="180" height="386" rx="4"
             fill="url(#pa-interior)" stroke="#1F1B14" strokeWidth="2.6"/>
+
+      {/* Inner shadow at the top of the cabinet so the interior reads
+          three-dimensional — wood frame casts a soft shadow into the open
+          cavity. */}
+      <rect x="30" y="50" width="180" height="16" rx="4"
+            fill="url(#pa-top-shadow)" pointerEvents="none"/>
 
       {/* Subtle interior glow */}
       <ellipse cx="120" cy="80" rx="80" ry="14"
@@ -957,16 +948,9 @@ function ApplianceItem({ item, zone, onTap, learnedDays, idx }: {
         </div>
       </div>
 
-      {/* Item name — slightly bigger now items are bigger */}
-      <span style={{
-        fontSize: 9.5, fontWeight: 600,
-        color: 'rgba(0,0,0,0.72)',
-        marginTop: 1, lineHeight: 1.2,
-        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-        maxWidth: '100%', padding: '0 2px',
-      }}>
-        {item.name}
-      </span>
+      {/* No on-card label — Noto icons are recognizable enough on their own,
+          and the cluttered text under each tile read as cheap. Tap to see
+          the item's full name + details in the modal. */}
     </button>
   )
 }
