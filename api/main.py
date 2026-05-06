@@ -371,29 +371,49 @@ def add_fridge_item(item: FridgeItem, key=Depends(require_key)):
 
 @app.delete("/fridge/item/{name}")
 def remove_fridge_item(name: str, contains: bool = False, key=Depends(require_key)):
-    """Delete an item by name. Default match is EXACT (case-insensitive); pass
-    ?contains=true to fall back to substring match.
+    """Delete ONE item by name. Default match is EXACT (case-insensitive);
+    pass ?contains=true to fall back to substring match.
 
-    Audit B-2: substring-by-default was dangerous — deleting "honey" would
-    nuke "honeycomb cereal", deleting "salt" would nuke "salted butter".
-    The cross-zone drag path now passes ?contains=false (default); legacy
-    callers can opt in if they really need substring matching.
+    Behaviour:
+      • Default (contains=false): removes the FIRST occurrence with an exact
+        case-insensitive name match. Duplicates from receipt scans (e.g. two
+        'tenderstem broccoli' rows) are removed one tap at a time, matching
+        the user's mental model of "I'm getting rid of this one tile".
+      • contains=true: removes ALL substring-matching items across every
+        zone — only safe when the caller is sure (e.g. cross-zone drag
+        intermediate state).
+
+    Audit B-2 history: this used to substring-match by default, which made
+    'salt' nuke 'salted butter'. The exact-match-by-default fix was right;
+    deleting only one row at a time is the further refinement after a user
+    report that 'remove doesn't work' on duplicated rows (it was working —
+    it was deleting all duplicates in one shot, looking like nothing else
+    happened on the next tap).
     """
     data = read_fridge()
     name_lower = name.lower()
     removed = False
     for section in data:
-        before = len(data[section])
         if contains:
+            before = len(data[section])
             data[section] = [i for i in data[section] if name_lower not in i["name"].lower()]
+            if len(data[section]) < before:
+                removed = True
         else:
-            data[section] = [i for i in data[section] if i["name"].lower() != name_lower]
-        if len(data[section]) < before:
-            removed = True
+            # Exact-match: remove just the first occurrence in this section.
+            for idx, item in enumerate(data[section]):
+                if item["name"].lower() == name_lower:
+                    del data[section][idx]
+                    removed = True
+                    break
+            if removed:
+                break  # only one row total, not one per zone
     if not removed:
         raise HTTPException(status_code=404, detail=f"Item not found")
     write_fridge(data)
-    drop_slot_for(name)
+    # Slot entry is keyed by name, so we only drop it when no row remains.
+    if not any(i["name"].lower() == name_lower for sec in data.values() for i in sec):
+        drop_slot_for(name)
     return {"ok": True}
 
 class ConsumeInput(BaseModel):
