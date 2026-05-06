@@ -224,6 +224,10 @@ class FoodEntry(BaseModel):
     kcal: int
     time: Optional[str] = None
     protein_g: Optional[int] = None
+    # ISO date YYYY-MM-DD. Defaults to today; let callers (e.g. the AI
+    # assistant translating "yesterday I ate…") log to a different day.
+    # Server clamps to a sensible window so the UI can never time-travel.
+    date: Optional[str] = None
 
 @app.get("/today")
 def get_today(key=Depends(require_key)):
@@ -236,9 +240,20 @@ def get_today(key=Depends(require_key)):
 @app.post("/food")
 def add_food(entry: FoodEntry, key=Depends(require_key)):
     t = entry.time or datetime.now().strftime("%H:%M")
-    p = food_file()
+    # Resolve target date. Accept ISO YYYY-MM-DD only; clamp to last 7 days
+    # through tomorrow so we can't accidentally log to 2019 from a typo.
+    target_date = today()
+    if entry.date:
+        try:
+            d = date.fromisoformat(entry.date)
+            today_d = date.today()
+            if (today_d - d).days <= 7 and (d - today_d).days <= 1:
+                target_date = entry.date
+        except ValueError:
+            pass
+    p = food_file(target_date)
     if not p.exists():
-        p.write_text(f"# Food Log — {today()}\n\n")
+        p.write_text(f"# Food Log — {target_date}\n\n")
     content = p.read_text()
     protein_str = f", ~{entry.protein_g} g protein" if entry.protein_g else ""
     block = "\n### " + t + " — " + entry.meal + "\n- " + entry.description + " (~" + str(entry.kcal) + " kcal" + protein_str + ")\n**Subtotal: ~" + str(entry.kcal) + " kcal**\n"

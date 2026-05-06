@@ -9,6 +9,7 @@ import Lists from './pages/Lists'
 import Agenda from './pages/Agenda'
 import Routines from './pages/Routines'
 import CameraSheet from './components/CameraSheet'
+import { UpdatePrompt } from './components/UpdatePrompt'
 import { api } from './api/client'
 import type { FridgeData } from './api/client'
 import { registerToastHandler } from './toast'
@@ -266,6 +267,9 @@ export default function App({ onToggleTheme, theme }: Props) {
         fridgeData={fridgeData}
         onFridgeUpdated={refreshFridge}
       />
+
+      {/* PWA update prompt — appears when a newer SW is waiting. */}
+      <UpdatePrompt />
 
       {/* Toast */}
       {toast && (

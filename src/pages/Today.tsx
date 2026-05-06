@@ -191,6 +191,9 @@ export default function Today({ onNavigate }: Props) {
   const [aiPrompt, setAiPrompt] = useState('')
   const [aiState, setAiState] = useState<'idle' | 'parsing' | 'preview' | 'applying' | 'success'>('idle')
   const [aiPreview, setAiPreview] = useState<AiActResponse | null>(null)
+  // Actions that failed during apply, so the user can retry just those rather
+  // than the whole batch. Cleared on next successful apply or cancel.
+  const [aiFailed, setAiFailed] = useState<{ action: AiAction; error: string }[]>([])
   // Pulse the calorie bar when actions land. Triggers a one-shot CSS animation
   // by mounting a key change.
   const [barPulseKey, setBarPulseKey] = useState(0)
@@ -248,40 +251,44 @@ export default function Today({ onNavigate }: Props) {
   async function applyAiActions() {
     if (!aiPreview) return
     setAiState('applying')
-    // Optimistic update for log_food actions (instant calorie bar fill).
-    const totalKcalDelta = aiPreview.actions.reduce((sum, a) =>
-      a.type === 'log_food' ? sum + (a.kcal * a.count) : sum, 0)
-    const totalProteinDelta = aiPreview.actions.reduce((sum, a) =>
-      a.type === 'log_food' ? sum + (a.protein_g * a.count) : sum, 0)
+    const todayIso = new Date().toISOString().slice(0, 10)
+
+    // Optimistic Today-bar update — only for actions logged TO TODAY. Past-day
+    // entries land in their own /food file so the Today total shouldn't reflect
+    // them. (Otherwise the bar would falsely jump on "yesterday I ate…".)
+    const todayLogActions = aiPreview.actions.filter(
+      (a): a is Extract<AiAction, { type: 'log_food' }> =>
+        a.type === 'log_food' && (!a.date || a.date === todayIso)
+    )
+    const totalKcalDelta = todayLogActions.reduce((sum, a) => sum + a.kcal * a.count, 0)
     if (totalKcalDelta > 0) {
       const t = new Date().toTimeString().slice(0, 5)
       setData(prev => prev ? {
         ...prev,
         total_kcal: prev.total_kcal + totalKcalDelta,
-        entries: [...prev.entries, ...aiPreview.actions
-          .filter((a): a is Extract<AiAction, { type: 'log_food' }> => a.type === 'log_food')
-          .map(a => ({
-            time: t, meal: a.meal,
-            items: `- ${a.count > 1 ? `${a.count} ` : ''}${a.name} (~${a.kcal * a.count} kcal)`,
-            kcal: a.kcal * a.count, protein_g: a.protein_g * a.count,
-          }))],
+        entries: [...prev.entries, ...todayLogActions.map(a => ({
+          time: t, meal: a.meal,
+          items: `- ${a.count > 1 ? `${a.count} ` : ''}${a.name} (~${a.kcal * a.count} kcal)`,
+          kcal: a.kcal * a.count, protein_g: a.protein_g * a.count,
+        }))],
       } : prev)
       // Trigger the bar-pulse animation
       setBarPulseKey(k => k + 1)
     }
     if (navigator.vibrate) navigator.vibrate([10, 30, 10])
 
-    // Execute every action. Failures collected, not blocking.
-    const errors: string[] = []
+    // Execute every action. Failures captured per-action so we can show
+    // them as a retry chip rather than silently swallowing.
+    const failed: { action: AiAction; error: string }[] = []
     for (const a of aiPreview.actions) {
       try {
         if (a.type === 'log_food') {
-          // VPS /food expects ONE entry — emit one call per food unit's total.
           await api.addFood({
             meal: a.meal,
             description: a.count > 1 ? `${a.count} ${a.name}` : a.name,
             kcal: a.kcal * a.count,
             protein_g: a.protein_g * a.count,
+            date: a.date,
           })
         } else if (a.type === 'add_fridge') {
           await api.addFridgeItem(a.name, a.section, {
@@ -293,7 +300,7 @@ export default function Today({ onNavigate }: Props) {
           })
         }
       } catch (err) {
-        errors.push(`${a.type === 'log_food' ? a.name : a.name}: ${String(err)}`)
+        failed.push({ action: a, error: String(err).slice(0, 120) })
       }
     }
 
@@ -309,13 +316,47 @@ export default function Today({ onNavigate }: Props) {
     api.getToday().then(setData).catch(() => {})
     api.getFridge().then(setFridgeData).catch(() => {})
 
-    if (errors.length === 0) {
+    if (failed.length === 0) {
       showToast(aiPreview.summary || 'Done')
+      setAiFailed([])
     } else {
-      showToast(`Done with ${errors.length} error${errors.length > 1 ? 's' : ''}`, 'err')
+      // Surface partial-failures so the user sees what didn't go through
+      // and can retry just those actions instead of silently losing them.
+      setAiFailed(failed)
+      showToast(`${aiPreview.actions.length - failed.length} done, ${failed.length} failed`, 'err')
     }
-    // bound unused for noUnusedLocals
-    void totalProteinDelta
+  }
+
+  // Retry a previously-failed action. Removes it from the failed list on
+  // success; on failure, leaves it (with a fresh error message).
+  async function retryFailedAction(idx: number) {
+    const entry = aiFailed[idx]
+    if (!entry) return
+    try {
+      const a = entry.action
+      if (a.type === 'log_food') {
+        await api.addFood({
+          meal: a.meal,
+          description: a.count > 1 ? `${a.count} ${a.name}` : a.name,
+          kcal: a.kcal * a.count,
+          protein_g: a.protein_g * a.count,
+          date: a.date,
+        })
+      } else if (a.type === 'add_fridge') {
+        await api.addFridgeItem(a.name, a.section, {
+          store: a.store ?? null,
+          size: a.size ?? null,
+          cost: a.cost ?? null,
+          unit_size_g: a.unit_size_g ?? null,
+          unit_count: a.unit_count ?? null,
+        })
+      }
+      setAiFailed(prev => prev.filter((_, i) => i !== idx))
+      api.getToday().then(setData).catch(() => {})
+      api.getFridge().then(setFridgeData).catch(() => {})
+    } catch (err) {
+      setAiFailed(prev => prev.map((e, i) => i === idx ? { ...e, error: String(err).slice(0, 120) } : e))
+    }
   }
 
   function cancelAi() {
@@ -546,6 +587,37 @@ export default function Today({ onNavigate }: Props) {
                   className="px-3 py-2 text-[13px] text-[var(--c-label-faint)] hover:text-[var(--c-label)] transition-colors"
                 >
                   Cancel
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Failed-actions chip — shown when partial failures from the last
+              apply remain unresolved. Each row has a small "retry" button so
+              the user can re-fire just that action instead of re-typing. */}
+          {aiState === 'idle' && aiFailed.length > 0 && (
+            <div className="mt-3 pt-3 border-t border-[var(--c-border)]">
+              <div className="text-[12px] text-[var(--c-orange)] font-medium mb-2">
+                Didn't go through — tap to retry
+              </div>
+              <div className="flex flex-col gap-1.5">
+                {aiFailed.map((f, i) => (
+                  <button
+                    key={i}
+                    onClick={() => retryFailedAction(i)}
+                    className="flex items-center justify-between text-left bg-transparent border border-[var(--c-border)] rounded-md px-2 py-1.5 hover:border-[var(--c-accent)] transition-colors"
+                  >
+                    <span className="text-[12px] text-[var(--c-label-dim)] truncate">
+                      {f.action.type === 'log_food' ? `${f.action.name} → ${f.action.meal}` : `${f.action.name} → ${f.action.section}`}
+                    </span>
+                    <span className="text-[11px] text-[var(--c-label-faint)] flex-shrink-0 ml-2">↻</span>
+                  </button>
+                ))}
+                <button
+                  onClick={() => setAiFailed([])}
+                  className="text-[11px] text-[var(--c-label-faint)] mt-1 self-start"
+                >
+                  Dismiss
                 </button>
               </div>
             </div>

@@ -59,16 +59,27 @@ export async function onRequestPost(context) {
   const now = new Date()
   const hour = now.getUTCHours()  // close enough for meal inference; user's TZ ~UTC
   const defaultMeal = defaultMealForHour(hour)
+  const todayIso = now.toISOString().slice(0, 10)
+  const yesterdayIso = new Date(now.getTime() - 86400000).toISOString().slice(0, 10)
 
   const sysPrompt = `You translate one short message about the user's day into structured actions for a personal health app.
 
+Today's date: ${todayIso} (${defaultMeal} time of day).
+Yesterday: ${yesterdayIso}.
+
 Available action types:
-1. log_food — log eaten food to today's calorie/protein log
-   args: { name: string, count?: number, kcal: number, protein_g: number, meal?: "Breakfast"|"Lunch"|"Snack"|"Dinner" }
+1. log_food — log eaten food to the calorie/protein log
+   args: { name: string, count?: number, kcal: number, protein_g: number, meal?: "Breakfast"|"Lunch"|"Snack"|"Dinner", date?: string }
    Notes: estimate kcal+protein per UNIT for typical UK supermarket portions.
    If the user says "3 eggs", emit ONE entry with count=3 and kcal/protein per egg
    (the app multiplies). If meal isn't stated, pick by time of day — current
    default is "${defaultMeal}".
+   Date handling: if the user references a past day ("yesterday", "last night",
+   "this morning" but it's now afternoon/evening), set date to that day's
+   ISO YYYY-MM-DD. Default = today (omit the field). "this morning" said
+   before noon = today + Breakfast; said after noon = today + Breakfast still
+   (the user is logging breakfast retroactively, same day). "last night" or
+   "yesterday" = ${yesterdayIso} + Dinner.
 
 2. add_fridge — add an item to inventory
    args: { name: string, section: "fridge"|"freezer"|"pantry"|"condiments", store?: string, size?: string, unit_size_g?: number, unit_count?: number, cost?: number }
@@ -86,6 +97,9 @@ Examples:
 
 User: "I ate 3 eggs today"
 {"actions":[{"type":"log_food","name":"eggs","count":3,"kcal":78,"protein_g":6,"meal":"Breakfast"}],"summary":"Logged 3 eggs to breakfast (~234 kcal)."}
+
+User: "yesterday I had a slice of pizza for dinner"
+{"actions":[{"type":"log_food","name":"pizza slice","count":1,"kcal":285,"protein_g":12,"meal":"Dinner","date":"${yesterdayIso}"}],"summary":"Logged a slice of pizza to yesterday's dinner."}
 
 User: "3 eggs and 3 pieces of bacon and a can of pineapple from aldi"
 {"actions":[
@@ -120,7 +134,16 @@ User: "${prompt.replace(/"/g, '\\"')}"`
       const protein_g = clampNumber(a.protein_g, 0, 500)
       const count = clampNumber(a.count, 1, 50) ?? 1
       const meal = VALID_MEALS.has(a.meal) ? a.meal : defaultMeal
-      cleaned.push({ type: 'log_food', name, count, kcal: kcal ?? 0, protein_g: protein_g ?? 0, meal })
+      const out = { type: 'log_food', name, count, kcal: kcal ?? 0, protein_g: protein_g ?? 0, meal }
+      // Validate any date Gemini emitted: must be ISO + within last 7d / next 1d.
+      if (typeof a.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(a.date)) {
+        const d = new Date(a.date + 'T12:00:00Z')
+        if (!isNaN(d.getTime())) {
+          const days = (now.getTime() - d.getTime()) / 86400000
+          if (days >= -1 && days <= 7) out.date = a.date
+        }
+      }
+      cleaned.push(out)
     } else if (a.type === 'add_fridge') {
       const name = String(a.name || '').trim().toLowerCase().slice(0, 80)
       if (!name) continue

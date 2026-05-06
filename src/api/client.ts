@@ -337,7 +337,7 @@ export interface BarcodeLookupResult {
 }
 export interface TodayData { date: string; entries: FoodEntry[]; total_kcal: number; goals: Goals }
 export interface FoodEntry { time: string; meal: string; items: string; kcal: number; protein_g?: number }
-export interface FoodEntryInput { meal: string; description: string; kcal: number; protein_g?: number; time?: string }
+export interface FoodEntryInput { meal: string; description: string; kcal: number; protein_g?: number; time?: string; date?: string }
 export interface HistoryDay { date: string; total_kcal: number; logged: boolean }
 export interface Goals { calories: number; protein: number; gym_days: number }
 export interface GoalsResponse { content: string; parsed: Goals }
@@ -413,7 +413,9 @@ export interface EnrichResult {
 // Structured action returned by /api/ai/act — Gemini parses a freeform user
 // message into one or more of these.
 export type AiAction =
-  | { type: 'log_food'; name: string; count: number; kcal: number; protein_g: number; meal: 'Breakfast' | 'Lunch' | 'Snack' | 'Dinner' }
+  // `date` is optional ISO YYYY-MM-DD. Gemini fills it when the user says
+  // "yesterday", "last night", "this morning", etc.; otherwise unset = today.
+  | { type: 'log_food'; name: string; count: number; kcal: number; protein_g: number; meal: 'Breakfast' | 'Lunch' | 'Snack' | 'Dinner'; date?: string }
   | { type: 'add_fridge'; name: string; section: 'fridge' | 'freezer' | 'pantry' | 'condiments'; store?: string; size?: string; unit_size_g?: number; unit_count?: number; cost?: number }
 export interface AiActResponse {
   ok: boolean

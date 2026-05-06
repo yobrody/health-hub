@@ -293,10 +293,11 @@ export default defineConfig(({ mode }) => {
       tailwindcss(),
       localAiPlugin(geminiKey),
       VitePWA({
-        registerType: 'autoUpdate',
-        // Force the new SW to activate immediately and take over all open
-        // clients on first install. Without these the user has to reload
-        // twice to see new code (PWA waits its turn). With them, one reload.
+        // 'prompt' so the in-app UpdatePrompt component drives the upgrade.
+        // Was 'autoUpdate' which silently swapped assets — meant users could
+        // run stale JS until they happened to fully close + reopen the tab.
+        // Now they see "New version ready — Update" and one tap reloads.
+        registerType: 'prompt',
         injectRegister: 'auto',
         includeAssets: ['icon.svg', 'maskable-icon.svg'],
         manifest: {
