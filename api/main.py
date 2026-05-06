@@ -631,7 +631,7 @@ def week_stats(key=Depends(require_key)):
     week_start = (date.today() - timedelta(days=6)).isoformat()
     week_workouts = [w for w in workouts if w.get("start_time", "") >= week_start]
     logged_days = sum(1 for d in food_data if d["logged"])
-    avg_kcal = sum(d["kcal"] for d in food_data if d["logged"]) // max(logged_days, 1)
+    avg_kcal = sum(d["total_kcal"] for d in food_data if d["logged"]) // max(logged_days, 1)
     return {
         "food_by_day": food_data,
         "logged_days": logged_days,

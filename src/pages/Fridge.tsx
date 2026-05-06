@@ -497,9 +497,11 @@ function FridgeSvg({ itemCount }: { itemCount: number }) {
             fill="#1A2530" stroke="#0E1620" strokeWidth="0.6"/>
       <rect x="44" y="386" width="38" height="4" rx="1.5"
             fill="#5EE6A8" opacity="0.18"/>
+      {/* Audit P0-4: was '3°C' (fridge temp on a freezer compartment).
+          Standard freezer is around -18°C. */}
       <text x="63" y="397" textAnchor="middle"
             fontFamily="ui-monospace, monospace" fontSize="11" fontWeight="bold"
-            fill="#5EE6A8">3°C</text>
+            fill="#5EE6A8">-18°</text>
       {/* "FREEZER" label next to LCD */}
       <text x="98" y="396" textAnchor="start"
             fontFamily="system-ui, sans-serif" fontSize="9" fontWeight="800"
@@ -1284,9 +1286,11 @@ export default function Fridge() {
   const [showAdd, setShowAdd] = useState(false)
   const [addName, setAddName] = useState('')
   const [addZone, setAddZone] = useState<Zone>('fridge')
-  const [scanning, setScanning] = useState(false)
+  // Loading state used internally by handleScan; no UI reads it any more
+  // since the header Scan button was removed (audit P0-2).
+  const [, setScanning] = useState(false)
   const [scanStatus, setScanStatus] = useState<string | null>(null)
-  const [barcodeScanning, setBarcodeScanning] = useState(false)
+  const [, setBarcodeScanning] = useState(false)
   const [detailModal, setDetailModal] = useState<{ name: string; zone: Zone } | null>(null)
   const [activeDragName, setActiveDragName] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -1671,19 +1675,12 @@ export default function Fridge() {
               )}
             </div>
           </div>
+          {/* Header action: only manual + Add. The bottom camera FAB
+              already exposes "Scan Receipt" + "Scan Barcode" — duplicating
+              them up here was redundant + cluttered (audit P0-2). */}
           <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
-            <button onClick={() => barcodeInputRef.current?.click()} disabled={barcodeScanning}
-              style={{ background: barcodeScanning ? 'var(--gray5)' : 'var(--purple)', color: '#fff',
-                border: 'none', borderRadius: 20, padding: '8px 13px', fontSize: 13, fontWeight: 600, cursor: 'pointer', opacity: barcodeScanning ? 0.7 : 1 }}>
-              {barcodeScanning ? <span className="btn-spinner" /> : '🏷️ Barcode'}
-            </button>
-            <button onClick={() => fileInputRef.current?.click()} disabled={scanning}
-              style={{ background: scanning ? 'var(--gray5)' : 'var(--green)', color: scanning ? 'var(--label2)' : '#fff',
-                border: 'none', borderRadius: 20, padding: '8px 13px', fontSize: 13, fontWeight: 600, cursor: 'pointer', opacity: scanning ? 0.7 : 1 }}>
-              {scanning ? '\u23F3' : '\u{1F4F7} Scan'}
-            </button>
             <button onClick={() => setShowAdd(true)}
-              style={{ background: 'var(--blue)', color: '#fff', border: 'none', borderRadius: 20, padding: '8px 13px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+              style={{ background: 'var(--blue)', color: '#fff', border: 'none', borderRadius: 20, padding: '8px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
               + Add
             </button>
           </div>

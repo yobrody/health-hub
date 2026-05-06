@@ -1058,19 +1058,30 @@ export default function Workout() {
           </>
         )}
 
-        {/* Recent workouts */}
-        {workouts.length > 0 && (
-          <>
-            <div className="section-label">Recent</div>
-            <div className="card">
-              {[...workouts].reverse().slice(0, 5).map((w, i) => {
-                const start = new Date(w.start_time)
-                const end = new Date(w.end_time)
-                const mins = Math.round((end.getTime() - start.getTime()) / 60000)
-                const vol = w.exercises.reduce((a, ex) => a + ex.sets.reduce((b, s) => b + (s.weight_kg ?? 0) * (s.reps ?? 0), 0), 0)
-                const isProgramDay = ROTATION.includes(w.title as DayName)
-                return (
-                  <div key={w.id || i} className="list-row" style={{ gap: 10 }}>
+        {/* Recent workouts — only completed sessions (audit P0-5).
+            Filter rules:
+              • mins > 0  AND
+              • at least one set has either reps or weight logged
+            so 0-min / 0-kg "drafts" don't pollute the list. */}
+        {(() => {
+          const completed = [...workouts].reverse().filter(w => {
+            const mins = (new Date(w.end_time).getTime() - new Date(w.start_time).getTime()) / 60000
+            const hasAnyLoggedSet = w.exercises.some(ex => ex.sets.some(s => (s.reps ?? 0) > 0 || (s.weight_kg ?? 0) > 0))
+            return mins >= 1 && hasAnyLoggedSet
+          })
+          if (completed.length === 0) return null
+          return (
+            <>
+              <div className="section-label">Recent</div>
+              <div className="card">
+                {completed.slice(0, 5).map((w, i) => {
+                  const start = new Date(w.start_time)
+                  const end = new Date(w.end_time)
+                  const mins = Math.round((end.getTime() - start.getTime()) / 60000)
+                  const vol = w.exercises.reduce((a, ex) => a + ex.sets.reduce((b, s) => b + (s.weight_kg ?? 0) * (s.reps ?? 0), 0), 0)
+                  const isProgramDay = ROTATION.includes(w.title as DayName)
+                  return (
+                    <div key={w.id || i} className="list-row" style={{ gap: 10 }}>
                     <button
                       onClick={() => loadWorkoutForEdit(w)}
                       title="Tap to edit this workout"
@@ -1095,11 +1106,12 @@ export default function Workout() {
                       style={{ background: 'none', border: 'none', color: 'var(--label3)', cursor: 'pointer', padding: '4px 6px', fontSize: 18, borderRadius: 8, flexShrink: 0 }}
                     >×</button>
                   </div>
-                )
-              })}
-            </div>
-          </>
-        )}
+                  )
+                })}
+              </div>
+            </>
+          )
+        })()}
 
         {workouts.length === 0 && (
           <div style={{ textAlign: 'center', padding: '24px 24px', color: 'var(--label2)' }}>
