@@ -883,6 +883,68 @@ def log_routine(name: str, key=Depends(require_key)):
     save_routines(data)
     return {"ok": True, "date": today_str}
 
+# ── BODY WEIGHT ───────────────────────────────────────────────────────
+WEIGHT_FILE = DATA_DIR / "weight_log.json"
+
+def load_weights() -> list:
+    if WEIGHT_FILE.exists():
+        try:
+            return json.loads(WEIGHT_FILE.read_text())
+        except json.JSONDecodeError:
+            return []
+    return []
+
+def save_weights(weights: list):
+    # Atomic write so a crash mid-write can't corrupt the log.
+    tmp = WEIGHT_FILE.with_suffix(".json.tmp")
+    tmp.write_text(json.dumps(weights, indent=2))
+    tmp.replace(WEIGHT_FILE)
+
+class WeightEntry(BaseModel):
+    kg: float
+    # Optional ISO date YYYY-MM-DD. Defaults to today on the server side.
+    date: Optional[str] = None
+
+@app.get("/weight")
+def get_weight_log(days: int = 60, key=Depends(require_key)):
+    """Return the weight log, oldest-first, capped to the last `days` window
+    (so the client sparkline doesn't lug around a year of history)."""
+    weights = load_weights()
+    if not weights:
+        return {"entries": []}
+    cutoff = (date.today() - timedelta(days=max(1, min(days, 730)))).isoformat()
+    filtered = [w for w in weights if w.get("date", "") >= cutoff]
+    filtered.sort(key=lambda w: w["date"])
+    return {"entries": filtered}
+
+@app.post("/weight")
+def log_weight(entry: WeightEntry, key=Depends(require_key)):
+    """Record a weight reading. One per day — same-day re-logs OVERWRITE
+    rather than appending (the user's 'this morning' weigh-in is the only
+    one that matters for trend analysis). Clamps to a sane physiological
+    range to catch typos."""
+    if entry.kg < 30 or entry.kg > 300:
+        raise HTTPException(status_code=400, detail="kg must be between 30 and 300")
+    target = entry.date or date.today().isoformat()
+    try:
+        date.fromisoformat(target)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="date must be ISO YYYY-MM-DD")
+    weights = load_weights()
+    # Overwrite same-day entry if it exists
+    weights = [w for w in weights if w.get("date") != target]
+    weights.append({
+        "date": target,
+        "kg": round(float(entry.kg), 2),
+        "logged_at": datetime.now().isoformat(),
+    })
+    weights.sort(key=lambda w: w["date"])
+    # Keep last 730 days (2 years) — bigger than the 60-day default read window
+    # so users can switch year-on-year views later without losing data.
+    weights = weights[-730:]
+    save_weights(weights)
+    return {"ok": True, "date": target, "kg": round(float(entry.kg), 2)}
+
 @app.get("/routines/{name}/streak")
 def get_streak(name: str, key=Depends(require_key)):
     data = load_routines()

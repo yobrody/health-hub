@@ -96,7 +96,9 @@ export default function GoalsPage() {
   const [draft, setDraft] = useState<GoalsUpdateInput>({})
   const [saving, setSaving] = useState(false)
 
-  // Body weight (localStorage, 30-day history)
+  // Body weight — VPS-backed so it syncs across devices and the AI assistant
+  // can read history. Initial state from localStorage cache (instant first
+  // paint), then refreshed from VPS on mount. Same shape: WeightEntry[].
   const [weights, setWeights] = useState<WeightEntry[]>(() => {
     try { return JSON.parse(localStorage.getItem('weight_log') || '[]') } catch { return [] }
   })
@@ -107,6 +109,12 @@ export default function GoalsPage() {
   useEffect(() => {
     api.getWeekStats().then(s => setStats(s)).catch(() => setStats(null))
     api.getGoals().then(g => setGoals(g.parsed)).catch(() => {})
+    // Pull authoritative weight log from VPS, refresh local cache.
+    api.getWeightLog(60).then(r => {
+      const fresh = r.entries.map(e => ({ date: e.date, kg: e.kg }))
+      setWeights(fresh)
+      try { localStorage.setItem('weight_log', JSON.stringify(fresh)) } catch { /* quota */ }
+    }).catch(() => { /* offline / VPS down — localStorage cache stays */ })
   }, [])
 
   // Adaptive-target signal — derived; computed once per render. Only actionable
@@ -144,19 +152,29 @@ export default function GoalsPage() {
     } finally { setSaving(false) }
   }
 
-  function logWeight() {
+  async function logWeight() {
     const kg = parseFloat(weightInput)
-    if (isNaN(kg) || kg < 20 || kg > 300) return
+    if (isNaN(kg) || kg < 30 || kg > 300) {
+      showToast('Weight must be between 30 and 300 kg', 'err')
+      return
+    }
     const today = new Date().toISOString().slice(0, 10)
+    // Optimistic local update so the sparkline + suggested target update
+    // immediately, then VPS write in the background.
     const updated = [...weights.filter(w => w.date !== today), { date: today, kg }]
       .sort((a, b) => a.date.localeCompare(b.date))
       .slice(-60)
     setWeights(updated)
-    try { localStorage.setItem('weight_log', JSON.stringify(updated)) } catch { /* ignore quota errors */ }
+    try { localStorage.setItem('weight_log', JSON.stringify(updated)) } catch { /* quota */ }
     setWeightInput('')
     setShowWeightInput(false)
     if (navigator.vibrate) navigator.vibrate(10)
-    showToast(`Weight logged: ${kg}kg`)
+    try {
+      await api.addWeightEntry(kg, today)
+      showToast(`Weight logged: ${kg}kg`)
+    } catch (err) {
+      showToast(`Saved locally — VPS sync failed (${String(err).slice(0, 40)})`, 'err')
+    }
   }
 
   const loggedDays = stats?.logged_days ?? 0

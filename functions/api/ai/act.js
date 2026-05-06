@@ -152,6 +152,13 @@ Available action types:
    "errand: pick up parcel from PO". Default list is "groceries" for food
    items, "shopping" for non-food consumer goods, "errands" for tasks.
 
+7. log_weight — record a body-weight reading
+   args: { kg: number, date?: string }
+   Use for "weighed 64.5", "scale said 64.2 kg this morning",
+   "weight 142 lbs" (CONVERT to kg: lbs × 0.4536). Round to 1 decimal.
+   "yesterday morning I was 64.3" → date=yesterday. Same-day re-logs
+   overwrite (the most recent reading wins).
+
 Return ONLY this JSON (no markdown):
 {
   "actions": [ { "type": "...", ...args } ],
@@ -178,6 +185,9 @@ User: "had two glasses of water and meditated for 10 minutes"
   {"type":"log_water","count":2},
   {"type":"mark_routine","name":"meditate"}
 ],"summary":"Logged 2 glasses of water and marked meditation done."}
+
+User: "weighed 64.5 this morning"
+{"actions":[{"type":"log_weight","kg":64.5}],"summary":"Logged 64.5 kg."}
 
 User: "had my breakfast"
 {"actions":[{"type":"log_food","name":"Standard breakfast","count":1,"kcal":750,"protein_g":35,"meal":"Breakfast"}],"summary":"Logged your standard breakfast (~750 kcal, 35g protein)."}
@@ -259,6 +269,18 @@ User: "${prompt.replace(/"/g, '\\"')}"`
       if (!text) continue
       const list = VALID_LISTS.has(a.list) ? a.list : 'groceries'
       cleaned.push({ type: 'add_list_item', list, text })
+    } else if (a.type === 'log_weight') {
+      const kg = clampNumber(a.kg, 30, 300)
+      if (!kg) continue
+      const out = { type: 'log_weight', kg: Math.round(kg * 10) / 10 }
+      if (typeof a.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(a.date)) {
+        const d = new Date(a.date + 'T12:00:00Z')
+        if (!isNaN(d.getTime())) {
+          const days = (now.getTime() - d.getTime()) / 86400000
+          if (days >= -1 && days <= 30) out.date = a.date
+        }
+      }
+      cleaned.push(out)
     }
   }
 

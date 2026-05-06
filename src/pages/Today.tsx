@@ -121,6 +121,72 @@ function BigNumber({ value, unit, color, mono = true }: { value: string | number
   )
 }
 
+/** Compute latest weight + 7-day delta from a sorted entries list. Pulled
+ *  out of the WeightTile render so the impure Date.now() call lives in
+ *  the data-fetch path, not in render — keeping React 19 hook lint happy. */
+function computeWeightTrend(entries: { date: string; kg: number }[]) {
+  const sorted = [...entries].sort((a, b) => a.date.localeCompare(b.date))
+  const latest = sorted[sorted.length - 1]
+  const ref = Date.now() - 7 * 86400000
+  const week = sorted.find(w => {
+    const d = new Date(w.date + 'T12:00:00Z').getTime()
+    return d <= ref + 86400000 && d >= ref - 3 * 86400000
+  })
+  return {
+    entries: sorted,
+    latest,
+    delta: latest && week ? latest.kg - week.kg : null,
+  }
+}
+
+/** Today bento tile for body weight. Shows latest reading + 7-day delta
+ *  arrow. Taps through to Goals where you can log a new value, see the
+ *  full sparkline, and apply the suggested calorie target.
+ *  Pulls from VPS on mount; localStorage cache for instant first paint. */
+function WeightTile({ onNavigate }: { onNavigate: (tab: Tab) => void }) {
+  // Combined entries + computed trend in a single state so we don't violate
+  // React 19's set-state-in-effect rule — every fetch resolves with both
+  // the fresh entries AND the latest+delta computed against Date.now() once.
+  const [state, setState] = useState<{
+    entries: { date: string; kg: number }[]
+    latest: { date: string; kg: number } | undefined
+    delta: number | null
+  }>(() => {
+    let entries: { date: string; kg: number }[] = []
+    try { entries = JSON.parse(localStorage.getItem('weight_log') || '[]') } catch { /* ignore */ }
+    return computeWeightTrend(entries)
+  })
+  useEffect(() => {
+    api.getWeightLog(14)
+      .then(r => setState(computeWeightTrend(r.entries.map(e => ({ date: e.date, kg: e.kg })))))
+      .catch(() => { /* offline / VPS down */ })
+  }, [])
+  const { latest, delta } = state
+  return (
+    <Card onClick={() => onNavigate('goals')}>
+      <div className="flex items-center justify-between mb-2">
+        <CardLabel>Weight</CardLabel>
+        <Icon.Chevron size={16} className="text-[var(--c-label-faint)]" />
+      </div>
+      <div className="flex items-baseline gap-2">
+        <span className="text-[28px] font-bold tracking-tight" style={{ fontFamily: "'JetBrains Mono', ui-monospace, monospace" }}>
+          {latest ? latest.kg.toFixed(1) : '—'}
+        </span>
+        <span className="text-[13px] text-[var(--c-label-faint)]" style={{ fontFamily: "'JetBrains Mono', ui-monospace, monospace" }}>
+          kg
+        </span>
+      </div>
+      <div className="text-[11px] text-[var(--c-label-faint)] mt-2">
+        {delta !== null
+          ? <span style={{ color: delta > 0.1 ? 'var(--c-green)' : delta < -0.1 ? 'var(--c-orange)' : 'var(--c-label-faint)' }}>
+              {delta > 0 ? '↑' : delta < 0 ? '↓' : '→'} {Math.abs(delta).toFixed(1)}kg vs 7d ago
+            </span>
+          : latest ? 'log a few more days for trend' : 'tap to log'}
+      </div>
+    </Card>
+  )
+}
+
 function WaterTracker() {
   const GOAL = 8
   const todayKey = new Date().toDateString()
@@ -311,6 +377,19 @@ export default function Today({ onNavigate }: Props) {
         return
       case 'add_list_item':
         await api.addListItem(a.list, a.text)
+        return
+      case 'log_weight':
+        await api.addWeightEntry(a.kg, a.date)
+        // Mirror to localStorage so Goals' first paint is instant on next visit.
+        try {
+          const raw = localStorage.getItem('weight_log')
+          const log = raw ? JSON.parse(raw) as { date: string; kg: number }[] : []
+          const target = a.date ?? new Date().toISOString().slice(0, 10)
+          const next = [...log.filter(w => w.date !== target), { date: target, kg: a.kg }]
+            .sort((x, y) => x.date.localeCompare(y.date))
+            .slice(-60)
+          localStorage.setItem('weight_log', JSON.stringify(next))
+        } catch { /* localStorage unavailable */ }
         return
       default: {
         // Exhaustiveness guard — if a new AiAction variant lands without
@@ -603,6 +682,7 @@ export default function Today({ onNavigate }: Props) {
                     mark_routine: 'bg-[var(--c-purple,#a78bfa)]',
                     add_agenda: 'bg-[var(--c-yellow,#fbbf24)]',
                     add_list_item: 'bg-[var(--c-green)]',
+                    log_weight: 'bg-[var(--c-accent)]',
                   }
                   return (
                     <div key={i} className="flex items-center gap-2 text-[12px] text-[var(--c-label-faint)]">
@@ -627,6 +707,10 @@ export default function Today({ onNavigate }: Props) {
                         </>)}
                         {a.type === 'add_list_item' && (<>
                           {a.text}<span className="text-[var(--c-label-faint)]"> → {a.list} list</span>
+                        </>)}
+                        {a.type === 'log_weight' && (<>
+                          Weight: {a.kg.toFixed(1)} kg
+                          {a.date && <span className="text-[var(--c-label-faint)]"> · {a.date}</span>}
                         </>)}
                       </span>
                     </div>
@@ -674,6 +758,7 @@ export default function Today({ onNavigate }: Props) {
                         if (a.type === 'mark_routine') return `routine: ${a.name}`
                         if (a.type === 'add_agenda') return `plan: ${a.title}`
                         if (a.type === 'add_list_item') return `${a.text} → ${a.list}`
+                        if (a.type === 'log_weight') return `weight: ${a.kg.toFixed(1)}kg`
                         return 'action'
                       })()}
                     </span>
@@ -792,6 +877,12 @@ export default function Today({ onNavigate }: Props) {
               <Icon.Chevron size={16} className="text-[var(--c-label-faint)]" />
             </div>
           </Card>
+
+          {/* Body weight — half-tile, taps through to Goals where you log
+              new readings + see the full sparkline. Pulls from VPS so the
+              latest morning weigh-in (typed via AI or Goals form) shows
+              here without a reload. */}
+          <WeightTile onNavigate={onNavigate} />
 
           {/* Hydration — full width */}
           <WaterTracker />

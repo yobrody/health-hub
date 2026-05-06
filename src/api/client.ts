@@ -279,6 +279,17 @@ export const api = {
   clearList: (listName: string) =>
     request<{ ok: boolean }>(`/lists/${listName}`, { method: 'DELETE' }),
 
+  // Body weight log — VPS-backed so it syncs across devices and the AI
+  // assistant can read history. Goals page also mirrors to localStorage as
+  // a hot cache for offline / first-paint.
+  getWeightLog: (days = 60) =>
+    request<{ entries: { date: string; kg: number; logged_at?: string }[] }>(`/weight?days=${days}`),
+  addWeightEntry: (kg: number, date?: string) =>
+    request<{ ok: boolean; date: string; kg: number }>('/weight', {
+      method: 'POST',
+      body: JSON.stringify({ kg, date }),
+    }),
+
   // Routines (skincare, vitamins, etc — single-tap daily check-ins with streak)
   getRoutine: (name: string) => request<RoutineData>(`/routines/${encodeURIComponent(name)}`),
   logRoutine: (name: string) =>
@@ -430,6 +441,9 @@ export type AiAction =
   | { type: 'add_agenda'; title: string; priority: 'low' | 'normal' | 'urgent' }
   // Add an item to a list — calls POST /lists/{list}/items.
   | { type: 'add_list_item'; list: 'groceries' | 'errands' | 'shopping'; text: string }
+  // Log a body-weight reading — calls POST /weight. date optional (YYYY-MM-DD).
+  // Same-day re-logs overwrite, matching the morning weigh-in convention.
+  | { type: 'log_weight'; kg: number; date?: string }
 export interface AiActResponse {
   ok: boolean
   summary: string
