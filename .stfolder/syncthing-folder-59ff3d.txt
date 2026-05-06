@@ -1,0 +1,5 @@
+# This directory is a Syncthing folder marker.
+# Do not delete.
+
+folderID: health-hub
+created: 2026-04-29T19:25:54+01:00

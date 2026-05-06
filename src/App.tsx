@@ -197,7 +197,7 @@ export default function App({ onToggleTheme, theme }: Props) {
           </button>
         )}
         {tab === 'today'     && <Today onNavigate={setTab} onToggleTheme={onToggleTheme} themeIcon={themeIcon} />}
-        {tab === 'nutrition' && <Nutrition onNavigate={setTab as (tab: string) => void} />}
+        {tab === 'nutrition' && <Nutrition />}
         {tab === 'fridge'    && <Fridge />}
         {tab === 'workout'   && <Workout />}
         {tab === 'skincare'  && <Skincare />}

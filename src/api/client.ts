@@ -89,8 +89,12 @@ export const api = {
   getFridge: () => request<FridgeData>('/fridge'),
   addFridgeItem: (name: string, section: string, meta?: AddFridgeItemMeta) =>
     request('/fridge/item', { method: 'POST', body: JSON.stringify({ name, section, ...meta }) }),
-  removeFridgeItem: (name: string) =>
-    request(`/fridge/item/${encodeURIComponent(name)}`, { method: 'DELETE' }),
+  // Default exact-match (case-insensitive). Pass contains=true to fall back
+  // to substring match when the user-facing name might differ from storage
+  // (whitespace, weird casing). The substring path can nuke multiple rows
+  // — only used as a fallback after exact returned 404.
+  removeFridgeItem: (name: string, opts?: { contains?: boolean }) =>
+    request(`/fridge/item/${encodeURIComponent(name)}${opts?.contains ? '?contains=true' : ''}`, { method: 'DELETE' }),
   // Atomic decrement of a fridge item's remaining grams or count. Used when a
   // Home meal is logged via camera so the fridge inventory stays current.
   consumeFridgeItem: (name: string, input: { grams?: number; count?: number }) =>

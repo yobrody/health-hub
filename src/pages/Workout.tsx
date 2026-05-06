@@ -402,10 +402,18 @@ function DayCard({ day, isNext, onStart }: { day: ProgramDay; isNext: boolean; o
         <div style={{ fontSize: 18, fontWeight: 700, color: isNext ? '#fff' : 'var(--label)' }}>{day.name}</div>
         <div style={{ fontSize: 13, color: isNext ? 'rgba(255,255,255,0.75)' : 'var(--label2)', marginTop: 2 }}>{day.focus}</div>
       </div>
+      {day.warmup && (
+        <div style={{ fontSize: 12, color: isNext ? 'rgba(255,255,255,0.7)' : 'var(--label3)', marginBottom: 6, fontStyle: 'italic' }}>
+          Warm-up: {day.warmup}
+        </div>
+      )}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 3, marginBottom: isNext ? 12 : 0 }}>
         {day.exercises.slice(0, 4).map((ex, i) => (
           <div key={i} style={{ fontSize: 13, color: isNext ? 'rgba(255,255,255,0.8)' : 'var(--label2)' }}>
             {ex.sets}×{ex.repRange} {ex.name}
+            {ex.startingWeight && (
+              <span style={{ color: isNext ? 'rgba(255,255,255,0.55)' : 'var(--label3)', fontSize: 12 }}> · {ex.startingWeight}</span>
+            )}
           </div>
         ))}
         {day.exercises.length > 4 && (

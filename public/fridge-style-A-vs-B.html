@@ -1,0 +1,370 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Fridge style — A vs B</title>
+<style>
+  :root {
+    --bg: #F4F1E8;
+    --label: #1F1B14;
+    --label-dim: #6B5F4D;
+    --card: #FFFFFF;
+    --border: #2A2418;
+    --accent: #2B6CB0;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--label);
+    font-family: 'Inter', -apple-system, system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  body { padding: 32px 16px 64px; max-width: 980px; margin: 0 auto; }
+  h1 { font-size: 28px; font-weight: 800; letter-spacing: -0.025em; margin: 0 0 4px; }
+  .lede { color: var(--label-dim); font-size: 15px; margin: 0 0 28px; }
+
+  .grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+  @media (max-width: 700px) {
+    .grid { grid-template-columns: 1fr; gap: 24px; }
+  }
+
+  .panel {
+    background: var(--card);
+    border: 2px solid var(--border);
+    border-radius: 16px;
+    padding: 16px 16px 20px;
+    box-shadow: 0 8px 0 -2px var(--border), 0 12px 28px -8px rgba(0,0,0,0.18);
+  }
+  .panel-title {
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 4px;
+  }
+  .panel-name {
+    font-size: 22px;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    margin: 0 0 6px;
+  }
+  .panel-desc {
+    font-size: 13px;
+    color: var(--label-dim);
+    line-height: 1.5;
+    margin: 0 0 16px;
+    min-height: 60px;
+  }
+  .svg-wrap {
+    background: linear-gradient(180deg, #FAF7EC 0%, #E5DFCB 100%);
+    border-radius: 12px;
+    padding: 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 14px;
+    border: 1.5px solid var(--border);
+  }
+  .pro-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    font-size: 12.5px;
+    color: var(--label);
+  }
+  .pro-list li {
+    padding: 4px 0 4px 22px;
+    position: relative;
+    line-height: 1.4;
+  }
+  .pro-list li::before {
+    content: '✓';
+    position: absolute;
+    left: 0;
+    top: 4px;
+    color: #2C8C5E;
+    font-weight: 800;
+  }
+  .con-list li::before { content: '−'; color: #B0763A; font-weight: 900; }
+
+  .footer {
+    text-align: center;
+    margin-top: 32px;
+    padding: 20px;
+    background: var(--card);
+    border: 2px solid var(--border);
+    border-radius: 12px;
+    box-shadow: 0 6px 0 -2px var(--border);
+    font-size: 14px;
+  }
+  .footer b { color: var(--accent); }
+</style>
+</head>
+<body>
+
+<h1>Fridge style: A vs B</h1>
+<p class="lede">Pick the visual direction. Both will use Noto Color food icons inside (these mockups use simple shapes as placeholders).</p>
+
+<div class="grid">
+
+  <!-- ============ STYLE A: FRONT CUTAWAY ============ -->
+  <div class="panel">
+    <div class="panel-title">Option A</div>
+    <h2 class="panel-name">Front cutaway</h2>
+    <p class="panel-desc">Classic children's-book fridge. Front view, door appears "see-through" so you read items as if looking through the door panel.</p>
+    <div class="svg-wrap">
+      <svg width="220" height="380" viewBox="0 0 220 380" xmlns="http://www.w3.org/2000/svg">
+        <!-- Floor shadow -->
+        <ellipse cx="110" cy="372" rx="80" ry="6" fill="#000" opacity="0.18"/>
+
+        <!-- Body — bold cartoon outline, white fill with subtle shading -->
+        <rect x="20" y="14" width="180" height="350" rx="22" ry="22"
+              fill="#FFFFFF" stroke="#1F1B14" stroke-width="3.5"/>
+        <!-- Left side cell-shade (subtle volume) -->
+        <path d="M 20 36 Q 20 14 42 14 L 42 364 Q 20 364 20 342 Z"
+              fill="#E8E1CE" opacity="0.6"/>
+        <!-- Top-left rim highlight -->
+        <path d="M 28 22 Q 28 16 34 16 L 110 16"
+              fill="none" stroke="#FFFFFF" stroke-width="2" opacity="0.9"/>
+
+        <!-- Magnet stickers on the front (top corner area) -->
+        <circle cx="160" cy="32" r="5" fill="#E84B6A" stroke="#1F1B14" stroke-width="2"/>
+        <circle cx="178" cy="42" r="5" fill="#F2C744" stroke="#1F1B14" stroke-width="2"/>
+        <circle cx="160" cy="56" r="5" fill="#7AC74F" stroke="#1F1B14" stroke-width="2"/>
+
+        <!-- BRAND BADGE -->
+        <rect x="50" y="28" width="68" height="14" rx="3" fill="#2B6CB0" stroke="#1F1B14" stroke-width="2"/>
+        <text x="84" y="38" text-anchor="middle"
+              font-family="system-ui, sans-serif" font-size="9" font-weight="800" fill="#fff"
+              letter-spacing="1.5">HOMECOOL</text>
+
+        <!-- ============ FREEZER COMPARTMENT ============ -->
+        <rect x="32" y="64" width="156" height="58" rx="10"
+              fill="#EAF3FB" stroke="#1F1B14" stroke-width="2.5"/>
+        <!-- LCD readout -->
+        <rect x="44" y="74" width="34" height="14" rx="2" fill="#1A2530"/>
+        <text x="61" y="84" text-anchor="middle"
+              font-family="ui-monospace, monospace" font-size="9" font-weight="bold" fill="#5EE6A8">3°C</text>
+        <!-- Snowflake -->
+        <g transform="translate(160 92)" stroke="#2B6CB0" stroke-width="2" stroke-linecap="round" fill="none">
+          <line x1="-9" y1="0" x2="9" y2="0"/>
+          <line x1="0" y1="-9" x2="0" y2="9"/>
+          <line x1="-6.4" y1="-6.4" x2="6.4" y2="6.4"/>
+          <line x1="-6.4" y1="6.4" x2="6.4" y2="-6.4"/>
+        </g>
+        <!-- Freezer divider -->
+        <line x1="20" y1="128" x2="200" y2="128" stroke="#1F1B14" stroke-width="3"/>
+
+        <!-- ============ MAIN FRIDGE INTERIOR (cutaway) ============ -->
+        <rect x="32" y="138" width="156" height="208" rx="6"
+              fill="#D8ECF8" stroke="#1F1B14" stroke-width="2.5"/>
+        <!-- Light bulb at top of interior -->
+        <ellipse cx="110" cy="148" rx="46" ry="6"
+                 fill="#FFF3B8" opacity="0.9"/>
+        <circle cx="110" cy="146" r="4" fill="#FFE066" stroke="#1F1B14" stroke-width="1.5"/>
+        <!-- Light rays -->
+        <line x1="110" y1="138" x2="110" y2="135" stroke="#F2C744" stroke-width="1.5" stroke-linecap="round"/>
+        <line x1="118" y1="142" x2="121" y2="140" stroke="#F2C744" stroke-width="1.5" stroke-linecap="round"/>
+        <line x1="102" y1="142" x2="99" y2="140" stroke="#F2C744" stroke-width="1.5" stroke-linecap="round"/>
+
+        <!-- Shelves (3) -->
+        <line x1="32" y1="200" x2="188" y2="200" stroke="#1F1B14" stroke-width="2.5"/>
+        <line x1="32" y1="262" x2="188" y2="262" stroke="#1F1B14" stroke-width="2.5"/>
+        <line x1="32" y1="320" x2="188" y2="320" stroke="#1F1B14" stroke-width="2.5"/>
+
+        <!-- Items on shelves (placeholder shapes) -->
+        <!-- Shelf 1 -->
+        <circle cx="60" cy="186" r="14" fill="#E84B6A" stroke="#1F1B14" stroke-width="2"/>
+        <ellipse cx="100" cy="184" rx="8" ry="16" fill="#F2C744" stroke="#1F1B14" stroke-width="2" transform="rotate(-15 100 184)"/>
+        <rect x="135" y="170" width="22" height="28" rx="2" fill="#FFF" stroke="#1F1B14" stroke-width="2"/>
+        <!-- Shelf 2 -->
+        <ellipse cx="60" cy="248" rx="13" ry="11" fill="#7AC74F" stroke="#1F1B14" stroke-width="2"/>
+        <circle cx="100" cy="248" r="11" fill="#F4A261" stroke="#1F1B14" stroke-width="2"/>
+        <rect x="138" y="232" width="20" height="28" rx="3" fill="#A85A2C" stroke="#1F1B14" stroke-width="2"/>
+        <!-- Shelf 3 -->
+        <rect x="40" y="295" width="42" height="22" rx="3" fill="#62B7DC" stroke="#1F1B14" stroke-width="2"/>
+        <ellipse cx="120" cy="306" rx="14" ry="12" fill="#9F4C8B" stroke="#1F1B14" stroke-width="2"/>
+        <circle cx="160" cy="306" r="12" fill="#E63946" stroke="#1F1B14" stroke-width="2"/>
+
+        <!-- Bottom drawer -->
+        <rect x="32" y="328" width="156" height="14" rx="2" fill="#C8DDF0" stroke="#1F1B14" stroke-width="2"/>
+
+        <!-- Hinges -->
+        <circle cx="20" cy="64" r="4" fill="#9AA0A8" stroke="#1F1B14" stroke-width="2"/>
+        <circle cx="20" cy="320" r="4" fill="#9AA0A8" stroke="#1F1B14" stroke-width="2"/>
+
+        <!-- Right handle -->
+        <rect x="195" y="120" width="12" height="200" rx="6"
+              fill="#D8DEE5" stroke="#1F1B14" stroke-width="2.5"/>
+        <line x1="201" y1="140" x2="201" y2="300" stroke="#FFFFFF" stroke-width="2" opacity="0.7"/>
+
+        <!-- Feet -->
+        <rect x="38" y="362" width="24" height="10" rx="2" fill="#5A6068" stroke="#1F1B14" stroke-width="2"/>
+        <rect x="158" y="362" width="24" height="10" rx="2" fill="#5A6068" stroke="#1F1B14" stroke-width="2"/>
+      </svg>
+    </div>
+    <ul class="pro-list">
+      <li>Easy to read at a glance — symmetric, familiar</li>
+      <li>Items in clear shelf rows, no perspective math</li>
+      <li>Magnets, brand badge, dial all visible up front</li>
+    </ul>
+    <ul class="pro-list con-list">
+      <li>Less "3D" — no door swung open</li>
+      <li>Can't show door bins (egg holder, etc) — they'd be hidden</li>
+    </ul>
+  </div>
+
+  <!-- ============ STYLE B: DOOR OPEN AT ANGLE ============ -->
+  <div class="panel">
+    <div class="panel-title">Option B</div>
+    <h2 class="panel-name">Door swung open</h2>
+    <p class="panel-desc">3D-feeling perspective. The fridge body is straight; the door is drawn opened to the left, showing the inside of the door with bins.</p>
+    <div class="svg-wrap">
+      <svg width="260" height="380" viewBox="0 0 260 380" xmlns="http://www.w3.org/2000/svg">
+        <!-- Floor shadow -->
+        <ellipse cx="150" cy="372" rx="100" ry="6" fill="#000" opacity="0.18"/>
+
+        <!-- ============ OPEN DOOR (left, swung outward) ============ -->
+        <!-- Door swung 70° open — drawn as a parallelogram to fake perspective -->
+        <path d="M 50 30 L 16 50 L 16 350 L 50 360 Z"
+              fill="#FFFFFF" stroke="#1F1B14" stroke-width="3"/>
+        <!-- Inside-of-door has its own shading (we see the back of the door) -->
+        <path d="M 50 30 L 16 50 L 16 350 L 50 360 Z"
+              fill="url(#doorShade)" opacity="0.7"/>
+
+        <!-- Door bins drawn ON the open door panel -->
+        <!-- Egg holder slot -->
+        <rect x="22" y="72" width="22" height="14" rx="2" fill="#FFF" stroke="#1F1B14" stroke-width="2"/>
+        <line x1="28" y1="72" x2="28" y2="86" stroke="#1F1B14" stroke-width="1.5"/>
+        <line x1="33" y1="72" x2="33" y2="86" stroke="#1F1B14" stroke-width="1.5"/>
+        <line x1="38" y1="72" x2="38" y2="86" stroke="#1F1B14" stroke-width="1.5"/>
+        <!-- Eggs in holder -->
+        <ellipse cx="25.5" cy="79" rx="2" ry="2.5" fill="#FFF8E2" stroke="#1F1B14" stroke-width="1"/>
+        <ellipse cx="30.5" cy="79" rx="2" ry="2.5" fill="#FFF8E2" stroke="#1F1B14" stroke-width="1"/>
+        <ellipse cx="35.5" cy="79" rx="2" ry="2.5" fill="#FFF8E2" stroke="#1F1B14" stroke-width="1"/>
+        <ellipse cx="40.5" cy="79" rx="2" ry="2.5" fill="#FFF8E2" stroke="#1F1B14" stroke-width="1"/>
+
+        <!-- Condiment bin with bottles -->
+        <rect x="22" y="170" width="24" height="32" rx="2" fill="#FFF" stroke="#1F1B14" stroke-width="2"/>
+        <rect x="25" y="172" width="6" height="28" rx="1" fill="#E63946" stroke="#1F1B14" stroke-width="1.5"/>
+        <rect x="32" y="174" width="6" height="26" rx="1" fill="#F2C744" stroke="#1F1B14" stroke-width="1.5"/>
+        <rect x="39" y="176" width="6" height="24" rx="1" fill="#7AC74F" stroke="#1F1B14" stroke-width="1.5"/>
+
+        <!-- Tall bottle slot -->
+        <rect x="22" y="260" width="24" height="80" rx="2" fill="#FFF" stroke="#1F1B14" stroke-width="2"/>
+        <rect x="26" y="270" width="7" height="65" rx="1" fill="#62B7DC" stroke="#1F1B14" stroke-width="1.5"/>
+        <rect x="35" y="278" width="7" height="57" rx="1" fill="#A85A2C" stroke="#1F1B14" stroke-width="1.5"/>
+
+        <!-- Door handle (on the swung-open door, visible from this side as a bar) -->
+        <rect x="46" y="170" width="6" height="50" rx="3" fill="#D8DEE5" stroke="#1F1B14" stroke-width="2"/>
+
+        <defs>
+          <linearGradient id="doorShade" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0%" stop-color="#E8E1CE" stop-opacity="0.6"/>
+            <stop offset="100%" stop-color="#E8E1CE" stop-opacity="0"/>
+          </linearGradient>
+        </defs>
+
+        <!-- ============ MAIN BODY (right of door, slightly angled) ============ -->
+        <!-- Body's right side panel (for 3D effect) -->
+        <path d="M 234 18 L 250 28 L 250 358 L 234 348 Z"
+              fill="#C8CDD3" stroke="#1F1B14" stroke-width="3"/>
+
+        <!-- Main body front -->
+        <rect x="50" y="14" width="184" height="346" rx="14"
+              fill="#FFFFFF" stroke="#1F1B14" stroke-width="3"/>
+
+        <!-- Brand badge -->
+        <rect x="80" y="28" width="68" height="14" rx="3" fill="#2B6CB0" stroke="#1F1B14" stroke-width="2"/>
+        <text x="114" y="38" text-anchor="middle"
+              font-family="system-ui, sans-serif" font-size="9" font-weight="800" fill="#fff"
+              letter-spacing="1.5">HOMECOOL</text>
+
+        <!-- Magnets -->
+        <circle cx="190" cy="38" r="5" fill="#E84B6A" stroke="#1F1B14" stroke-width="2"/>
+        <circle cx="208" cy="32" r="5" fill="#7AC74F" stroke="#1F1B14" stroke-width="2"/>
+
+        <!-- Freezer (top section) -->
+        <rect x="60" y="58" width="164" height="50" rx="8"
+              fill="#EAF3FB" stroke="#1F1B14" stroke-width="2.5"/>
+        <rect x="72" y="68" width="34" height="14" rx="2" fill="#1A2530"/>
+        <text x="89" y="78" text-anchor="middle"
+              font-family="ui-monospace, monospace" font-size="9" font-weight="bold" fill="#5EE6A8">3°C</text>
+        <g transform="translate(192 84)" stroke="#2B6CB0" stroke-width="2" stroke-linecap="round" fill="none">
+          <line x1="-9" y1="0" x2="9" y2="0"/>
+          <line x1="0" y1="-9" x2="0" y2="9"/>
+          <line x1="-6.4" y1="-6.4" x2="6.4" y2="6.4"/>
+          <line x1="-6.4" y1="6.4" x2="6.4" y2="-6.4"/>
+        </g>
+        <line x1="50" y1="116" x2="234" y2="116" stroke="#1F1B14" stroke-width="3"/>
+
+        <!-- INTERIOR (where door used to be — exposed!) -->
+        <rect x="60" y="124" width="164" height="226" rx="6"
+              fill="#D8ECF8" stroke="#1F1B14" stroke-width="2.5"/>
+
+        <!-- Light bulb at top of interior with rays -->
+        <circle cx="142" cy="138" r="5" fill="#FFE066" stroke="#1F1B14" stroke-width="1.8"/>
+        <line x1="142" y1="129" x2="142" y2="125" stroke="#F2C744" stroke-width="2" stroke-linecap="round"/>
+        <line x1="151" y1="135" x2="155" y2="133" stroke="#F2C744" stroke-width="2" stroke-linecap="round"/>
+        <line x1="133" y1="135" x2="129" y2="133" stroke="#F2C744" stroke-width="2" stroke-linecap="round"/>
+        <ellipse cx="142" cy="148" rx="42" ry="6" fill="#FFF3B8" opacity="0.85"/>
+
+        <!-- Shelves (3) -->
+        <line x1="60" y1="194" x2="224" y2="194" stroke="#1F1B14" stroke-width="2.5"/>
+        <line x1="60" y1="256" x2="224" y2="256" stroke="#1F1B14" stroke-width="2.5"/>
+        <line x1="60" y1="316" x2="224" y2="316" stroke="#1F1B14" stroke-width="2.5"/>
+
+        <!-- Items on shelves -->
+        <!-- Shelf 1 -->
+        <circle cx="86" cy="180" r="12" fill="#E84B6A" stroke="#1F1B14" stroke-width="2"/>
+        <ellipse cx="124" cy="178" rx="7" ry="14" fill="#F2C744" stroke="#1F1B14" stroke-width="2" transform="rotate(-12 124 178)"/>
+        <rect x="160" y="166" width="22" height="28" rx="2" fill="#FFF" stroke="#1F1B14" stroke-width="2"/>
+        <ellipse cx="206" cy="184" rx="11" ry="9" fill="#7AC74F" stroke="#1F1B14" stroke-width="2"/>
+        <!-- Shelf 2 -->
+        <circle cx="86" cy="244" r="11" fill="#F4A261" stroke="#1F1B14" stroke-width="2"/>
+        <rect x="118" y="228" width="20" height="28" rx="3" fill="#A85A2C" stroke="#1F1B14" stroke-width="2"/>
+        <ellipse cx="166" cy="246" rx="13" ry="9" fill="#62B7DC" stroke="#1F1B14" stroke-width="2"/>
+        <circle cx="206" cy="244" r="11" fill="#9F4C8B" stroke="#1F1B14" stroke-width="2"/>
+        <!-- Shelf 3 -->
+        <rect x="68" y="298" width="32" height="18" rx="3" fill="#62B7DC" stroke="#1F1B14" stroke-width="2"/>
+        <circle cx="130" cy="306" r="10" fill="#E63946" stroke="#1F1B14" stroke-width="2"/>
+        <ellipse cx="176" cy="306" rx="13" ry="10" fill="#7AC74F" stroke="#1F1B14" stroke-width="2"/>
+
+        <!-- Bottom drawer -->
+        <rect x="60" y="336" width="164" height="12" rx="2" fill="#C8DDF0" stroke="#1F1B14" stroke-width="2"/>
+
+        <!-- Hinges (left edge, where door is attached) -->
+        <circle cx="50" cy="60" r="4" fill="#9AA0A8" stroke="#1F1B14" stroke-width="2"/>
+        <circle cx="50" cy="320" r="4" fill="#9AA0A8" stroke="#1F1B14" stroke-width="2"/>
+
+        <!-- Feet -->
+        <rect x="68" y="358" width="22" height="10" rx="2" fill="#5A6068" stroke="#1F1B14" stroke-width="2"/>
+        <rect x="194" y="358" width="22" height="10" rx="2" fill="#5A6068" stroke="#1F1B14" stroke-width="2"/>
+      </svg>
+    </div>
+    <ul class="pro-list">
+      <li>Reads as a real fridge with the door OPEN</li>
+      <li>Door bins (egg holder, condiments, bottles) actually visible on the door</li>
+      <li>3D depth via the side panel + parallax door</li>
+    </ul>
+    <ul class="pro-list con-list">
+      <li>Wider — takes more horizontal page space</li>
+      <li>More elements to maintain across edge cases</li>
+    </ul>
+  </div>
+
+</div>
+
+<div class="footer">
+  Reply with <b>A</b> or <b>B</b> in chat once you've decided. Both will get the full Noto cartoon treatment for items + bigger size + auto-grow shelves with item count.
+</div>
+
+</body>
+</html>

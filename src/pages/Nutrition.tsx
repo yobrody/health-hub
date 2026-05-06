@@ -29,9 +29,9 @@ function ConfidenceBadge({ confidence }: { confidence: FoodAnalysis['confidence'
   return <span style={{ fontSize: 11, fontWeight: 600, color: c.color, background: c.bg, borderRadius: 8, padding: '2px 8px' }}>{c.label}</span>
 }
 
-interface NutritionProps { onNavigate?: (tab: string) => void }
-
-export default function Nutrition({ onNavigate: _onNavigate }: NutritionProps) {
+// onNavigate prop was dropped when audit P1-11 removed the in-header
+// Fridge pill (bottom nav already has Fridge). No props now.
+export default function Nutrition() {
   const [data, setData] = useState<TodayData | null>(null)
   const [history, setHistory] = useState<HistoryDay[]>([])
   const [showAdd, setShowAdd] = useState(false)

@@ -1,0 +1,349 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Fridge icon styles — comparison</title>
+<style>
+  :root {
+    --bg: #09090B;
+    --card: #18181B;
+    --border: #27272A;
+    --label: #FAFAFA;
+    --label-dim: #A1A1AA;
+    --label-faint: #52525B;
+    --accent: #3B82F6;
+    --you-tag: #10B981;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--label);
+    font-family: 'Inter', -apple-system, 'SF Pro Text', 'Helvetica Neue', Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    letter-spacing: -0.15px;
+  }
+  body { padding: 24px 16px 48px; max-width: 980px; margin: 0 auto; }
+  h1 { font-size: 24px; font-weight: 700; letter-spacing: -0.02em; margin: 0 0 4px; }
+  .lede { color: var(--label-dim); font-size: 14px; margin: 0 0 20px; }
+
+  table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+    margin-bottom: 16px;
+  }
+  th, td {
+    padding: 12px 8px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: middle;
+  }
+  th {
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--label-dim);
+    background: #14141A;
+    text-align: center;
+    padding: 12px 8px;
+    position: sticky;
+    top: 0;
+    z-index: 1;
+  }
+  th:first-child { text-align: left; padding-left: 16px; }
+  td:first-child {
+    text-align: left;
+    padding-left: 16px;
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--label);
+    width: 180px;
+  }
+  td:not(:first-child) { text-align: center; }
+  tr:last-child td { border-bottom: none; }
+  tr.section-row td {
+    background: #0F0F12;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--label-dim);
+    padding: 10px 16px;
+  }
+
+  .you-tag {
+    display: inline-block;
+    background: rgba(16,185,129,0.12);
+    color: var(--you-tag);
+    border: 1px solid rgba(16,185,129,0.25);
+    font-size: 9px;
+    font-weight: 700;
+    padding: 1px 5px;
+    border-radius: 4px;
+    margin-left: 6px;
+    vertical-align: middle;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  .icon-cell {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 56px;
+    height: 56px;
+    background: #1F1F23;
+    border-radius: 10px;
+  }
+  .icon-cell img { width: 40px; height: 40px; display: block; }
+  .missing {
+    color: var(--label-faint);
+    font-size: 10px;
+    font-style: italic;
+    text-align: center;
+  }
+
+  .meta {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 16px 20px;
+    margin: 20px 0;
+    font-size: 13px;
+    color: var(--label-dim);
+    line-height: 1.6;
+  }
+  .meta b { color: var(--label); font-weight: 600; }
+  .meta-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+    margin-top: 12px;
+  }
+  .meta-cell {
+    background: #1F1F23;
+    border-radius: 8px;
+    padding: 10px 12px;
+    font-size: 12px;
+  }
+  .meta-cell h3 {
+    font-size: 12px;
+    font-weight: 700;
+    margin: 0 0 6px;
+    color: var(--label);
+  }
+  .price {
+    display: inline-block;
+    font-size: 10px;
+    padding: 1px 6px;
+    border-radius: 4px;
+    background: #2A2A2E;
+    color: var(--label-dim);
+    margin-left: 6px;
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+  }
+  .free { background: #10B98120; color: #10B981; }
+  .paid { background: #F59E0B20; color: #F59E0B; }
+
+  @media (max-width: 700px) {
+    .meta-grid { grid-template-columns: 1fr 1fr; }
+    .icon-cell { width: 44px; height: 44px; }
+    .icon-cell img { width: 32px; height: 32px; }
+    th { font-size: 10px; padding: 8px 4px; }
+    td { padding: 8px 4px; }
+    td:first-child { width: 110px; font-size: 12px; padding-left: 8px; }
+  }
+</style>
+</head>
+<body>
+
+<h1>Fridge icon style comparison</h1>
+<p class="lede">~60 items spanning everything you might keep — your real fridge contents marked <span class="you-tag">YOU</span>.</p>
+
+<div class="meta" id="meta-intro"></div>
+
+<table>
+  <thead>
+    <tr>
+      <th>Item</th>
+      <th>Fluent Emoji 3D</th>
+      <th>Twemoji</th>
+      <th>Noto Color</th>
+      <th>OpenMoji</th>
+    </tr>
+  </thead>
+  <tbody id="rows"></tbody>
+</table>
+
+<div class="meta" id="meta-rec"></div>
+
+<script>
+// All static data, building DOM via API methods.
+const sections = [
+  { label: 'Your fridge', items: [
+    { name: 'Chicken thighs',     icon: 'poultry-leg',                 you: true },
+    { name: 'Greek yogurt',       icon: 'glass-of-milk',               you: true },
+    { name: 'Grapes',             icon: 'grapes',                      you: true },
+    { name: 'Bananas',            icon: 'banana',                      you: true },
+    { name: 'Eggs',               icon: 'egg',                         you: true },
+    { name: 'Tenderstem broccoli', icon: 'broccoli',                   you: true },
+  ]},
+  { label: 'Your pantry', items: [
+    { name: 'Protein meals',      icon: 'pot-of-food',                 you: true },
+    { name: 'Pineapple slices',   icon: 'pineapple',                   you: true },
+    { name: 'Honey',              icon: 'honey-pot',                   you: true },
+    { name: 'Protein rice',       icon: 'cooked-rice',                 you: true },
+    { name: 'Protein pudding',    icon: 'shortcake',                   you: true },
+  ]},
+  { label: 'Other fruit', items: [
+    { name: 'Apple (red)',        icon: 'red-apple' },
+    { name: 'Apple (green)',      icon: 'green-apple' },
+    { name: 'Strawberry',         icon: 'strawberry' },
+    { name: 'Blueberries',        icon: 'blueberries' },
+    { name: 'Lemon',              icon: 'lemon' },
+    { name: 'Orange',             icon: 'tangerine' },
+    { name: 'Watermelon',         icon: 'watermelon' },
+    { name: 'Mango',              icon: 'mango' },
+    { name: 'Peach',              icon: 'peach' },
+    { name: 'Pear',               icon: 'pear' },
+    { name: 'Cherries',           icon: 'cherries' },
+    { name: 'Kiwi',               icon: 'kiwi-fruit' },
+    { name: 'Avocado',            icon: 'avocado' },
+    { name: 'Coconut',            icon: 'coconut' },
+  ]},
+  { label: 'Other vegetables', items: [
+    { name: 'Tomato',             icon: 'tomato' },
+    { name: 'Carrot',             icon: 'carrot' },
+    { name: 'Cucumber',           icon: 'cucumber' },
+    { name: 'Leafy greens',       icon: 'leafy-green' },
+    { name: 'Bell pepper',        icon: 'bell-pepper' },
+    { name: 'Hot pepper',         icon: 'hot-pepper' },
+    { name: 'Onion',              icon: 'onion' },
+    { name: 'Garlic',             icon: 'garlic' },
+    { name: 'Mushroom',           icon: 'mushroom' },
+    { name: 'Eggplant',           icon: 'eggplant' },
+    { name: 'Corn',               icon: 'ear-of-corn' },
+    { name: 'Potato',             icon: 'potato' },
+  ]},
+  { label: 'Protein & meat', items: [
+    { name: 'Steak',              icon: 'cut-of-meat' },
+    { name: 'Bacon',              icon: 'bacon' },
+    { name: 'Fish (whole)',       icon: 'fish' },
+    { name: 'Salmon (sushi)',     icon: 'sushi' },
+    { name: 'Prawns',             icon: 'fried-shrimp' },
+    { name: 'Hot dog',            icon: 'hot-dog' },
+  ]},
+  { label: 'Dairy & eggs', items: [
+    { name: 'Cheese',             icon: 'cheese-wedge' },
+    { name: 'Milk',               icon: 'glass-of-milk' },
+    { name: 'Butter',             icon: 'butter' },
+    { name: 'Ice cream',          icon: 'ice-cream' },
+  ]},
+  { label: 'Grains & bread', items: [
+    { name: 'Bread loaf',         icon: 'bread' },
+    { name: 'Baguette',           icon: 'baguette-bread' },
+    { name: 'Croissant',          icon: 'croissant' },
+    { name: 'Bagel',              icon: 'bagel' },
+    { name: 'Pancakes',           icon: 'pancakes' },
+    { name: 'Rice (cooked)',      icon: 'cooked-rice' },
+    { name: 'Spaghetti',          icon: 'spaghetti' },
+    { name: 'Pretzel',            icon: 'pretzel' },
+  ]},
+  { label: 'Drinks', items: [
+    { name: 'Coffee',             icon: 'hot-beverage' },
+    { name: 'Tea',                icon: 'teacup-without-handle' },
+    { name: 'Bottled water',      icon: 'bottle-with-popping-cork' },
+    { name: 'Beverage box',       icon: 'beverage-box' },
+    { name: 'Tropical drink',     icon: 'tropical-drink' },
+  ]},
+  { label: 'Sweet & snacks', items: [
+    { name: 'Chocolate bar',      icon: 'chocolate-bar' },
+    { name: 'Cookie',             icon: 'cookie' },
+    { name: 'Doughnut',           icon: 'doughnut' },
+    { name: 'Cupcake',            icon: 'cupcake' },
+    { name: 'Lollipop',           icon: 'lollipop' },
+    { name: 'Peanuts',            icon: 'peanuts' },
+    { name: 'Popcorn',            icon: 'popcorn' },
+  ]},
+];
+
+const SETS = ['fluent-emoji', 'twemoji', 'noto', 'openmoji'];
+const ICONIFY = (set, icon) => 'https://api.iconify.design/' + set + '/' + icon + '.svg?width=40&height=40';
+
+function el(tag, props = {}, ...children) {
+  const node = document.createElement(tag);
+  for (const [k, v] of Object.entries(props)) {
+    if (k === 'class') node.className = v;
+    else if (k === 'colspan') node.colSpan = v;
+    else if (k.startsWith('on') && typeof v === 'function') node.addEventListener(k.slice(2).toLowerCase(), v);
+    else node.setAttribute(k, v);
+  }
+  for (const c of children) {
+    if (c == null) continue;
+    node.appendChild(typeof c === 'string' ? document.createTextNode(c) : c);
+  }
+  return node;
+}
+
+function iconCell(set, icon) {
+  const cell = el('span', { class: 'icon-cell' });
+  const img = el('img', { loading: 'lazy', alt: '', src: ICONIFY(set, icon) });
+  img.addEventListener('error', () => {
+    img.replaceWith(el('span', { class: 'missing' }, '—'));
+  });
+  cell.appendChild(img);
+  return cell;
+}
+
+const rows = document.getElementById('rows');
+for (const section of sections) {
+  rows.appendChild(el('tr', { class: 'section-row' },
+    el('td', { colspan: 5 }, section.label)
+  ));
+  for (const it of section.items) {
+    const nameCell = el('td', {}, it.name);
+    if (it.you) nameCell.appendChild(el('span', { class: 'you-tag' }, 'YOU'));
+    rows.appendChild(el('tr', {},
+      nameCell,
+      ...SETS.map(s => el('td', {}, iconCell(s, it.icon)))
+    ));
+  }
+}
+
+// Intro card
+const intro = document.getElementById('meta-intro');
+intro.appendChild(el('b', {}, 'How to read this:'));
+intro.appendChild(document.createTextNode(' scan top-to-bottom in each column. Look for a column whose character (glossy / flat / hand-drawn / cartoony) feels right for the Health Hub vibe.'));
+const grid = el('div', { class: 'meta-grid' });
+const cards = [
+  ['Fluent Emoji 3D', 'free', 'FREE / MIT', 'Microsoft. Glossy, dimensional, modern. Closest to "iOS-app icon" feel.'],
+  ['Twemoji', 'free', 'FREE / CC-BY 4.0', 'Twitter. Flat color, recognizable, slightly Discord-y. Casual.'],
+  ['Noto Color', 'free', 'FREE / OFL', 'Google. Hand-drawn cartoon, smooth shading. Closest to "fun and easy".'],
+  ['OpenMoji', 'free', 'FREE / CC-BY-SA', 'Open-source community. Sketchier, more humanist. Closer to bespoke illustration.'],
+];
+for (const [title, priceClass, priceText, body] of cards) {
+  const cell = el('div', { class: 'meta-cell' });
+  cell.appendChild(el('h3', {}, title, el('span', { class: 'price ' + priceClass }, priceText)));
+  cell.appendChild(document.createTextNode(body));
+  grid.appendChild(cell);
+}
+intro.appendChild(grid);
+
+// Recommendation
+const rec = document.getElementById('meta-rec');
+rec.appendChild(el('b', {}, 'After expanding to 60 items'));
+rec.appendChild(document.createTextNode(': pick the column whose first impression you like, then sanity-check against the rows that matter to you (your YOU-tagged items, plus anything you eat often). Each set has gaps — emojis that exist in one set but not another. The "—" means missing in that set; in production we map fridge item names through a lookup so we can fall back gracefully across sets.'));
+rec.appendChild(el('br'));
+rec.appendChild(el('br'));
+rec.appendChild(el('b', {}, 'Once you pick'));
+rec.appendChild(document.createTextNode(': I’ll wire it into Fridge.tsx as a try-branch that replaces both the OFF photos AND the emoji map with a clean lookup → Iconify CDN fetch. ~30 min, fully reversible.'));
+</script>
+
+</body>
+</html>

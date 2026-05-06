@@ -1035,7 +1035,10 @@ function ItemDetailModal({ name, zone, onClose, onRemove }: {
   name: string
   zone: Zone
   onClose: () => void
-  onRemove: () => void
+  // Receives the CANONICAL stored name (from /fridge/item GET) when available
+  // — guards against the card showing one casing/spelling and the backend
+  // exact-match needing the other. Falls back to the prop name on cold open.
+  onRemove: (canonicalName: string) => void
 }) {
   const [detail, setDetail] = useState<FridgeItemDetail | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -1104,7 +1107,7 @@ function ItemDetailModal({ name, zone, onClose, onRemove }: {
   // — the alternative is forcing the user to use the camera flow first,
   // which slows down a fridge cleanup pass.
   async function ateAndRemove() {
-    if (!detail) { onRemove(); return }
+    if (!detail) { onRemove(name); return }
     const macros = computeAteMacros(detail)
     try {
       if (macros) {
@@ -1121,7 +1124,7 @@ function ItemDetailModal({ name, zone, onClose, onRemove }: {
     } catch {
       showToast('Logged failed but removing anyway', 'err')
     }
-    onRemove()
+    onRemove(detail.name)
   }
 
   const photo = detail?.photo_url || null
@@ -1329,7 +1332,7 @@ function ItemDetailModal({ name, zone, onClose, onRemove }: {
             </button>
           )
         })()}
-        <button className="btn-destructive" onClick={onRemove} style={{ width: '100%', marginBottom: 8 }}>
+        <button className="btn-destructive" onClick={() => onRemove(detail?.name || name)} style={{ width: '100%', marginBottom: 8 }}>
           {detail && detail.nutrition_per_100g ? 'Remove (without logging)' : `Remove from ${zoneCfg.label}`}
         </button>
         <button onClick={onClose}
@@ -1698,10 +1701,29 @@ export default function Fridge() {
   }
 
   async function removeByName(name: string) {
-    await api.removeFridgeItem(name)
+    // Try exact match first (1 row at a time on dupes). If the backend says
+    // 404, fall back to substring match — handles edge cases where the
+    // displayed name has casing/whitespace that doesn't match storage.
+    try {
+      await api.removeFridgeItem(name)
+    } catch (err) {
+      const msg = String(err)
+      if (msg.includes('404') || msg.includes('not found')) {
+        try {
+          await api.removeFridgeItem(name, { contains: true })
+        } catch (err2) {
+          showToast(`Couldn't remove "${name}" — ${String(err2).slice(0, 60)}`, 'err')
+          setDetailModal(null)
+          return
+        }
+      } else {
+        showToast(`Remove failed — ${msg.slice(0, 60)}`, 'err')
+        setDetailModal(null)
+        return
+      }
+    }
     const updated = await api.getFridge()
     setData(updated)
-    // Drop the slot entry too — keeps slot_memory tidy.
     setSlots(prev => {
       const next = { ...prev }
       delete next[name]
