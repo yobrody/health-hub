@@ -18,11 +18,37 @@ export async function onRequestOptions() {
   return new Response(null, { status: 204, headers: CORS })
 }
 
-export async function onRequest(context) {
-  if (context.request.method !== 'GET') {
-    return json({ error: 'method not allowed' }, 405)
-  }
+// Method-specific so non-GET requests don't 405. The previous version was a
+// method-agnostic onRequest that returned 405 for DELETE — breaking remove-
+// from-fridge in the UI. CF Pages doesn't fall through to /api/[[path]].js
+// when a more-specific route file exists, so DELETE needs its own handler
+// here that proxies directly to the VPS.
 
+const VPS_BASE = 'http://128-140-33-150.nip.io:8080'
+
+export async function onRequestDelete(context) {
+  const url = new URL(context.request.url)
+  const apiKey = context.env.HEALTH_API_KEY || 'brody-health-hub-2026'
+  // Forward query string verbatim (the ?contains=true fallback path used by
+  // the frontend's exact-then-substring two-step delete). The VPS endpoint
+  // already enforces exact-match-by-default with optional substring opt-in.
+  const targetUrl = `${VPS_BASE}/fridge/item/${context.params?.name}${url.search}`
+  try {
+    const res = await fetch(targetUrl, {
+      method: 'DELETE',
+      headers: { 'X-Health-Key': apiKey },
+    })
+    const body = await res.text()
+    return new Response(body, {
+      status: res.status,
+      headers: { ...CORS, 'Content-Type': 'application/json' },
+    })
+  } catch (err) {
+    return json({ error: 'VPS unreachable', detail: String(err) }, 502)
+  }
+}
+
+export async function onRequestGet(context) {
   const rawName = context.params?.name
   const name = decodeURIComponent(String(rawName || '')).trim()
   if (!name) return json({ error: 'name required' }, 400)

@@ -144,7 +144,30 @@ function WeightTile({ onNavigate }: { onNavigate: (tab: Tab) => void }) {
       .then(r => setState(computeWeightTrend(r.entries.map(e => ({ date: e.date, kg: e.kg })))))
       .catch(() => { /* offline / VPS down */ })
   }, [])
-  const { latest, delta } = state
+  const { entries, latest, delta } = state
+
+  // Compute sparkline polyline from the last ~14d of entries. Only renders
+  // once we have ≥3 points — fewer than that, the line looks like noise.
+  const sparkline = (() => {
+    if (entries.length < 3) return null
+    const W = 100, H = 22, PAD = 2
+    const last = entries.slice(-14)
+    const kgs = last.map(e => e.kg)
+    const min = Math.min(...kgs)
+    const max = Math.max(...kgs)
+    const range = Math.max(0.4, max - min)  // floor so a flat line isn't a div-by-zero
+    const pts = last.map((e, i) => {
+      const x = PAD + (i / Math.max(1, last.length - 1)) * (W - 2 * PAD)
+      const y = H - PAD - ((e.kg - min) / range) * (H - 2 * PAD)
+      return `${x.toFixed(1)},${y.toFixed(1)}`
+    }).join(' ')
+    // Colour matches the delta-arrow semantics: green for gain, orange for loss.
+    const stroke = delta !== null
+      ? (delta > 0.1 ? 'var(--c-green)' : delta < -0.1 ? 'var(--c-orange)' : 'var(--c-label-faint)')
+      : 'var(--c-label-faint)'
+    return { W, H, pts, stroke }
+  })()
+
   return (
     <Card onClick={() => onNavigate('goals')}>
       <div className="flex items-center justify-between mb-2">
@@ -159,7 +182,24 @@ function WeightTile({ onNavigate }: { onNavigate: (tab: Tab) => void }) {
           kg
         </span>
       </div>
-      <div className="text-[11px] text-[var(--c-label-faint)] mt-2">
+      {sparkline && (
+        <svg
+          viewBox={`0 0 ${sparkline.W} ${sparkline.H}`}
+          className="w-full mt-1.5"
+          style={{ height: 22 }}
+          aria-hidden="true"
+        >
+          <polyline
+            fill="none"
+            stroke={sparkline.stroke}
+            strokeWidth="1.25"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            points={sparkline.pts}
+          />
+        </svg>
+      )}
+      <div className="text-[11px] text-[var(--c-label-faint)] mt-1.5">
         {delta !== null
           ? <span style={{ color: delta > 0.1 ? 'var(--c-green)' : delta < -0.1 ? 'var(--c-orange)' : 'var(--c-label-faint)' }}>
               {delta > 0 ? '↑' : delta < 0 ? '↓' : '→'} {Math.abs(delta).toFixed(1)}kg vs 7d ago
@@ -257,6 +297,12 @@ export default function Today({ onNavigate }: Props) {
   // Actions that failed during apply, so the user can retry just those rather
   // than the whole batch. Cleared on next successful apply or cancel.
   const [aiFailed, setAiFailed] = useState<{ action: AiAction; error: string }[]>([])
+  // consume_fridge actions that 404'd (item wasn't stocked). The food log
+  // already applied — this is just a follow-up nudge to add the item to the
+  // fridge so future "ate X" prompts can decrement it. Soft, dismissable.
+  const [aiUnstocked, setAiUnstocked] = useState<
+    { name: string; section: 'fridge' | 'freezer' | 'pantry' | 'condiments' }[]
+  >([])
   // Pulse the calorie bar when actions land. Triggers a one-shot CSS animation
   // by mounting a key change.
   const [barPulseKey, setBarPulseKey] = useState(0)
@@ -390,8 +436,13 @@ export default function Today({ onNavigate }: Props) {
         } catch (err) {
           const msg = String(err)
           if (msg.includes('404') || msg.toLowerCase().includes('not found')) {
-            // Soft-fail: log and move on so the food log still applies.
-            console.warn(`consume_fridge: '${a.name}' not in fridge, skipping decrement`)
+            // Soft-fail: queue a "stock this" chip so the user can add it
+            // to the fridge with one tap. Default section is 'pantry' — a
+            // safe bucket for things like rice/sauces; user can drag in
+            // the fridge later if it's actually a perishable.
+            setAiUnstocked(prev =>
+              prev.find(u => u.name === a.name) ? prev : [...prev, { name: a.name, section: 'pantry' }]
+            )
             return
           }
           throw err
@@ -410,6 +461,8 @@ export default function Today({ onNavigate }: Props) {
   async function applyAiActions() {
     if (!aiPreview) return
     setAiState('applying')
+    // Reset unstocked chip — fresh batch may queue new ones via 404 path.
+    setAiUnstocked([])
     const todayIso = new Date().toISOString().slice(0, 10)
 
     // Optimistic Today-bar update — only for actions logged TO TODAY. Past-day
@@ -781,6 +834,42 @@ export default function Today({ onNavigate }: Props) {
                 <button
                   onClick={() => setAiFailed([])}
                   className="text-[11px] text-[var(--c-label-faint)] mt-1 self-start"
+                >
+                  Dismiss
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Unstocked-item chip — when consume_fridge 404'd, the food log
+              still applied; this nudges the user to add the item to the
+              fridge so next time the AI can decrement stock cleanly. */}
+          {aiState === 'idle' && aiUnstocked.length > 0 && (
+            <div className="mt-3 pt-3 border-t border-[var(--c-border)]">
+              <div className="text-[12px] text-[var(--c-label-dim)] font-medium mb-2">
+                Not in your fridge — tap to stock
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                {aiUnstocked.map((u, i) => (
+                  <button
+                    key={i}
+                    onClick={async () => {
+                      try {
+                        await api.addFridgeItem(u.name, u.section, {})
+                        showToast(`Added ${u.name} to ${u.section}`)
+                        setAiUnstocked(prev => prev.filter((_, j) => j !== i))
+                      } catch (err) {
+                        showToast(`Couldn't stock ${u.name} — ${String(err).slice(0, 40)}`, 'err')
+                      }
+                    }}
+                    className="text-[12px] text-[var(--c-label-dim)] bg-transparent border border-[var(--c-border)] rounded-full px-2.5 py-1 hover:border-[var(--c-accent)] transition-colors"
+                  >
+                    + {u.name}
+                  </button>
+                ))}
+                <button
+                  onClick={() => setAiUnstocked([])}
+                  className="text-[11px] text-[var(--c-label-faint)] self-center ml-1"
                 >
                   Dismiss
                 </button>

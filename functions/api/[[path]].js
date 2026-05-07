@@ -34,10 +34,16 @@ export async function onRequest(context) {
   reqHeaders.set('X-Health-Key', apiKey)
   reqHeaders.delete('host')
 
-  // ── GET /fridge — merge VPS items with KV metadata ───────────────────────
+  // ── GET /fridge — merge VPS items with KV metadata + slot positions ─────
   if (context.request.method === 'GET' && backendPath === '/fridge') {
     try {
-      const vpsRes = await fetch(targetUrl, { method: 'GET', headers: reqHeaders })
+      // Audit B-1: pull /fridge AND /fridge/slots in parallel and attach
+      // each item's slot to the row, so drag-positions survive a reload
+      // without the frontend making a second round-trip.
+      const [vpsRes, slotsRes] = await Promise.all([
+        fetch(targetUrl, { method: 'GET', headers: reqHeaders }),
+        fetch(`${VPS_BASE}/fridge/slots`, { method: 'GET', headers: reqHeaders }),
+      ])
       if (!vpsRes.ok) {
         return new Response(await vpsRes.text(), {
           status: vpsRes.status,
@@ -45,6 +51,19 @@ export async function onRequest(context) {
         })
       }
       const fridgeData = await vpsRes.json()
+      let slots = {}
+      if (slotsRes.ok) {
+        try { slots = await slotsRes.json() } catch { slots = {} }
+      }
+      // Attach slot to each item across all four zones. Match on the
+      // canonical name (lowercase) since slot keys are stored that way.
+      for (const zone of ['fridge', 'freezer', 'pantry', 'condiments']) {
+        if (!Array.isArray(fridgeData[zone])) continue
+        fridgeData[zone] = fridgeData[zone].map(item => {
+          const slot = slots[item.name] || slots[(item.name || '').toLowerCase()] || null
+          return slot ? { ...item, slot } : item
+        })
+      }
       if (kv) {
         for (const zone of ['fridge', 'freezer', 'pantry', 'condiments']) {
           if (!Array.isArray(fridgeData[zone])) continue

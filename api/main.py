@@ -23,6 +23,41 @@ DATA_DIR.mkdir(parents=True, exist_ok=True)
 app = FastAPI(title="Health Hub", version="1.0.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
+from collections import defaultdict, deque
+import time
+
+# ── RATE LIMIT ────────────────────────────────────────────────────────
+# In-memory per-key+IP token bucket. 120 req/min is ~10x normal app usage
+# (Today refreshes pull ~5 endpoints, 14 fetches per page-load tops) so a
+# legit user never hits it; a key leak / scraper does. Resets on restart.
+RATE_LIMIT = 120
+RATE_WINDOW = 60.0
+RATE_BUCKETS: dict[str, deque] = defaultdict(deque)
+
+def rate_check(bucket_key: str):
+    now = time.time()
+    b = RATE_BUCKETS[bucket_key]
+    while b and b[0] < now - RATE_WINDOW:
+        b.popleft()
+    if len(b) >= RATE_LIMIT:
+        raise HTTPException(status_code=429, detail="rate limit exceeded; try again in a minute")
+    b.append(now)
+
+@app.middleware("http")
+async def rate_limit_middleware(request, call_next):
+    # Skip OPTIONS (CORS preflight) — no auth header, often unreachable IP.
+    if request.method == "OPTIONS":
+        return await call_next(request)
+    key = request.headers.get("X-Health-Key", "anon")
+    ip = request.client.host if request.client else "unknown"
+    try:
+        rate_check(f"{key}:{ip}")
+    except HTTPException as e:
+        from fastapi.responses import JSONResponse
+        return JSONResponse(status_code=e.status_code, content={"detail": e.detail})
+    return await call_next(request)
+
+
 api_key_header = APIKeyHeader(name="X-Health-Key", auto_error=False)
 
 def require_key(key: str = Depends(api_key_header)):
