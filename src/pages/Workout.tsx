@@ -15,8 +15,19 @@ import {
   describeNext,
   findNextIncompleteSet,
 } from '../lib/workout-flow'
+import { decideNextSet, type DecisionResult } from '../lib/gym-decision'
+import {
+  learnFromLogs, resolveEquipment, nextUpWeight, nextDownWeight,
+  genericIncrement,
+} from '../lib/gym-equipment'
+import { weeklyVolumeByMuscle } from '../lib/gym-muscles'
+import { analyzeWorkout, type WorkoutAnalysis } from '../lib/gym-analysis'
+import { MuscleVolumeCard } from '../components/MuscleVolumeCard'
+import { PostWorkoutSheet } from '../components/PostWorkoutSheet'
+import { GymChatSheet } from '../components/GymChatSheet'
 
 interface LiveSet extends ExerciseSet { done: boolean }
+type ExStatus = 'pending' | 'active' | 'done' | 'skipped'
 interface LiveExercise {
   name: string
   sets: LiveSet[]
@@ -26,6 +37,11 @@ interface LiveExercise {
   rir?: string
   restSeconds?: number
   notes?: string
+  // Skip & come back state
+  status?: ExStatus
+  // Per-set RIR captured after submit, used to drive the rest modifier on the
+  // *next* set's decision.
+  lastSetRIR?: number | null
 }
 interface LiveWorkout {
   title: string
@@ -145,6 +161,7 @@ function RestTimerInline({ seconds, onComplete }: { seconds: number; onComplete:
 function ActiveSetCard({
   accent, exerciseName, setNumber, totalSets,
   weight, reps, isDone,
+  weightDown, weightUp, weightSource,
   onWeight, onReps, onSubmit, onSwipe, repsInputRef,
 }: {
   accent: string
@@ -154,6 +171,9 @@ function ActiveSetCard({
   weight: number | undefined
   reps: number | undefined
   isDone: boolean
+  weightDown: number | undefined
+  weightUp: number | undefined
+  weightSource: DecisionResult['weightSource']
   onWeight: (v: number | undefined) => void
   onReps: (v: number | undefined) => void
   onSubmit: () => void
@@ -175,10 +195,12 @@ function ActiveSetCard({
     }
   }, [isDone, repsInputRef])
 
-  function bumpWeight(delta: number) {
-    const next = Math.max(0, Math.round(((weight ?? 0) + delta) * 4) / 4)
-    onWeight(next)
+  // Tiny label for the source of the suggested stack — helps Brody trust the
+  // numbers ("seed" = factory default, "learned" = inferred from his own logs).
+  const sourceLabel: Record<DecisionResult['weightSource'], string | null> = {
+    manual: 'Manual', learned: 'Learned', seed: 'Standard', generic: null, none: null,
   }
+  const sourceText = sourceLabel[weightSource]
 
   return (
     <div
@@ -217,32 +239,60 @@ function ActiveSetCard({
         </div>
       </div>
 
-      {/* Weight pill — tap to expand +/- controls. Calm chips, no glass blur. */}
-      <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 18 }}>
+      {/* Weight controls — stack-aware. Tap the down/up chips to jump to the
+          next valid plate or pin position for THIS machine. The centre pill
+          shows the current value and opens a manual editor for unusual jumps. */}
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+        <button
+          onClick={() => weightDown !== undefined && onWeight(weightDown)}
+          disabled={weightDown === undefined || weightDown === weight}
+          aria-label="Next lighter weight"
+          style={{
+            background: 'var(--gray6)', border: '1px solid var(--separator)', borderRadius: 18,
+            padding: '8px 14px', fontSize: 14, fontWeight: 600, color: weightDown === undefined ? 'var(--label3)' : 'var(--label)',
+            cursor: weightDown === undefined ? 'default' : 'pointer',
+            minWidth: 64,
+          }}
+        >−{weightDown !== undefined && weight !== undefined ? `${(weight - weightDown).toFixed(2).replace(/\.?0+$/, '')}` : ''}<br/><span style={{ fontSize: 11, color: 'var(--label2)' }}>{weightDown !== undefined ? `${weightDown}kg` : '—'}</span></button>
+
         {!showWeightEdit ? (
           <button
             onClick={() => setShowWeightEdit(true)}
             style={{
-              background: 'var(--gray6)', border: '1px solid var(--separator)', borderRadius: 22,
-              color: 'var(--label)', padding: '9px 18px', fontSize: 15, fontWeight: 600,
-              cursor: 'pointer',
+              background: 'var(--blue)', border: 'none', borderRadius: 22,
+              color: '#fff', padding: '11px 20px', fontSize: 17, fontWeight: 700,
+              cursor: 'pointer', minWidth: 92,
             }}
-          >{weight !== undefined ? `${weight}kg` : 'Set weight'} ▾</button>
+          >{weight !== undefined ? `${weight}kg` : 'Set'}</button>
         ) : (
-          <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'var(--gray6)', border: '1px solid var(--separator)', borderRadius: 22, padding: '4px 6px' }}>
-            <button onClick={() => bumpWeight(-2.5)} style={{ background: 'none', border: 'none', fontSize: 16, fontWeight: 600, cursor: 'pointer', color: 'var(--label)', width: 40, height: 32, borderRadius: 16 }} aria-label="Subtract 2.5kg">−2.5</button>
-            <input
-              type="number" inputMode="decimal"
-              value={weight ?? ''}
-              onChange={e => { const v = e.target.value; onWeight(v === '' ? undefined : parseFloat(v)) }}
-              style={{ width: 70, background: 'var(--card)', border: '1px solid var(--separator)', borderRadius: 14, outline: 'none', fontSize: 18, fontWeight: 700, textAlign: 'center', color: 'var(--label)', height: 32 }}
-              placeholder="kg"
-            />
-            <button onClick={() => bumpWeight(2.5)} style={{ background: 'none', border: 'none', fontSize: 16, fontWeight: 600, cursor: 'pointer', color: 'var(--label)', width: 40, height: 32, borderRadius: 16 }} aria-label="Add 2.5kg">+2.5</button>
-            <button onClick={() => setShowWeightEdit(false)} style={{ background: 'var(--blue)', color: '#fff', border: 'none', borderRadius: 16, padding: '6px 12px', fontSize: 13, fontWeight: 600, marginLeft: 2, cursor: 'pointer', height: 32 }}>Done</button>
-          </div>
+          <input
+            type="number" inputMode="decimal"
+            autoFocus
+            value={weight ?? ''}
+            onChange={e => { const v = e.target.value; onWeight(v === '' ? undefined : parseFloat(v)) }}
+            onBlur={() => setShowWeightEdit(false)}
+            onKeyDown={e => { if (e.key === 'Enter') setShowWeightEdit(false) }}
+            style={{ width: 92, background: 'var(--card)', border: '1px solid var(--blue)', borderRadius: 22, outline: 'none', fontSize: 17, fontWeight: 700, textAlign: 'center', color: 'var(--label)', height: 42 }}
+            placeholder="kg"
+          />
         )}
+
+        <button
+          onClick={() => weightUp !== undefined && onWeight(weightUp)}
+          disabled={weightUp === undefined || weightUp === weight}
+          aria-label="Next heavier weight"
+          style={{
+            background: 'var(--gray6)', border: '1px solid var(--separator)', borderRadius: 18,
+            padding: '8px 14px', fontSize: 14, fontWeight: 600, color: weightUp === undefined ? 'var(--label3)' : 'var(--label)',
+            cursor: weightUp === undefined ? 'default' : 'pointer',
+            minWidth: 64,
+          }}
+        >+{weightUp !== undefined && weight !== undefined ? `${(weightUp - weight).toFixed(2).replace(/\.?0+$/, '')}` : ''}<br/><span style={{ fontSize: 11, color: 'var(--label2)' }}>{weightUp !== undefined ? `${weightUp}kg` : '—'}</span></button>
       </div>
+      {sourceText && (
+        <div style={{ textAlign: 'center', fontSize: 10, fontWeight: 600, color: 'var(--label3)', letterSpacing: 0.6, marginBottom: 14, textTransform: 'uppercase' }}>{sourceText} stack</div>
+      )}
+      {!sourceText && <div style={{ marginBottom: 14 }} />}
 
       {/* The one input the user actually fills in. Big numerals, on-card. */}
       <div style={{ background: 'var(--gray6)', borderRadius: 16, padding: '16px 14px 18px', marginBottom: 14 }}>
@@ -470,6 +520,8 @@ export default function Workout() {
   const [focusSetIdx, setFocusSetIdx] = useState(0)
   const [phase, setPhase] = useState<'active' | 'rest' | 'done'>('active')
   const [showManage, setShowManage] = useState(false)
+  const [showChat, setShowChat] = useState(false)
+  const [postWorkoutAnalysis, setPostWorkoutAnalysis] = useState<WorkoutAnalysis | null>(null)
   const repsInputRef = useRef<HTMLInputElement>(null)
   const searchTimeout = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
@@ -530,21 +582,35 @@ export default function Workout() {
     const title = day?.name ?? `${timeOfDay} Session`
 
     if (day) {
-      const exercises: LiveExercise[] = day.exercises.map(ex => {
+      // Run learning pass over history once at session start so the equipment
+      // resolver picks up Brody's actual stack patterns for the session.
+      learnFromLogs(workouts)
+      const totalEx = day.exercises.length
+      const exercises: LiveExercise[] = day.exercises.map((ex, idx) => {
         const pr = prs[ex.name]
         const prevSets = lastSetsByExercise[ex.name]
-        const predicted = predictNextWeight({
+        const decision = decideNextSet({
+          exerciseName: ex.name,
           prevBest: pr ? { weight_kg: pr.weight_kg, reps: pr.reps } : null,
           prevSets,
           repRange: ex.repRange,
-          properlyEating,
+          programRestSeconds: ex.restSeconds,
+          diet: { properlyEating },
+          session: { positionInSession: idx, totalExercises: totalEx, sessionVolumeSoFar: 0 },
+          isFirstSet: true,
         })
         const sets: LiveSet[] = Array.from({ length: ex.sets }, () => ({
-          weight_kg: predicted.weight_kg,
-          reps: predicted.reps,
+          weight_kg: decision.weight_kg,
+          reps: decision.repsTarget,
           done: false,
         }))
-        return { name: ex.name, sets, prevBest: pr, repRange: ex.repRange, rir: ex.rir, restSeconds: ex.restSeconds, notes: ex.notes }
+        return {
+          name: ex.name, sets,
+          prevBest: pr,
+          repRange: ex.repRange, rir: ex.rir,
+          restSeconds: decision.restSeconds,
+          notes: ex.notes, status: 'pending',
+        }
       })
       setLive({ title, startTime: new Date().toISOString(), exercises })
     } else {
@@ -593,17 +659,99 @@ export default function Workout() {
   }
 
   function completeSet(exIdx: number, setIdx: number) {
+    if (!live) return
+    const ex = live.exercises[exIdx]
+    // Run the decision engine *now* with the just-finished set's data so the
+    // rest timer reflects the actual fatigue / load / RIR signals.
+    const sessionVolumeSoFar = live.exercises.reduce((acc, e, i) => {
+      return acc + e.sets.reduce((a, s, j) => {
+        // Include the set we just completed
+        const include = s.done || (i === exIdx && j === setIdx)
+        return include ? a + (s.weight_kg ?? 0) * (s.reps ?? 0) : a
+      }, 0)
+    }, 0)
+    const totalActive = live.exercises.filter(e => e.status !== 'skipped').length
+    const decision = decideNextSet({
+      exerciseName: ex.name,
+      prevBest: ex.prevBest ?? null,
+      prevSets: lastSetsByExercise[ex.name],
+      repRange: ex.repRange,
+      programRestSeconds: ex.restSeconds,
+      diet: { properlyEating },
+      session: { positionInSession: exIdx, totalExercises: totalActive, sessionVolumeSoFar },
+      // RIR derived from "did the user hit the rep range top?" — heuristic for
+      // now since we don't ask explicitly. Will refine when we add a quick
+      // RIR-tap UI on submit.
+      lastSetRIR: heuristicRIR(ex.sets[setIdx], ex.repRange),
+    })
     setLive(w => {
       if (!w) return w
       const exercises = [...w.exercises]
       const sets = [...exercises[exIdx].sets]
       sets[setIdx] = { ...sets[setIdx], done: true }
-      exercises[exIdx] = { ...exercises[exIdx], sets }
+      exercises[exIdx] = { ...exercises[exIdx], sets, lastSetRIR: heuristicRIR(sets[setIdx], exercises[exIdx].repRange) }
       return { ...w, exercises }
     })
-    const restSecs = live?.exercises[exIdx]?.restSeconds ?? 90
-    setRestTimer({ seconds: restSecs })
+    setRestTimer({ seconds: decision.restSeconds })
     if (navigator.vibrate) navigator.vibrate([10, 10, 30])
+  }
+
+  // Heuristic RIR from achieved reps vs the program rep range. Reps at or
+  // above range.max → ~RIR 0-1 (close to failure if Brody hit the cap clean);
+  // mid-range → RIR 2; below min → RIR 3+ (left a lot in the tank, weight
+  // probably too light). Imperfect but better than nothing as a rest signal.
+  function heuristicRIR(set: LiveSet, repRange?: string): number | null {
+    if (!set.reps || set.reps <= 0) return null
+    const m = (repRange ?? '').match(/(\d+)\s*[-–—]\s*(\d+)/)
+    if (!m) return null
+    const min = parseInt(m[1], 10), max = parseInt(m[2], 10)
+    if (set.reps >= max) return 1
+    if (set.reps < min) return 3
+    return 2
+  }
+
+  function skipExercise(exIdx: number) {
+    setLive(w => {
+      if (!w) return w
+      const exercises = [...w.exercises]
+      exercises[exIdx] = { ...exercises[exIdx], status: 'skipped' }
+      return { ...w, exercises }
+    })
+    // Advance focus to the next non-skipped, non-done set.
+    const next = findFirstPending(live, exIdx + 1)
+    if (next) {
+      setFocusExIdx(next.exerciseIdx)
+      setFocusSetIdx(next.setIdx)
+      setPhase('active')
+    }
+    if (navigator.vibrate) navigator.vibrate(20)
+  }
+
+  function resumeExercise(exIdx: number) {
+    setLive(w => {
+      if (!w) return w
+      const exercises = [...w.exercises]
+      exercises[exIdx] = { ...exercises[exIdx], status: 'pending' }
+      return { ...w, exercises }
+    })
+    setFocusExIdx(exIdx)
+    // Land on first not-yet-done set
+    const ex = live?.exercises[exIdx]
+    const firstNotDone = ex?.sets.findIndex(s => !s.done) ?? 0
+    setFocusSetIdx(firstNotDone < 0 ? 0 : firstNotDone)
+    setPhase('active')
+    if (navigator.vibrate) navigator.vibrate(15)
+  }
+
+  // Find the first pending (not-skipped) exercise + set starting from exIdx
+  function findFirstPending(w: LiveWorkout | null, fromIdx = 0): { exerciseIdx: number; setIdx: number } | null {
+    if (!w) return null
+    for (let i = fromIdx; i < w.exercises.length; i++) {
+      if (w.exercises[i].status === 'skipped') continue
+      const setIdx = w.exercises[i].sets.findIndex(s => !s.done)
+      if (setIdx >= 0) return { exerciseIdx: i, setIdx }
+    }
+    return null
   }
 
   function addSet(exIdx: number) {
@@ -646,15 +794,38 @@ export default function Workout() {
         }),
       })),
     }
+    let savedWorkoutId: string | null = null
     if (live.editingId) {
       await api.updateWorkout(live.editingId, payload)
+      savedWorkoutId = live.editingId
     } else {
-      await api.saveWorkout(payload)
+      const saved = await api.saveWorkout(payload) as { id?: string } | undefined
+      savedWorkoutId = saved?.id ?? null
     }
     const [updated, updatedPRs] = await Promise.all([api.getWorkouts(20), api.getPRs()])
     setWorkouts(updated)
     setPRs(updatedPRs)
     if (!live.editingId) publishCoachFeed(live)
+
+    // Refresh learned catalog from history so future predictions tighten.
+    learnFromLogs(updated)
+
+    // Compute post-workout analysis on the freshly saved record. We look it up
+    // by id; fallback to start_time match for older API responses without id.
+    const justSaved = updated.find(w => w.id === savedWorkoutId)
+      ?? updated.find(w => w.start_time === payload.start_time && w.title === payload.title)
+    if (justSaved && !live.editingId) {
+      const analysis = analyzeWorkout(
+        justSaved,
+        updated.filter(w => w.id !== justSaved.id),
+        // PR map without the lift's own most recent set so isWeightPR works
+        // against the prior best, not today's. The /prs endpoint already does
+        // this — it's snapshot-as-of-start.
+        prs,
+      )
+      setPostWorkoutAnalysis(analysis)
+    }
+
     setLive(null)
     setRestTimer(null)
     setFinishing(false)
@@ -784,10 +955,48 @@ export default function Workout() {
             </div>
           </div>
 
+          {/* ── Coming-back tray — exercises previously skipped, tap to resume ── */}
+          {(() => {
+            const skipped = liveNonNull.exercises
+              .map((ex, i) => ({ ex, i }))
+              .filter(({ ex }) => ex.status === 'skipped')
+            if (skipped.length === 0) return null
+            return (
+              <div style={{ display: 'flex', gap: 6, overflowX: 'auto', marginBottom: 10, paddingBottom: 4 }}>
+                <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.6, textTransform: 'uppercase', color: 'var(--label3)', alignSelf: 'center', flexShrink: 0, padding: '0 4px' }}>Come back to</div>
+                {skipped.map(({ ex, i }) => (
+                  <button
+                    key={i}
+                    onClick={() => resumeExercise(i)}
+                    style={{ flexShrink: 0, background: 'var(--card)', border: '1px solid var(--separator)', borderRadius: 14, padding: '6px 12px', fontSize: 12, fontWeight: 600, color: 'var(--label)', cursor: 'pointer' }}
+                  >{ex.name} ↻</button>
+                ))}
+              </div>
+            )
+          })()}
+
           {/* ── ACTIVE: hero card with exercise visual + reps focus ── */}
           {phase === 'active' && focusEx && focusSet && (() => {
             const isThisSetDone = focusSet.done
             const accent = getExerciseAccent(focusEx.name)
+            // Synced decision for the *current* set — gives us next-up/next-down
+            // weights, suggested reps target, and rest seconds. Modifiers fluctuate
+            // based on session position, fatigue, last-set RIR, and diet.
+            const sessionVolumeSoFar = liveNonNull.exercises.reduce((acc, ex) => {
+              return acc + ex.sets.reduce((a, s) => s.done ? a + (s.weight_kg ?? 0) * (s.reps ?? 0) : a, 0)
+            }, 0)
+            const totalActive = liveNonNull.exercises.filter(e => e.status !== 'skipped').length
+            const decision = decideNextSet({
+              exerciseName: focusEx.name,
+              prevBest: focusEx.prevBest ?? null,
+              prevSets: lastSetsByExercise[focusEx.name],
+              repRange: focusEx.repRange,
+              programRestSeconds: focusEx.restSeconds,
+              diet: { properlyEating },
+              session: { positionInSession: focusExIdx, totalExercises: totalActive, sessionVolumeSoFar },
+              lastSetRIR: focusSetIdx > 0 ? focusEx.lastSetRIR ?? null : null,
+              isFirstSet: focusSetIdx === 0,
+            })
             const handleSwipe = (dx: number) => {
               if (dx < -80 && !isThisSetDone && (focusSet.reps ?? 0) > 0) {
                 submitCurrentSet()
@@ -795,25 +1004,50 @@ export default function Workout() {
             }
             return (
               <>
+                {/* Bracket the next-up / next-down RELATIVE to whatever the
+                    user is currently looking at, not the engine's prediction.
+                    Otherwise, after one manual bump the +/- chips go stale and
+                    you see "+0 → same weight" because the bracket was anchored
+                    to the original prediction. */}
+                {(() => {
+                  const eff = resolveEquipment(focusEx.name)
+                  const liveWeight = focusSet.weight_kg ?? decision.weight_kg
+                  let liveDown: number | undefined = decision.weightDown
+                  let liveUp: number | undefined = decision.weightUp
+                  if (liveWeight !== undefined) {
+                    if (eff.effectiveStack) {
+                      liveDown = nextDownWeight(eff.effectiveStack, liveWeight)
+                      liveUp = nextUpWeight(eff.effectiveStack, liveWeight)
+                    } else {
+                      const inc = genericIncrement(liveWeight)
+                      liveDown = Math.max(0, Math.round((liveWeight - inc) * 4) / 4)
+                      liveUp = Math.round((liveWeight + inc) * 4) / 4
+                    }
+                  }
+                  return (
                 <ActiveSetCard
                   key={`${focusExIdx}-${focusSetIdx}`}
                   accent={accent}
                   exerciseName={focusEx.name}
                   setNumber={focusSetIdx + 1}
                   totalSets={focusEx.sets.length}
-                  weight={focusSet.weight_kg}
-                  reps={focusSet.reps}
+                  weight={liveWeight}
+                  reps={focusSet.reps ?? decision.repsTarget}
                   isDone={isThisSetDone}
+                  weightDown={liveDown}
+                  weightUp={liveUp}
+                  weightSource={decision.weightSource}
                   onWeight={(v) => updateSet(focusExIdx, focusSetIdx, 'weight_kg', v)}
                   onReps={(v) => updateSet(focusExIdx, focusSetIdx, 'reps', v)}
                   onSubmit={submitCurrentSet}
                   onSwipe={handleSwipe}
                   repsInputRef={repsInputRef}
                 />
-                {/* Programme guidance — moved out of the active card so the card
-                    stays focused on the inputs. Only shown when the program
-                    actually carries guidance for this exercise. */}
-                {(focusEx.repRange || focusEx.rir || focusEx.prevBest) && (
+                  )
+                })()}
+                {/* Programme guidance + live modifier notes — moved out of the
+                    active card so the card stays focused on the inputs. */}
+                {(focusEx.repRange || focusEx.rir || focusEx.prevBest || decision.notes.length > 0) && (
                   <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap', fontSize: 12, color: 'var(--label2)' }}>
                     {focusEx.repRange && (
                       <span style={{ background: 'var(--card)', borderRadius: 8, padding: '5px 10px', fontWeight: 600 }}>Target {focusEx.repRange}</span>
@@ -826,8 +1060,19 @@ export default function Workout() {
                         Best {focusEx.prevBest.weight_kg}kg × {focusEx.prevBest.reps}
                       </span>
                     )}
+                    <span style={{ background: 'var(--card)', borderRadius: 8, padding: '5px 10px', fontWeight: 600 }}>
+                      Rest {decision.restSeconds}s
+                    </span>
+                    {decision.notes.slice(0, 2).map((n, i) => (
+                      <span key={i} style={{ background: 'rgba(0,122,255,0.10)', color: 'var(--blue)', borderRadius: 8, padding: '5px 10px', fontWeight: 600 }}>{n}</span>
+                    ))}
                   </div>
                 )}
+                {/* Skip — moves this exercise to the "Coming back" tray. */}
+                <button
+                  onClick={() => skipExercise(focusExIdx)}
+                  style={{ width: '100%', background: 'none', border: '1px dashed var(--gray4)', borderRadius: 12, padding: '10px', color: 'var(--label2)', fontSize: 13, fontWeight: 600, cursor: 'pointer', marginTop: 10 }}
+                >Machine busy · skip and come back</button>
               </>
             )
           })()}
@@ -914,6 +1159,20 @@ export default function Workout() {
             </div>
           )}
         </div>
+
+        {/* Floating Coach button — same as idle view but visible during workouts. */}
+        <button
+          onClick={() => setShowChat(true)}
+          style={{
+            position: 'fixed', right: 14, bottom: 'calc(110px + var(--safe-bottom))',
+            background: 'var(--blue)', color: '#fff', border: 'none', borderRadius: 28,
+            padding: '12px 18px', fontSize: 14, fontWeight: 700, cursor: 'pointer',
+            boxShadow: '0 8px 24px rgba(0,122,255,0.35)', zIndex: 50,
+          }}
+          aria-label="Ask coach"
+        >Ask coach</button>
+
+        {showChat && <GymChatSheet onClose={() => setShowChat(false)} />}
 
         {/* ── MANAGE SHEET ── */}
         {showManage && (
@@ -1063,6 +1322,11 @@ export default function Workout() {
             no extra fetch. Brody asked for "see your consistency". */}
         <ConsistencyCalendar workouts={workouts} />
 
+        {/* Muscle volume — 7-day per-muscle bar chart vs MEV/MAV/MRV. Shows the
+            user where they're undertrained, on target, or pushing toward MRV. */}
+        <div className="section-label">Volume this week</div>
+        <MuscleVolumeCard workouts={workouts} />
+
         {/* PRs — strength PRs only (audit P2-5). Bodybuilding strength PRs
             sit in the 1–12 rep range; over 15 reps is endurance not strength
             and was previously shown as e.g. "20kg × 50" PR which read as a
@@ -1148,6 +1412,27 @@ export default function Workout() {
           </div>
         )}
       </div>
+
+      {/* Floating Coach button — opens the in-gym chat sheet. */}
+      <button
+        onClick={() => setShowChat(true)}
+        style={{
+          position: 'fixed', right: 14, bottom: 'calc(110px + var(--safe-bottom))',
+          background: 'var(--blue)', color: '#fff', border: 'none', borderRadius: 28,
+          padding: '12px 18px', fontSize: 14, fontWeight: 700, cursor: 'pointer',
+          boxShadow: '0 8px 24px rgba(0,122,255,0.35)', zIndex: 50,
+        }}
+        aria-label="Ask coach"
+      >Ask coach</button>
+
+      {showChat && <GymChatSheet onClose={() => setShowChat(false)} />}
+      {postWorkoutAnalysis && (
+        <PostWorkoutSheet
+          analysis={postWorkoutAnalysis}
+          weeklyVolume={weeklyVolumeByMuscle(workouts, 7).map(v => ({ muscle: v.muscle, sets: v.sets }))}
+          onClose={() => setPostWorkoutAnalysis(null)}
+        />
+      )}
     </div>
   )
 }

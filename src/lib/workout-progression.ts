@@ -5,7 +5,11 @@ export type RepRange = { min: number; max: number }
 
 export function parseRepRange(repRange?: string | null): RepRange | null {
   if (!repRange) return null
-  const m = repRange.match(/(\d+)\s*-\s*(\d+)/)
+  // Accept ASCII hyphen-minus, en-dash, and em-dash. The PROGRAM data is
+  // authored with en-dashes ("8–12") so an ASCII-only regex silently misses
+  // every program rep range, which used to suppress the at-top-of-range
+  // analysis and overload bumps.
+  const m = repRange.match(/(\d+)\s*[-–—]\s*(\d+)/)
   if (!m) return null
   const min = parseInt(m[1], 10)
   const max = parseInt(m[2], 10)

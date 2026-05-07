@@ -2,7 +2,14 @@
 // "what's next?" logic is testable without rendering the page.
 
 export type SetState = { weight_kg?: number; reps?: number; done: boolean }
-export type ExerciseState = { name: string; sets: SetState[] }
+/** Exercise status. Skipped exercises are excluded from "next" walks until
+ * the user explicitly resumes them (returning the focus pointer to that
+ * exercise). Defaults to undefined → treated as pending/active. */
+export type ExerciseState = {
+  name: string
+  sets: SetState[]
+  status?: 'pending' | 'active' | 'done' | 'skipped'
+}
 
 export type FocusPointer = { exerciseIdx: number; setIdx: number }
 
@@ -22,6 +29,7 @@ export function findNextIncompleteSet(
 ): FocusPointer | null {
   for (let e = fromExIdx; e < exercises.length; e++) {
     const ex = exercises[e]
+    if (ex.status === 'skipped') continue
     const startSet = e === fromExIdx ? fromSetIdx + 1 : 0
     for (let s = startSet; s < ex.sets.length; s++) {
       if (!ex.sets[s].done) return { exerciseIdx: e, setIdx: s }
@@ -61,8 +69,9 @@ export function describeNext(
       totalSets: sameExercise.sets.length,
     }
   }
-  // Walk to the next exercise that has any sets at all.
+  // Walk to the next non-skipped exercise that has any sets at all.
   for (let e = justFinished.exerciseIdx + 1; e < exercises.length; e++) {
+    if (exercises[e].status === 'skipped') continue
     if (exercises[e].sets.length > 0) {
       return {
         kind: 'next-exercise',

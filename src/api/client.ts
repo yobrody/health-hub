@@ -123,6 +123,12 @@ export const api = {
   parseAct: (prompt: string) =>
     request<AiActResponse>('/ai/act', { method: 'POST', body: JSON.stringify({ prompt }) }),
 
+  // Gym coach — one endpoint, two kinds (machine-question, workout-summary).
+  gymCoachMachine: (question: string, knownEquipment: string[]) =>
+    request<GymCoachMachineResponse>('/ai/gym-coach', { method: 'POST', body: JSON.stringify({ kind: 'machine-question', question, knownEquipment }) }),
+  gymCoachSummary: (analysis: unknown, weeklyVolume: unknown) =>
+    request<GymCoachSummaryResponse>('/ai/gym-coach', { method: 'POST', body: JSON.stringify({ kind: 'workout-summary', analysis, weeklyVolume }) }),
+
   getMealSuggestions: () => request<{ meals: Meal[] }>('/ai/meals', { method: 'POST' }),
   // Detailed recipe + full macros for a single meal idea. Called on tap-to-expand
   // so we don't pay the recipe-generation token cost for ideas the user ignores.
@@ -492,6 +498,35 @@ export interface MealDetail {
   carbs_g: number
   fat_g: number
 }
+export interface GymCoachMachineResponse {
+  ok: boolean
+  answer: string
+  suggestedEquipment?: {
+    id: string
+    name: string
+    type: 'stack' | 'plate-loaded' | 'dumbbell' | 'barbell' | 'cable' | 'bodyweight' | 'machine-fixed'
+    stack?: { min: number; max: number; step: number }
+    aliases?: string[]
+    notes?: string
+  } | null
+  suggestedSchedule?: {
+    addToDay: 'Upper A' | 'Lower A' | 'Upper B' | 'Lower B' | 'none'
+    afterExercise: string
+    sets: number
+    repRange: string
+    rir: string
+    restSeconds: number
+    startingWeight_kg: number
+    rationale: string
+  } | null
+  offline?: boolean
+}
+export interface GymCoachSummaryResponse {
+  ok: boolean
+  narrative: string
+  offline?: boolean
+}
+
 export interface ExerciseSet { weight_kg?: number; reps?: number; duration_seconds?: number }
 export interface ExerciseData { name: string; sets: ExerciseSet[] }
 export interface WorkoutData { id: string; title: string; start_time: string; end_time: string; exercises: ExerciseData[] }
