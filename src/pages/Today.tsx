@@ -562,6 +562,38 @@ export default function Today({ onNavigate }: Props) {
   const remaining = goals.calories - total
   const proteinPct = Math.round(Math.min(protein / goals.protein, 1) * 100)
 
+  // Delete-confirm state for the Today's-log rows. First tap on the × shows
+  // a 'Sure?' chip on that one row; second tap inside ~3s commits.
+  // Using time+meal as the row key (the same primary key the VPS uses).
+  const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
+  const [deleting, setDeleting] = useState<string | null>(null)
+  async function deleteFoodEntry(time: string, meal: string) {
+    const k = `${time}|${meal}`
+    if (deleteConfirm !== k) {
+      setDeleteConfirm(k)
+      // Auto-cancel after 3s if the user moves on without committing.
+      setTimeout(() => setDeleteConfirm(prev => prev === k ? null : prev), 3000)
+      return
+    }
+    setDeleting(k)
+    try {
+      await api.deleteFood(time, meal)
+      // Optimistic strip — re-fetch will re-sync but UI stays responsive.
+      setData(prev => prev ? {
+        ...prev,
+        entries: prev.entries.filter(e => !(e.time === time && e.meal === meal)),
+        total_kcal: prev.entries.filter(e => !(e.time === time && e.meal === meal)).reduce((s, e) => s + e.kcal, 0),
+      } : prev)
+      api.getToday().then(setData).catch(() => {})
+      showToast('Removed')
+    } catch (err) {
+      showToast(`Couldn't remove — ${String(err).slice(0, 40)}`, 'err')
+    } finally {
+      setDeleting(null)
+      setDeleteConfirm(null)
+    }
+  }
+
   const skincareStatus = (() => {
     try {
       const s = localStorage.getItem('skincare_log')
@@ -1062,26 +1094,47 @@ export default function Today({ onNavigate }: Props) {
             <div className="text-[11px] uppercase tracking-wider text-[var(--c-label-faint)] font-medium mt-6 mb-2 px-1">Today's log</div>
             <Card>
               <div className="divide-y divide-[var(--c-border)]">
-                {data?.entries.map((e, i) => (
-                  <div key={i} className="py-3 first:pt-0 last:pb-0 flex items-center justify-between gap-3">
-                    <div className="flex-1 min-w-0">
-                      <div className="text-[13px] font-medium">{e.meal}</div>
-                      <div className="text-[12px] text-[var(--c-label-dim)] truncate mt-0.5">
-                        {e.items.split('\n')[0].replace(/^- /, '').replace(/ \(~\d+ kcal.*?\)/, '')}
-                      </div>
-                    </div>
-                    <div className="flex flex-col items-end flex-shrink-0">
-                      <div className="text-[13px] font-semibold" style={{ fontFamily: "'JetBrains Mono', ui-monospace, monospace" }}>
-                        {e.kcal} <span className="text-[11px] font-normal text-[var(--c-label-faint)]">kcal</span>
-                      </div>
-                      {(e.protein_g ?? 0) > 0 && (
-                        <div className="text-[11px] text-[var(--c-orange)]" style={{ fontFamily: "'JetBrains Mono', ui-monospace, monospace" }}>
-                          {e.protein_g}g
+                {data?.entries.map((e, i) => {
+                  const k = `${e.time}|${e.meal}`
+                  const isConfirming = deleteConfirm === k
+                  const isDeleting = deleting === k
+                  return (
+                    <div key={i} className="py-3 first:pt-0 last:pb-0 flex items-center justify-between gap-3">
+                      <div className="flex-1 min-w-0">
+                        <div className="text-[13px] font-medium">{e.meal}</div>
+                        <div className="text-[12px] text-[var(--c-label-dim)] truncate mt-0.5">
+                          {e.items.split('\n')[0].replace(/^- /, '').replace(/ \(~\d+ kcal.*?\)/, '')}
                         </div>
-                      )}
+                      </div>
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        <div className="flex flex-col items-end">
+                          <div className="text-[13px] font-semibold" style={{ fontFamily: "'JetBrains Mono', ui-monospace, monospace" }}>
+                            {e.kcal} <span className="text-[11px] font-normal text-[var(--c-label-faint)]">kcal</span>
+                          </div>
+                          {(e.protein_g ?? 0) > 0 && (
+                            <div className="text-[11px] text-[var(--c-orange)]" style={{ fontFamily: "'JetBrains Mono', ui-monospace, monospace" }}>
+                              {e.protein_g}g
+                            </div>
+                          )}
+                        </div>
+                        {/* Delete button — first tap shows 'Sure?', second tap commits.
+                            Auto-cancels after 3s if you tap once and walk away. */}
+                        <button
+                          onClick={() => deleteFoodEntry(e.time, e.meal)}
+                          disabled={isDeleting}
+                          aria-label={isConfirming ? `Confirm remove ${e.meal}` : `Remove ${e.meal}`}
+                          className={`flex-shrink-0 rounded-full transition-all ${
+                            isConfirming
+                              ? 'bg-[var(--c-orange)] text-white px-2.5 py-1 text-[11px] font-semibold'
+                              : 'w-7 h-7 flex items-center justify-center text-[var(--c-label-faint)] hover:text-[var(--c-orange)] hover:bg-[var(--c-bg-tinted,rgba(127,127,127,0.08))]'
+                          }`}
+                        >
+                          {isDeleting ? '…' : isConfirming ? 'Sure?' : '×'}
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             </Card>
           </>
