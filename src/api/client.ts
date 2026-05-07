@@ -223,9 +223,22 @@ export const api = {
       '/fridge/enrich-batch', { method: 'POST', body: JSON.stringify({ items, force }) },
     ),
 
-  enrichBackfill: (force = false) =>
-    request<{ ok: boolean; scanned: number; enriched: number; skipped: number; errors: Array<{ name: string; error: string }> }>(
-      '/fridge/enrich-backfill', { method: 'POST', body: JSON.stringify({ force }) },
+  // B-4: optional `offset`/`limit` chunk a large fridge into shorter calls
+  // so we never blow past the CF Pages 5-min wall-clock. Omit both for
+  // legacy whole-fridge behaviour. Server caps `limit` at 200.
+  enrichBackfill: (opts: { force?: boolean; offset?: number; limit?: number } = {}) =>
+    request<{
+      ok: boolean
+      scanned: number
+      enriched: number
+      skipped: number
+      errors: Array<{ name: string; error: string }>
+      total: number
+      offset: number
+      next_offset: number | null
+      done: boolean
+    }>(
+      '/fridge/enrich-backfill', { method: 'POST', body: JSON.stringify(opts) },
     ),
 
   // AI food photo analysis (legacy single-item)

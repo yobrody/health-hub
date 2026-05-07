@@ -1524,13 +1524,31 @@ export default function Fridge() {
   })
 
   useEffect(() => {
+    // B-1: /api/fridge already attaches each item's slot via the proxy
+    // (functions/api/[[path]].js) on prod (CF Pages). Derive the SlotMap
+    // from the response and skip the second /fridge/slots round-trip —
+    // halves cold-load requests on phone with flaky 4G.
+    // Dev (vite proxy) doesn't merge slots, so fall back to getSlots()
+    // when no item has a slot field attached.
     api.getFridge().then(d => {
       setData(d)
+      const derivedSlots: SlotMap = {}
+      let sawSlotField = false
+      for (const z of ['fridge','freezer','pantry','condiments'] as Zone[]) {
+        for (const it of d[z] || []) {
+          const slot = (it as FridgeItem & { slot?: SlotPos }).slot
+          if (slot) { derivedSlots[it.name] = slot; sawSlotField = true }
+        }
+      }
+      if (sawSlotField) {
+        setSlots(derivedSlots)
+      } else {
+        api.getSlots().then(setSlots).catch(() => { /* slot persistence is best-effort */ })
+      }
       const names = (['fridge','freezer','pantry','condiments'] as Zone[])
         .flatMap(z => d[z].map((it: FridgeItem) => it.name))
       if (names.length) api.getShelfLife(names).then(setLearnedShelfLife).catch(() => {})
     })
-    api.getSlots().then(setSlots).catch(() => { /* slot persistence is best-effort */ })
   }, [])
   useEffect(() => {
     try { localStorage.setItem('grocery_done', JSON.stringify(groceryDone)) } catch { /* ignore quota errors */ }

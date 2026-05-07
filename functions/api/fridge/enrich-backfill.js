@@ -33,6 +33,12 @@ export async function onRequestPost(context) {
   let body = {}
   try { body = await context.request.json() } catch {}
   const force = !!body?.force
+  // B-4: accept offset/limit so the client can drive multiple shorter
+  // calls instead of one ~minute-long one. Defaults preserve old behaviour
+  // (whole-fridge backfill in a single call) when neither is supplied.
+  const offset = Math.max(0, Number.isFinite(+body?.offset) ? Math.floor(+body.offset) : 0)
+  const rawLimit = Number.isFinite(+body?.limit) ? Math.floor(+body.limit) : 0
+  const limit = rawLimit > 0 ? Math.min(rawLimit, 200) : 0  // 0 = no cap
   const kv = context.env.FRIDGE_META
 
   // Pull all items via the proxy (so we get whatever is already merged in).
@@ -45,13 +51,17 @@ export async function onRequestPost(context) {
   if (!fridgeRes.ok) return json({ error: 'fridge unreachable' }, 502)
   const fridgeData = await fridgeRes.json()
 
-  const allItems = []
+  const fullItems = []
   for (const zone of ['fridge', 'pantry', 'freezer', 'condiments']) {
     if (!Array.isArray(fridgeData[zone])) continue
     for (const it of fridgeData[zone]) {
-      if (it?.name) allItems.push({ name: it.name, zone })
+      if (it?.name) fullItems.push({ name: it.name, zone })
     }
   }
+  const total = fullItems.length
+  const sliceEnd = limit > 0 ? Math.min(offset + limit, total) : total
+  const allItems = fullItems.slice(offset, sliceEnd)
+  const nextOffset = sliceEnd < total ? sliceEnd : null
 
   let enriched = 0, skipped = 0
   const errors = []
@@ -103,5 +113,15 @@ export async function onRequestPost(context) {
     }
   }
 
-  return json({ ok: true, scanned: allItems.length, enriched, skipped, errors })
+  return json({
+    ok: true,
+    scanned: allItems.length,
+    enriched,
+    skipped,
+    errors,
+    total,
+    offset,
+    next_offset: nextOffset,
+    done: nextOffset === null,
+  })
 }
