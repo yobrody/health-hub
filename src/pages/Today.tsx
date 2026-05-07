@@ -335,6 +335,17 @@ export default function Today({ onNavigate }: Props) {
       if (raw) { const p = JSON.parse(raw) as { name?: string }; if (p.name) setDisplayName(p.name) }
     } catch { /* JSON parse / storage error — keep default name */ }
     api.getProfile().then(profile => { if (profile.name) setDisplayName(profile.name) }).catch(() => {})
+    // Refresh totals when CameraSheet (or anything else) logs food via a
+    // path that bypasses our own state updates. Bug 2026-05-07: photo logs
+    // wrote server-side but Today's kcal / protein didn't refresh until a
+    // full page reload because the camera sheet only had an onFridgeUpdated
+    // callback, no onFoodLogged. The dispatcher in CameraSheet.confirmLog
+    // (and the barcode path) emits this event after addFood resolves.
+    const onFoodLogged = () => {
+      api.getToday().then(setData).catch(() => {})
+    }
+    window.addEventListener('food-logged', onFoodLogged)
+    return () => window.removeEventListener('food-logged', onFoodLogged)
   }, [])
 
   async function handleAiSubmit(e: React.FormEvent) {

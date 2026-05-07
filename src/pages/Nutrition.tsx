@@ -73,6 +73,15 @@ export default function Nutrition() {
     setMeal(defaultMeal)
     api.getToday().then(setData).catch(console.error)
     api.getFoodHistory(7).then(setHistory).catch(console.error)
+    // Same refresh signal Today listens for — keeps Nutrition's totals
+    // and history in sync when CameraSheet logs food without going through
+    // this page's add-food flow.
+    const onFoodLogged = () => {
+      api.getToday().then(setData).catch(() => {})
+      api.getFoodHistory(7).then(setHistory).catch(() => {})
+    }
+    window.addEventListener('food-logged', onFoodLogged)
+    return () => window.removeEventListener('food-logged', onFoodLogged)
   }, [])
 
   function resetSheet() {

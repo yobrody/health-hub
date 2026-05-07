@@ -177,6 +177,11 @@ export default function CameraSheet({ open, onClose, fridgeData, onFridgeUpdated
   const [restaurantContext, setRestaurantContext] = useState<{ name?: string; address?: string } | null>(null)
   const [barcodeProduct, setBarcodeProduct] = useState<BarcodeLookupResult | null>(null)
   const [barcodeActioning, setBarcodeActioning] = useState(false)
+  // Free-text note the user can add on the analysis preview screen — gets
+  // appended to the food log description so context like "double portion",
+  // "no rice", "tasted off so I only ate half" survives in the diary.
+  // Cleared on every reset() / new analysis so it doesn't bleed across logs.
+  const [note, setNote] = useState('')
   const foodInputRef = useRef<HTMLInputElement>(null)
   const receiptInputRef = useRef<HTMLInputElement>(null)
   const barcodeInputRef = useRef<HTMLInputElement>(null)
@@ -203,6 +208,7 @@ export default function CameraSheet({ open, onClose, fridgeData, onFridgeUpdated
     setRestaurantContext(null)
     setBarcodeProduct(null)
     setBarcodeActioning(false)
+    setNote('')
   }
 
   function handleClose() {
@@ -335,6 +341,7 @@ export default function CameraSheet({ open, onClose, fridgeData, onFridgeUpdated
           kcal: barcodeProduct.kcal ?? 0,
           protein_g: barcodeProduct.protein_g,
         })
+        window.dispatchEvent(new CustomEvent('food-logged'))
       }
       const msg = choice === 'both'
         ? `Logged & added to fridge: ${barcodeProduct.name}`
@@ -360,13 +367,23 @@ export default function CameraSheet({ open, onClose, fridgeData, onFridgeUpdated
       // Out-mode logs include the restaurant if we got it. Pattern is:
       //   "Chicken katsu curry, miso soup @ Wagamama"
       // so it surfaces naturally in the today log + history.
-      const description = mode === 'out' && restaurantContext?.name
+      const baseDescription = mode === 'out' && restaurantContext?.name
         ? `${foodLine} @ ${restaurantContext.name}`
         : foodLine
+      // Append the user's free-text note in parens so the diary keeps the
+      // context next to the AI's identification ("Pasta (double portion, no
+      // cheese)" rather than two separate fields).
+      const trimmedNote = note.trim().slice(0, 200)
+      const description = trimmedNote ? `${baseDescription} (${trimmedNote})` : baseDescription
       const h = new Date().getHours()
       const meal = h < 11 ? 'Breakfast' : h < 15 ? 'Lunch' : h < 18 ? 'Snack' : 'Dinner'
 
       await api.addFood({ meal, description, kcal: totalKcal, protein_g: totalProtein })
+      // Tell Today (and any other listener) to refresh totals — without this
+      // the calorie ring stays stale until the next page-load even though
+      // the row's been written. Bug surfaced 2026-05-07: photo logs went
+      // through but Today never re-fetched.
+      window.dispatchEvent(new CustomEvent('food-logged'))
 
       // Out mode never touches fridge inventory — the meal wasn't sourced from there.
       let matchedCount = 0
@@ -673,6 +690,42 @@ export default function CameraSheet({ open, onClose, fridgeData, onFridgeUpdated
                       </div>
                     </label>
                   ))}
+                </div>
+              </div>
+            )}
+
+            {/* Free-text note — for things the photo can't capture: portion
+                size, "skipped the rice", "shared with someone", how it tasted.
+                Appended to the diary description in parens; doesn't auto-
+                adjust the kcal estimate (intentional — the photo is the
+                authoritative input, the note just preserves context). */}
+            {analysis.foods.length > 0 && (
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--label2)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                  Add details (optional)
+                </div>
+                <textarea
+                  value={note}
+                  onChange={e => setNote(e.target.value.slice(0, 200))}
+                  placeholder="e.g. double portion, no rice, shared with Lucy"
+                  rows={2}
+                  maxLength={200}
+                  style={{
+                    width: '100%',
+                    boxSizing: 'border-box',
+                    background: 'var(--bg2)',
+                    border: '0.5px solid var(--separator)',
+                    borderRadius: 12,
+                    padding: '10px 12px',
+                    fontSize: 14,
+                    fontFamily: 'inherit',
+                    color: 'var(--label)',
+                    resize: 'none',
+                    outline: 'none',
+                  }}
+                />
+                <div style={{ fontSize: 11, color: 'var(--label3)', marginTop: 4, textAlign: 'right' }}>
+                  {note.length}/200
                 </div>
               </div>
             )}
