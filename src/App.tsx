@@ -4,16 +4,18 @@ import Nutrition from './pages/Nutrition'
 import Fridge from './pages/Fridge'
 import Workout from './pages/Workout'
 import GoalsPage from './pages/Goals'
+import Metrics from './pages/Metrics'
+import Timeline from './pages/Timeline'
 import './App.css'
 
-type Tab = 'today' | 'nutrition' | 'fridge' | 'workout' | 'goals'
+type Tab = 'today' | 'nutrition' | 'fridge' | 'workout' | 'goals' | 'metrics' | 'timeline'
 
 const TABS: { id: Tab; label: string; icon: string }[] = [
   { id: 'today', label: 'Today', icon: 'sun.max.fill' },
-  { id: 'nutrition', label: 'Nutrition', icon: 'fork.knife' },
-  { id: 'fridge', label: 'Fridge', icon: 'refrigerator' },
+  { id: 'metrics', label: 'Body', icon: 'heart.fill' },
+  { id: 'timeline', label: 'Timeline', icon: 'clock.fill' },
+  { id: 'nutrition', label: 'Food', icon: 'fork.knife' },
   { id: 'workout', label: 'Workout', icon: 'dumbbell.fill' },
-  { id: 'goals', label: 'Goals', icon: 'chart.bar.fill' },
 ]
 
 // SF Symbol-inspired SVG icons
@@ -58,6 +60,17 @@ function TabIcon({ id, active }: { id: Tab; active: boolean }) {
         <rect x="10" y="8" width="4" height="8" rx="1" fill={color} stroke="none"/>
       </svg>
     )
+    case 'metrics': return (
+      <svg {...s} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round">
+        <path d="M20.42 4.58a5.4 5.4 0 0 0-7.65 0l-.77.78-.77-.78a5.4 5.4 0 0 0-7.65 7.65l.78.77L12 20.64l7.64-7.64.78-.77a5.4 5.4 0 0 0 0-7.65z" fill={active ? color : 'none'}/>
+      </svg>
+    )
+    case 'timeline': return (
+      <svg {...s} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round">
+        <circle cx="12" cy="12" r="10"/>
+        <polyline points="12 6 12 12 16 14"/>
+      </svg>
+    )
     case 'goals': return (
       <svg {...s} viewBox="0 0 24 24" fill={color}>
         <rect x="3" y="14" width="4" height="8" rx="1" opacity={active ? 1 : 0.6}/>
@@ -75,6 +88,8 @@ export default function App() {
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       <div style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
         {tab === 'today' && <Today onNavigate={setTab} />}
+        {tab === 'metrics' && <Metrics />}
+        {tab === 'timeline' && <Timeline />}
         {tab === 'nutrition' && <Nutrition />}
         {tab === 'fridge' && <Fridge />}
         {tab === 'workout' && <Workout />}

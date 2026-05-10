@@ -85,6 +85,25 @@ export const api = {
 
   // Stats
   getWeekStats: () => request<WeekStats>('/stats/week'),
+
+  // Body Metrics
+  getMetrics: (days = 90) => request<{ metrics: BodyMetric[] }>(`/metrics?days=${days}`),
+  addMetric: (entry: BodyMetricInput) => request('/metrics', { method: 'POST', body: JSON.stringify(entry) }),
+  getLatestMetric: () => request<{ metric: BodyMetric | null }>('/metrics/latest'),
+
+  // TDEE
+  getTDEE: () => request<TDEEData>('/tdee'),
+
+  // Sleep
+  getSleep: (days = 30) => request<{ entries: SleepEntry[] }>(`/sleep?days=${days}`),
+  logSleep: (entry: SleepInput) => request('/sleep', { method: 'POST', body: JSON.stringify(entry) }),
+  getSleepStats: (days = 7) => request<SleepStats>(`/sleep/stats?days=${days}`),
+
+  // Timeline
+  getTimeline: (days = 7) => request<{ events: TimelineEvent[] }>(`/timeline?days=${days}`),
+
+  // Barcode
+  lookupBarcode: (code: string) => request<BarcodeResult>(`/barcode/${code}`),
 }
 
 // ---- Types ----
@@ -111,4 +130,50 @@ export interface PR { weight_kg: number; reps: number; date: string }
 export interface WeekStats {
   food_by_day: HistoryDay[]; logged_days: number; avg_kcal: number
   goal_kcal: number; workout_count: number; goal_gym_days: number
+}
+
+// ── Body Metrics ──
+export interface BodyMetric {
+  id: string; date: string; weight_kg?: number; body_fat_pct?: number
+  waist_cm?: number; chest_cm?: number; arm_cm?: number; notes?: string
+}
+export interface BodyMetricInput {
+  weight_kg?: number; body_fat_pct?: number; waist_cm?: number
+  chest_cm?: number; arm_cm?: number; notes?: string; date?: string
+}
+
+// ── TDEE ──
+export interface TDEEData {
+  bmr: number; tdee: number; activity_level: string; weight_kg: number
+  avg_intake_14d: number | null; logged_days_14d: number
+  weight_trend: { weekly_change_kg: number; direction: string } | null
+  recommendation: string
+}
+
+// ── Sleep ──
+export interface SleepEntry {
+  id: string; date: string; bedtime: string; wake_time: string
+  duration_hrs: number; quality: number; hrv_ms?: number
+  resting_hr?: number; notes?: string
+}
+export interface SleepInput {
+  bedtime: string; wake_time: string; quality?: number
+  hrv_ms?: number; resting_hr?: number; notes?: string; date?: string
+}
+export interface SleepStats {
+  avg_duration: number | null; avg_quality: number | null
+  avg_hrv: number | null; entries: number
+}
+
+// ── Timeline ──
+export interface TimelineEvent {
+  date: string; type: 'food' | 'workout' | 'sleep' | 'metric' | 'routine'
+  summary: string; detail?: string; value?: number
+}
+
+// ── Barcode ──
+export interface BarcodeResult {
+  code: string; name: string; brand: string; serving_size: string
+  per_100g: { kcal: number; protein_g: number; carbs_g: number; fat_g: number; fiber_g: number; sugar_g: number; salt_g: number }
+  image_url: string
 }

@@ -45,7 +45,7 @@ function MacroBar({ label, value, goal, color }: { label: string; value: number;
   )
 }
 
-interface Props { onNavigate: (tab: 'today' | 'nutrition' | 'fridge' | 'workout' | 'goals') => void }
+interface Props { onNavigate: (tab: 'today' | 'nutrition' | 'fridge' | 'workout' | 'goals' | 'metrics' | 'timeline') => void }
 
 export default function Today({ onNavigate }: Props) {
   const [data, setData] = useState<TodayData | null>(null)
@@ -196,10 +196,10 @@ export default function Today({ onNavigate }: Props) {
         <div className="section-label">Quick access</div>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
           {[
+            { label: 'Body',      sub: 'Weight & TDEE',   tab: 'metrics'   as const, icon: '❤️', color: 'var(--red)'    },
+            { label: 'Timeline',  sub: 'Activity feed',   tab: 'timeline'  as const, icon: '📅', color: 'var(--blue)'   },
             { label: 'Fridge',    sub: 'What can I make?', tab: 'fridge'    as const, icon: '🥗', color: 'var(--green)'  },
             { label: 'Nutrition', sub: 'Full food log',    tab: 'nutrition' as const, icon: '🍽️', color: 'var(--orange)' },
-            { label: 'Goals',     sub: 'Weekly stats',    tab: 'goals'     as const, icon: '📊', color: 'var(--purple)' },
-            { label: 'Workout',   sub: 'Log a session',   tab: 'workout'   as const, icon: '🏋️', color: 'var(--blue)'   },
           ].map(item => (
             <button
               key={item.tab}
