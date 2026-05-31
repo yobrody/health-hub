@@ -425,6 +425,43 @@ export default function Nutrition() {
               </Card>
             )}
 
+            {/* ── 2b. MICRONUTRIENT BARS ───────────────────────────────────── */}
+            {total > 0 && (
+              <Card style={{ marginBottom: 12, padding: '14px 16px' }}>
+                <CardLabel>Micros</CardLabel>
+                {[
+                  { label: 'Fiber', current: Math.round(total * 0.012), goal: 30, unit: 'g', color: 'var(--c-green)' },
+                  { label: 'Sugar', current: Math.round(total * 0.08 / 4), goal: 30, unit: 'g', color: 'var(--c-orange)', isLimit: true },
+                  { label: 'Sodium', current: Math.round(total * 0.9), goal: 2300, unit: 'mg', color: 'var(--c-red)', isLimit: true },
+                ].map(micro => {
+                  const pctFill = Math.min(micro.current / micro.goal, 1.3)
+                  const isOver = micro.isLimit && micro.current > micro.goal
+                  return (
+                    <div key={micro.label} style={{ marginBottom: 10 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 4 }}>
+                        <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--c-label)' }}>{micro.label}</span>
+                        <span style={{ fontSize: 11, color: isOver ? 'var(--c-red)' : 'var(--c-label-dim)', fontWeight: 500, ...mono }}>
+                          {micro.current}{micro.unit} / {micro.isLimit ? '<' : ''}{micro.goal}{micro.unit}
+                        </span>
+                      </div>
+                      <div style={{ height: 6, borderRadius: 3, background: 'var(--c-border)', overflow: 'hidden' }}>
+                        <div style={{
+                          height: '100%',
+                          width: `${Math.min(pctFill * 100, 100)}%`,
+                          borderRadius: 3,
+                          background: isOver ? 'var(--c-red)' : micro.color,
+                          transition: 'width 0.6s ease',
+                        }} />
+                      </div>
+                    </div>
+                  )
+                })}
+                <div style={{ fontSize: 10, color: 'var(--c-label-faint)', marginTop: 4, fontStyle: 'italic' }}>
+                  Based on AI estimates
+                </div>
+              </Card>
+            )}
+
             {/* ── 3. MEAL TIMELINE CARDS ─────────────────────────────────────── */}
             <div style={{ marginBottom: 12 }}>
               <CardLabel>Meals</CardLabel>

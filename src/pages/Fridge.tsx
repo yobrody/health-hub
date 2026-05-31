@@ -1382,6 +1382,10 @@ export default function Fridge() {
   const [, setBarcodeScanning] = useState(false)
   const [detailModal, setDetailModal] = useState<{ name: string; zone: Zone } | null>(null)
   const [activeDragName, setActiveDragName] = useState<string | null>(null)
+  const [viewMode, setViewMode] = useState<'cards' | 'appliance'>(() => {
+    try { return (localStorage.getItem('fridge_view') as 'cards' | 'appliance') || 'cards' } catch { return 'cards' }
+  })
+  const [collapsedZones, setCollapsedZones] = useState<Set<Zone>>(new Set())
   const fileInputRef = useRef<HTMLInputElement>(null)
   const barcodeInputRef = useRef<HTMLInputElement>(null)
 
@@ -1777,10 +1781,15 @@ export default function Fridge() {
                   of truth for the count (audit P1-3). */}
             </div>
           </div>
-          {/* Header action: only manual + Add. The bottom camera FAB
-              already exposes "Scan Receipt" + "Scan Barcode" — duplicating
-              them up here was redundant + cluttered (audit P0-2). */}
           <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+            <button onClick={() => {
+              const next = viewMode === 'cards' ? 'appliance' : 'cards'
+              setViewMode(next)
+              try { localStorage.setItem('fridge_view', next) } catch { /* quota */ }
+            }}
+              style={{ background: 'var(--card)', border: '1px solid var(--separator)', borderRadius: 20, padding: '8px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer', color: 'var(--label2)' }}>
+              {viewMode === 'cards' ? '🧊' : '📋'}
+            </button>
             <button onClick={() => setShowAdd(true)}
               style={{ background: 'var(--blue)', color: '#fff', border: 'none', borderRadius: 20, padding: '8px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
               + Add
@@ -1876,32 +1885,161 @@ export default function Fridge() {
           </div>
         )}
 
-        {/* ── Appliance views ── all four zones now share the cartoon SVG +
-            drag-and-drop slot model (audit P2-11). Each zone is its own
-            appliance, and items can drag between them via the shared
-            DndContext. Empty zones don't render to keep the page tight. */}
-        <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-          {(['fridge', 'pantry', 'freezer', 'condiments'] as Zone[]).map(zone => (
-            data[zone].length > 0 && (
-              <Appliance
-                key={zone}
-                kind={zone}
-                items={data[zone]}
-                slots={slots}
-                learnedShelfLife={learnedShelfLife}
-                activeDragName={activeDragName}
-                onTapItem={(name, z) => setDetailModal({ name, zone: z })}
-              />
-            )
-          ))}
-          <DragOverlay dropAnimation={null}>
-            {activeDragName ? (() => {
-              const found = itemByName.get(activeDragName)
-              if (!found) return null
-              return <ApplianceItem item={found.item} zone={found.zone} idx={0} learnedDays={learnedShelfLife[found.item.name]} />
-            })() : null}
-          </DragOverlay>
-        </DndContext>
+        {/* ── Card view ── visual cards with freshness bars, quick actions,
+            collapsible sections. Default view for quick scanning. */}
+        {viewMode === 'cards' && (['fridge', 'freezer', 'pantry', 'condiments'] as Zone[]).map(zone => {
+          const items = data[zone]
+          if (items.length === 0) return null
+          const isCollapsed = collapsedZones.has(zone)
+          const zoneCfg = ZONE_CONFIG[zone]
+          // zone is used in item age comparison below
+          return (
+            <div key={zone} style={{ marginBottom: 16 }}>
+              {/* Section header — collapsible */}
+              <button
+                onClick={() => setCollapsedZones(prev => {
+                  const next = new Set(prev)
+                  if (next.has(zone)) next.delete(zone)
+                  else next.add(zone)
+                  return next
+                })}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 8, width: '100%',
+                  background: 'none', border: 'none', cursor: 'pointer', padding: '6px 0',
+                  color: 'var(--label)',
+                }}
+              >
+                <span style={{
+                  width: 10, height: 10, borderRadius: 3,
+                  background: zoneCfg.accent, flexShrink: 0,
+                }} />
+                <span style={{ fontSize: 15, fontWeight: 700 }}>{zoneCfg.label}</span>
+                <span style={{
+                  background: zoneCfg.accent, color: '#fff',
+                  fontSize: 11, fontWeight: 700, borderRadius: 10,
+                  padding: '1px 8px', minWidth: 22, textAlign: 'center',
+                }}>{items.length}</span>
+                <span style={{ marginLeft: 'auto', fontSize: 14, color: 'var(--label3)', transition: 'transform 0.2s', transform: isCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)' }}>▾</span>
+              </button>
+
+              {/* Items */}
+              {!isCollapsed && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 6 }}>
+                  {items.map(item => {
+                    const age = daysOld(item.added)
+                    const learned = learnedShelfLife[item.name]
+                    const shelfDays = learned?.avg_days ?? SHELF_LIFE[zone]
+                    const freshnessPct = Math.min(age / shelfDays, 1)
+                    const isOld = age >= (zone === 'freezer' ? 30 : 7)
+                    const barColor = freshnessPct >= 0.85 ? 'var(--red)'
+                      : freshnessPct >= 0.55 ? 'var(--orange)'
+                      : 'var(--green)'
+                    return (
+                      <div
+                        key={item.name}
+                        style={{
+                          background: 'var(--card)',
+                          borderRadius: 14,
+                          padding: '12px 14px',
+                          border: isOld ? '1px solid rgba(255,59,48,0.3)' : '1px solid var(--separator)',
+                          boxShadow: '0 1px 4px rgba(0,0,0,0.04)',
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                          {/* Icon */}
+                          <div style={{ width: 40, height: 40, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                            <NotoIcon name={item.name} size={36} />
+                          </div>
+                          {/* Name + meta */}
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: 15, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {item.name}
+                            </div>
+                            <div style={{ fontSize: 12, color: 'var(--label2)', marginTop: 1, display: 'flex', alignItems: 'center', gap: 6 }}>
+                              {item.added && <span>Added {age === 0 ? 'today' : age === 1 ? '1 day ago' : `${age} days ago`}</span>}
+                              {item.store && <span style={{ color: 'var(--label3)' }}>· {item.store}</span>}
+                            </div>
+                          </div>
+                          {/* Quick actions */}
+                          <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); setDetailModal({ name: item.name, zone }) }}
+                              title="Used it"
+                              style={{ background: 'var(--green)', color: '#fff', border: 'none', borderRadius: 8, width: 32, height: 32, fontSize: 14, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                            >✓</button>
+                            <button
+                              onClick={async (e) => {
+                                e.stopPropagation()
+                                try {
+                                  const existing = await api.getList('shopping').catch(() => ({ items: [] as { text: string }[] }))
+                                  const have = new Set(existing.items.map(i => i.text.toLowerCase().trim()))
+                                  if (!have.has(item.name.toLowerCase().trim())) {
+                                    await api.addListItem('shopping', item.name)
+                                    showToast(`Added ${item.name} to shopping list`)
+                                  } else {
+                                    showToast('Already on list', 'info')
+                                  }
+                                } catch { showToast('Failed to add', 'err') }
+                              }}
+                              title="Reorder"
+                              style={{ background: 'var(--gray5)', color: 'var(--label)', border: 'none', borderRadius: 8, width: 32, height: 32, fontSize: 13, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                            >🛒</button>
+                          </div>
+                        </div>
+                        {/* Freshness bar */}
+                        <div style={{ marginTop: 8, height: 4, borderRadius: 2, background: 'var(--gray5)', overflow: 'hidden' }}>
+                          <div style={{
+                            height: '100%',
+                            width: `${Math.max(5, (1 - freshnessPct) * 100)}%`,
+                            borderRadius: 2,
+                            background: barColor,
+                            transition: 'width 0.3s ease',
+                          }} />
+                        </div>
+                        {/* Low stock warning */}
+                        {isOld && (
+                          <div style={{
+                            marginTop: 6, padding: '4px 8px', borderRadius: 6,
+                            background: 'rgba(255,149,0,0.1)', color: 'var(--orange)',
+                            fontSize: 11, fontWeight: 600,
+                          }}>
+                            {zone === 'freezer' ? `In freezer ${age} days` : `${age} days old — use soon`}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          )
+        })}
+
+        {/* ── Appliance views ── cartoon SVG + drag-and-drop slot model */}
+        {viewMode === 'appliance' && (
+          <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+            {(['fridge', 'pantry', 'freezer', 'condiments'] as Zone[]).map(zone => (
+              data[zone].length > 0 && (
+                <Appliance
+                  key={zone}
+                  kind={zone}
+                  items={data[zone]}
+                  slots={slots}
+                  learnedShelfLife={learnedShelfLife}
+                  activeDragName={activeDragName}
+                  onTapItem={(name, z) => setDetailModal({ name, zone: z })}
+                />
+              )
+            ))}
+            <DragOverlay dropAnimation={null}>
+              {activeDragName ? (() => {
+                const found = itemByName.get(activeDragName)
+                if (!found) return null
+                return <ApplianceItem item={found.item} zone={found.zone} idx={0} learnedDays={learnedShelfLife[found.item.name]} />
+              })() : null}
+            </DragOverlay>
+          </DndContext>
+        )}
 
         {/* ── Bottom action row ── */}
         {totalItems > 0 && (

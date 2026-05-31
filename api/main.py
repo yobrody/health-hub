@@ -1480,6 +1480,9 @@ Respond ONLY as JSON:
   "protein_g": 12,
   "carbs_g": 40,
   "fat_g": 18,
+  "fiber_g": 3,
+  "sugar_g": 8,
+  "sodium_mg": 450,
   "confidence": "high or medium or low",
   "confidence_reason": "why this confidence level (e.g. 'exact product nutrition available' or 'estimated from similar products')"
 }}
@@ -1489,7 +1492,8 @@ IMPORTANT:
 - Use realistic UK portion sizes.
 - "high" confidence = you know the exact product nutrition (chain restaurant, packaged food with known values).
 - "medium" = you're estimating from similar products.
-- "low" = rough guess, could be significantly off."""
+- "low" = rough guess, could be significantly off.
+- fiber_g, sugar_g, sodium_mg are estimates - provide best guesses based on the food type."""
 
     result = gemini_call(prompt)
 

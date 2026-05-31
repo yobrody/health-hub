@@ -15,6 +15,8 @@ import {
   describeNext,
   findNextIncompleteSet,
 } from '../lib/workout-flow'
+import { searchExerciseDB, getExercisesByGroup } from '../lib/exercises'
+import type { MuscleGroup } from '../lib/exercises'
 
 interface LiveSet extends ExerciseSet { done: boolean }
 interface LiveExercise {
@@ -70,8 +72,13 @@ function getExerciseAccent(name: string): string {
   return '#5E6877' // neutral graphite
 }
 
-// Wger exercise search
-async function searchExercises(query: string): Promise<string[]> {
+// Local exercise DB search + fallback to wger API for custom exercises
+function searchExercisesLocal(query: string): string[] {
+  const results = searchExerciseDB(query)
+  return results.slice(0, 10).map(e => e.name)
+}
+
+async function searchExercisesRemote(query: string): Promise<string[]> {
   try {
     const url = `https://wger.de/api/v2/exercise/search/?term=${encodeURIComponent(query)}&language=english&format=json`
     const res = await fetch(url)
@@ -542,11 +549,18 @@ export default function Workout() {
       setExResults([])
       return
     }
-    clearTimeout(searchTimeout.current)
-    searchTimeout.current = setTimeout(async () => {
-      const results = await searchExercises(exSearch)
-      setExResults(results)
-    }, 300)
+    // Immediate local search
+    const local = searchExercisesLocal(exSearch)
+    setExResults(local)
+    // If local DB has few results, supplement with remote search
+    if (local.length < 4) {
+      clearTimeout(searchTimeout.current)
+      searchTimeout.current = setTimeout(async () => {
+        const remote = await searchExercisesRemote(exSearch)
+        const combined = [...local, ...remote.filter(r => !local.includes(r))].slice(0, 12)
+        setExResults(combined)
+      }, 400)
+    }
   }, [exSearch])
 
   const recentTitles = [...workouts].reverse().map(w => w.title)
@@ -1109,16 +1123,36 @@ export default function Workout() {
                       ))}
                     </div>
                   )}
-                  {!exSearch && (
-                    <div className="card">
-                      <div style={{ fontSize: 11, color: 'var(--label3)', fontWeight: 600, padding: '10px 14px 4px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Quick add</div>
-                      {['Bench Press (Barbell)', 'Squat (Barbell)', 'Deadlift (Barbell)', 'Overhead Press (Barbell)', 'Pull-Up', 'Barbell Row', 'Dumbbell Curl', 'Tricep Pushdown'].map(ex => (
-                        <button key={ex} className="list-row" style={{ width: '100%', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left' }} onClick={() => { addExercise(ex); setShowManage(false); setShowExSearch(false); setExSearch('') }}>
-                          <span style={{ fontSize: 15 }}>{ex}</span>
-                        </button>
-                      ))}
-                    </div>
-                  )}
+                  {!exSearch && (() => {
+                    // Show recent exercises from past workouts, then grouped DB
+                    const recentExNames = [...new Set(workouts.flatMap(w => w.exercises.map(ex => ex.name)))].slice(0, 6)
+                    const groups = getExercisesByGroup()
+                    return (
+                      <div style={{ maxHeight: '50vh', overflowY: 'auto' }}>
+                        {recentExNames.length > 0 && (
+                          <div className="card" style={{ marginBottom: 8 }}>
+                            <div style={{ fontSize: 11, color: 'var(--label3)', fontWeight: 600, padding: '10px 14px 4px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Recent</div>
+                            {recentExNames.map(ex => (
+                              <button key={ex} className="list-row" style={{ width: '100%', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left' }} onClick={() => { addExercise(ex); setShowManage(false); setShowExSearch(false); setExSearch('') }}>
+                                <span style={{ fontSize: 15 }}>{ex}</span>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                        {(Object.keys(groups) as MuscleGroup[]).map(group => (
+                          <div key={group} className="card" style={{ marginBottom: 8 }}>
+                            <div style={{ fontSize: 11, color: 'var(--label3)', fontWeight: 600, padding: '10px 14px 4px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{group}</div>
+                            {groups[group].map(ex => (
+                              <button key={ex.name} className="list-row" style={{ width: '100%', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', gap: 8 }} onClick={() => { addExercise(ex.name); setShowManage(false); setShowExSearch(false); setExSearch('') }}>
+                                <span style={{ fontSize: 15 }}>{ex.name}</span>
+                                <span style={{ fontSize: 11, color: 'var(--label3)', marginLeft: 'auto' }}>{ex.equipment}</span>
+                              </button>
+                            ))}
+                          </div>
+                        ))}
+                      </div>
+                    )
+                  })()}
                   <button onClick={() => { setShowExSearch(false); setExSearch('') }} style={{ width: '100%', background: 'none', border: 'none', color: 'var(--label2)', fontSize: 14, fontWeight: 500, padding: '14px 0', cursor: 'pointer' }}>Cancel</button>
                 </div>
               )}
