@@ -357,12 +357,13 @@ export interface ShelfLifeMap { [item_name: string]: { avg_days: number; sample_
 export interface DiaryEntry { datetime: string; thumbnail: string; foods: FoodAnalysisV2['foods'] }
 export interface BarcodeLookupResult {
   name: string
+  brand?: string
+  serving_size?: string
   kcal?: number
   protein_g?: number
   carbs_g?: number
   fat_g?: number
-  // OFF product image URL (200px-wide front-of-pack). May be undefined when
-  // the OFF entry exists but has no uploaded photos.
+  per_100g?: { kcal?: number; protein_g?: number; carbs_g?: number; fat_g?: number }
   image_url?: string
 }
 export interface TodayData { date: string; entries: FoodEntry[]; total_kcal: number; goals: Goals }
