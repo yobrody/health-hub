@@ -58,6 +58,7 @@ export default function SmartScanner({ open, onClose, onFridgeUpdated }: Props) 
   // Barcode result state
   const [barcodeProduct, setBarcodeProduct] = useState<BarcodeLookupResult | null>(null)
   const [barcodeCode, setBarcodeCode] = useState<string | null>(null)
+  const [barcodeSource, setBarcodeSource] = useState<string>('open_food_facts')
 
   // Receipt result state
   const [receiptItems, setReceiptItems] = useState<ScannedItem[]>([])
@@ -72,6 +73,7 @@ export default function SmartScanner({ open, onClose, onFridgeUpdated }: Props) 
     setSaving(false)
     setBarcodeProduct(null)
     setBarcodeCode(null)
+    setBarcodeSource('open_food_facts')
     setReceiptItems([])
     setFoodResult(null)
     setThumbnail('')
@@ -101,16 +103,39 @@ export default function SmartScanner({ open, onClose, onFridgeUpdated }: Props) 
           setStage('idle')
           return
         }
-        // Look up the barcode via Open Food Facts
-        const product = await api.lookupBarcode(result.code)
-        if (!product) {
-          showToast(`No product found for barcode ${result.code}`, 'info')
+        // Look up the barcode via Open Food Facts (server-side, with AI fallback)
+        try {
+          const headers = new Headers({ 'Content-Type': 'application/json' })
+          const KEY = import.meta.env.VITE_API_KEY || undefined
+          if (KEY) headers.set('X-Health-Key', KEY as string)
+          const BASE = import.meta.env.VITE_API_BASE || '/api'
+          const barcodeRes = await fetch(`${BASE}/barcode/${encodeURIComponent(result.code)}`, { headers })
+          if (!barcodeRes.ok) {
+            showToast(`No product found for barcode ${result.code}`, 'info')
+            setStage('idle')
+            return
+          }
+          const serverProduct = await barcodeRes.json()
+          const product: BarcodeLookupResult & { source?: string } = {
+            name: serverProduct.name,
+            brand: serverProduct.brand,
+            serving_size: serverProduct.serving_size,
+            image_url: serverProduct.image_url,
+            kcal: serverProduct.per_100g?.kcal,
+            protein_g: serverProduct.per_100g?.protein_g,
+            carbs_g: serverProduct.per_100g?.carbs_g,
+            fat_g: serverProduct.per_100g?.fat_g,
+            per_100g: serverProduct.per_100g,
+          }
+          setBarcodeCode(result.code)
+          setBarcodeProduct(product)
+          setBarcodeSource(serverProduct.source || 'open_food_facts')
+          setStage('barcode-result')
+        } catch {
+          showToast(`Barcode lookup failed for ${result.code}`, 'err')
           setStage('idle')
           return
         }
-        setBarcodeCode(result.code)
-        setBarcodeProduct(product)
-        setStage('barcode-result')
 
       } else if (result.type === 'receipt') {
         if (!result.items?.length) {
@@ -301,7 +326,7 @@ export default function SmartScanner({ open, onClose, onFridgeUpdated }: Props) 
         {/* ── Barcode result ── */}
         {stage === 'barcode-result' && barcodeProduct && (
           <>
-            <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
+            <div style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap' }}>
               <span style={{ background: 'rgba(175,82,222,0.12)', color: 'var(--purple)', borderRadius: 16, padding: '4px 10px', fontSize: 12, fontWeight: 600 }}>
                 Barcode detected
               </span>
@@ -310,6 +335,13 @@ export default function SmartScanner({ open, onClose, onFridgeUpdated }: Props) 
                   {barcodeCode}
                 </span>
               )}
+              <span style={{
+                background: barcodeSource === 'ai_estimate' ? 'rgba(255,159,10,0.12)' : 'rgba(52,199,89,0.12)',
+                color: barcodeSource === 'ai_estimate' ? 'var(--orange)' : 'var(--green)',
+                borderRadius: 16, padding: '4px 10px', fontSize: 12, fontWeight: 600,
+              }}>
+                {barcodeSource === 'ai_estimate' ? 'AI estimate' : 'Open Food Facts'}
+              </span>
             </div>
             <div className="card" style={{ padding: 16, marginBottom: 20 }}>
               <div style={{ display: 'flex', gap: 14, alignItems: 'flex-start' }}>

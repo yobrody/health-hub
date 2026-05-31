@@ -2,7 +2,7 @@
 Health Hub API — FastAPI backend for Brody's PWA
 Reads/writes shared markdown files that Lucky also uses.
 """
-from fastapi import FastAPI, HTTPException, Depends, UploadFile, File
+from fastapi import FastAPI, HTTPException, Depends, UploadFile, File, Body
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import APIKeyHeader
 import os, json, re, base64
@@ -1458,6 +1458,42 @@ def recent_foods(days: int = 7, key=Depends(require_key)):
     return {"items": list(seen.values()), "days": days}
 
 
+# ── SMART FOOD LOG (natural language → AI nutrition estimate) ────────
+@app.post("/food/smart")
+async def smart_food_log(body: dict = Body(...), key=Depends(require_key)):
+    """Natural language food logging — AI estimates nutrition from description."""
+    description = body.get("description", "").strip()
+    if not description:
+        raise HTTPException(400, "description required")
+
+    prompt = f"""Estimate the nutritional content of this food. Be specific to UK products/portions where mentioned.
+
+Food: {description}
+
+Respond ONLY as JSON:
+{{"meal": "short name", "description": "{description}", "kcal": 350, "protein_g": 12, "carbs_g": 40, "fat_g": 18, "confidence": "medium"}}
+
+Use realistic UK portion sizes. If a brand is mentioned (Aldi, Tesco, Greggs, etc.), use their actual product nutrition where possible."""
+
+    result = gemini_call(prompt)
+
+    # Auto-determine meal type from time of day
+    hour = datetime.now().hour
+    if hour < 10:
+        meal_type = "Breakfast"
+    elif hour < 14:
+        meal_type = "Lunch"
+    elif hour < 17:
+        meal_type = "Snack"
+    else:
+        meal_type = "Dinner"
+
+    result.setdefault("meal", meal_type)
+    result["description"] = description
+
+    return result
+
+
 # ── HEALTH CHECK ─────────────────────────────────────────────────────
 @app.get("/health")
 def health():
@@ -1760,7 +1796,32 @@ def barcode_lookup(code: str, key=Depends(require_key)):
         raise HTTPException(status_code=502, detail=f"Open Food Facts lookup failed: {e}")
 
     if data.get("status") != 1:
-        raise HTTPException(status_code=404, detail="Product not found")
+        # Fallback: ask AI to identify the product from the barcode number
+        prompt = f"""A UK grocery product has barcode number {code}.
+What product is this likely to be? Estimate its nutritional content per 100g.
+Respond as JSON: {{"name": "product name", "brand": "brand or unknown", "kcal": 250, "protein_g": 10, "carbs_g": 30, "fat_g": 12, "source": "ai_estimate"}}
+If you don't recognize the barcode, make your best guess based on common UK products with similar barcode prefixes (50 = UK, 54 = Belgium, etc.)."""
+        try:
+            ai_result = gemini_call(prompt)
+            return {
+                "code": code,
+                "name": ai_result.get("name", "Unknown product"),
+                "brand": ai_result.get("brand", ""),
+                "serving_size": "",
+                "source": "ai_estimate",
+                "per_100g": {
+                    "kcal": ai_result.get("kcal", 0),
+                    "protein_g": ai_result.get("protein_g", 0),
+                    "carbs_g": ai_result.get("carbs_g", 0),
+                    "fat_g": ai_result.get("fat_g", 0),
+                    "fiber_g": 0,
+                    "sugar_g": 0,
+                    "salt_g": 0,
+                },
+                "image_url": "",
+            }
+        except Exception:
+            raise HTTPException(status_code=404, detail="Product not found in Open Food Facts or AI estimate")
 
     product = data.get("product", {})
     nutrients = product.get("nutriments", {})
@@ -1769,6 +1830,7 @@ def barcode_lookup(code: str, key=Depends(require_key)):
         "name": product.get("product_name", "Unknown"),
         "brand": product.get("brands", ""),
         "serving_size": product.get("serving_size", ""),
+        "source": "open_food_facts",
         "per_100g": {
             "kcal": nutrients.get("energy-kcal_100g", 0),
             "protein_g": nutrients.get("proteins_100g", 0),

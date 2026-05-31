@@ -151,14 +151,17 @@ function BigNumber({ value, unit, color, mono = true }: { value: string | number
 function QuickFoodInput({ onLogged }: { onLogged: () => void }) {
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
+  const [estimate, setEstimate] = useState<{ meal: string; description: string; kcal: number; protein_g: number; carbs_g?: number; fat_g?: number; confidence: string } | null>(null)
+  const [editKcal, setEditKcal] = useState('')
+  const [editProtein, setEditProtein] = useState('')
 
-  function parse(raw: string): { description: string; kcal: number; protein_g?: number } | null {
+  // Power-user path: if text contains "Xkcal", parse directly
+  function parseExplicit(raw: string): { description: string; kcal: number; protein_g?: number } | null {
     const kcalMatch = raw.match(/(\d+)\s*kcal/i)
     if (!kcalMatch) return null
     const kcal = parseInt(kcalMatch[1])
     const proteinMatch = raw.match(/(\d+)\s*g\s*protein/i)
     const protein_g = proteinMatch ? parseInt(proteinMatch[1]) : undefined
-    // Strip the macro annotations to get a clean description
     const description = raw
       .replace(/(\d+)\s*kcal/i, '')
       .replace(/(\d+)\s*g\s*protein/i, '')
@@ -169,18 +172,57 @@ function QuickFoodInput({ onLogged }: { onLogged: () => void }) {
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
-    const parsed = parse(text.trim())
-    if (!parsed) {
-      showToast('Try: "2 eggs 300kcal 20g protein"', 'info')
+    const trimmed = text.trim()
+    if (!trimmed) return
+
+    // Power-user path: explicit kcal in text
+    const explicit = parseExplicit(trimmed)
+    if (explicit) {
+      setBusy(true)
+      const hour = new Date().getHours()
+      const meal = hour < 11 ? 'Breakfast' : hour < 15 ? 'Lunch' : hour < 18 ? 'Snack' : 'Dinner'
+      try {
+        await api.addFood({ meal, description: explicit.description, kcal: explicit.kcal, protein_g: explicit.protein_g })
+        setText('')
+        showToast(`${explicit.description} logged`)
+        onLogged()
+      } catch {
+        showToast('Failed to log food', 'err')
+      } finally {
+        setBusy(false)
+      }
       return
     }
+
+    // AI path: send description, get estimate back
     setBusy(true)
-    const hour = new Date().getHours()
-    const meal = hour < 11 ? 'Breakfast' : hour < 15 ? 'Lunch' : hour < 18 ? 'Snack' : 'Dinner'
     try {
-      await api.addFood({ meal, description: parsed.description, kcal: parsed.kcal, protein_g: parsed.protein_g })
+      const result = await api.smartFoodLog(trimmed)
+      setEstimate(result)
+      setEditKcal(String(result.kcal || 0))
+      setEditProtein(String(result.protein_g || 0))
+    } catch {
+      showToast('AI estimate failed -- try adding kcal manually', 'err')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function confirmEstimate() {
+    if (!estimate) return
+    setBusy(true)
+    const kcal = parseInt(editKcal) || estimate.kcal
+    const protein_g = parseInt(editProtein) || estimate.protein_g
+    try {
+      await api.addFood({
+        meal: estimate.meal,
+        description: estimate.description,
+        kcal,
+        protein_g,
+      })
       setText('')
-      showToast(`${parsed.description} logged`)
+      setEstimate(null)
+      showToast(`${estimate.description} logged`)
       onLogged()
     } catch {
       showToast('Failed to log food', 'err')
@@ -189,11 +231,99 @@ function QuickFoodInput({ onLogged }: { onLogged: () => void }) {
     }
   }
 
+  function cancelEstimate() {
+    setEstimate(null)
+  }
+
+  // Show confirmation card when we have an AI estimate
+  if (estimate) {
+    return (
+      <div className="mt-3">
+        <div style={{
+          background: 'var(--c-bg)', border: '1px solid var(--c-border)',
+          borderRadius: 12, padding: '12px 14px',
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
+            <div>
+              <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--c-label)' }}>
+                {estimate.meal || estimate.description}
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--c-label-faint)', marginTop: 2 }}>
+                {estimate.description}
+              </div>
+            </div>
+            <span style={{
+              fontSize: 10, fontWeight: 600, padding: '2px 8px', borderRadius: 8,
+              background: estimate.confidence === 'high' ? 'rgba(52,199,89,0.15)' : estimate.confidence === 'medium' ? 'rgba(255,159,10,0.15)' : 'rgba(255,69,58,0.15)',
+              color: estimate.confidence === 'high' ? 'var(--c-green, #34c759)' : estimate.confidence === 'medium' ? 'var(--c-orange, #ff9f0a)' : 'var(--c-red, #ff453a)',
+            }}>
+              {estimate.confidence} confidence
+            </span>
+          </div>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+            <label style={{ fontSize: 12, color: 'var(--c-label-faint)', display: 'flex', alignItems: 'center', gap: 4 }}>
+              kcal:
+              <input
+                type="number"
+                value={editKcal}
+                onChange={e => setEditKcal(e.target.value)}
+                style={{
+                  width: 60, padding: '4px 6px', fontSize: 13, fontWeight: 600,
+                  background: 'var(--c-bg)', border: '1px solid var(--c-border)',
+                  borderRadius: 6, color: 'var(--c-label)', textAlign: 'center',
+                }}
+              />
+            </label>
+            <label style={{ fontSize: 12, color: 'var(--c-label-faint)', display: 'flex', alignItems: 'center', gap: 4 }}>
+              protein:
+              <input
+                type="number"
+                value={editProtein}
+                onChange={e => setEditProtein(e.target.value)}
+                style={{
+                  width: 60, padding: '4px 6px', fontSize: 13, fontWeight: 600,
+                  background: 'var(--c-bg)', border: '1px solid var(--c-border)',
+                  borderRadius: 6, color: 'var(--c-label)', textAlign: 'center',
+                }}
+              />
+              <span style={{ fontSize: 11 }}>g</span>
+            </label>
+            {estimate.carbs_g != null && (
+              <span style={{ fontSize: 11, color: 'var(--c-label-faint)', alignSelf: 'center' }}>
+                {estimate.carbs_g}g C
+              </span>
+            )}
+            {estimate.fat_g != null && (
+              <span style={{ fontSize: 11, color: 'var(--c-label-faint)', alignSelf: 'center' }}>
+                {estimate.fat_g}g F
+              </span>
+            )}
+          </div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button
+              onClick={confirmEstimate}
+              disabled={busy}
+              className="bg-[var(--c-accent)] text-white rounded-lg px-4 py-1.5 text-[12px] font-semibold disabled:opacity-30 transition-opacity flex-1"
+            >
+              {busy ? '...' : 'Log it'}
+            </button>
+            <button
+              onClick={cancelEstimate}
+              className="bg-transparent text-[var(--c-label-faint)] rounded-lg px-3 py-1.5 text-[12px] font-medium border border-[var(--c-border)] flex-shrink-0"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <form onSubmit={submit} className="flex gap-2 mt-3">
       <input
         className="flex-1 min-w-0 bg-[var(--c-bg)] border border-[var(--c-border)] rounded-lg px-3 py-1.5 text-[13px] text-[var(--c-label)] placeholder:text-[var(--c-label-faint)] focus:outline-none focus:border-[var(--c-accent)] transition-colors"
-        placeholder='Quick: "2 eggs 300kcal 20g protein"'
+        placeholder='"sausage roll from Aldi" or "300kcal 20g protein"'
         value={text}
         onChange={e => setText(e.target.value)}
         disabled={busy}

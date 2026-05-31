@@ -115,6 +115,17 @@ export const api = {
     return res.json()
   },
 
+  // Smart food log — natural language to AI nutrition estimate
+  smartFoodLog: async (description: string) => {
+    const r = await fetch(`${BASE}/food/smart`, {
+      method: 'POST',
+      headers: (() => { const h = new Headers({ 'Content-Type': 'application/json' }); if (KEY) h.set('X-Health-Key', KEY); return h })(),
+      body: JSON.stringify({ description }),
+    })
+    if (!r.ok) throw new Error(`Smart food failed: ${r.status}`)
+    return r.json() as Promise<{ meal: string; description: string; kcal: number; protein_g: number; carbs_g?: number; fat_g?: number; confidence: string }>
+  },
+
   // AI meals — cheap listing of names + kcal estimates
   // Natural-language assistant. Type one freeform line ("3 eggs and bacon
   // and a can of pineapple from Aldi"); Gemini parses it into structured
@@ -547,6 +558,7 @@ export interface BarcodeResult {
   brand?: string
   serving_size?: string
   image_url?: string
+  source?: string
   per_100g: {
     kcal: number
     protein_g: number

@@ -1,10 +1,10 @@
 import { useState, useRef } from 'react'
-import { api } from '../api/client'
 import type { BarcodeLookupResult as BarcodeResult } from '../api/client'
 
 export default function Barcode({ onAddFood }: { onAddFood?: (name: string, kcal: number, protein: number) => void }) {
   const [code, setCode] = useState('')
   const [result, setResult] = useState<BarcodeResult | null>(null)
+  const [source, setSource] = useState<string>('open_food_facts')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [servings, setServings] = useState('1')
@@ -16,9 +16,24 @@ export default function Barcode({ onAddFood }: { onAddFood?: (name: string, kcal
     setLoading(true)
     setError('')
     setResult(null)
+    setSource('open_food_facts')
     try {
-      const data = await api.lookupBarcode(code.trim())
-      setResult(data)
+      // Use server-side barcode endpoint (includes AI fallback for UK products)
+      const BASE = import.meta.env.VITE_API_BASE || '/api'
+      const KEY = import.meta.env.VITE_API_KEY || undefined
+      const headers = new Headers({ 'Content-Type': 'application/json' })
+      if (KEY) headers.set('X-Health-Key', KEY as string)
+      const res = await fetch(`${BASE}/barcode/${encodeURIComponent(code.trim())}`, { headers })
+      if (!res.ok) throw new Error('Product not found')
+      const serverData = await res.json()
+      setSource(serverData.source || 'open_food_facts')
+      setResult({
+        name: serverData.name,
+        brand: serverData.brand,
+        serving_size: serverData.serving_size,
+        image_url: serverData.image_url,
+        per_100g: serverData.per_100g,
+      } as BarcodeResult)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Product not found')
     } finally {
@@ -64,6 +79,15 @@ export default function Barcode({ onAddFood }: { onAddFood?: (name: string, kcal
 
       {result && (
         <div className="card" style={{ padding: 18 }}>
+          {source === 'ai_estimate' && (
+            <div style={{
+              background: 'rgba(255,159,10,0.12)', color: 'var(--orange, #ff9f0a)',
+              borderRadius: 8, padding: '6px 10px', fontSize: 12, fontWeight: 600,
+              marginBottom: 12, textAlign: 'center',
+            }}>
+              AI estimate -- not in Open Food Facts database
+            </div>
+          )}
           <div style={{ display: 'flex', gap: 14, alignItems: 'flex-start', marginBottom: 14 }}>
             {result.image_url && (
               <img src={result.image_url} alt="" style={{ width: 64, height: 64, borderRadius: 10, objectFit: 'cover', background: 'var(--gray5)' }} />
