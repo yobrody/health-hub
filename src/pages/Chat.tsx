@@ -185,6 +185,7 @@ export default function Chat() {
         timestamp: Date.now(),
       }
       addMessage(assistantMsg)
+      if (navigator.vibrate) navigator.vibrate(8)
     } catch {
       const errorMsg: ChatMessage = {
         id: `e-${Date.now()}`,
@@ -265,6 +266,7 @@ export default function Chat() {
       setMessages(prev =>
         prev.map(m => m.id === msg.id ? { ...m, actionDone: true } : m)
       )
+      if (navigator.vibrate) navigator.vibrate(8)
     } catch {
       showToast('Failed to execute action', 'err')
     }

@@ -2192,7 +2192,8 @@ export default function Fridge() {
             <form onSubmit={handleAdd}>
               <input className="input-field" style={{ marginBottom:12 }}
                 placeholder="Item name (e.g. Chicken breast)"
-                value={addName} onChange={e => setAddName(e.target.value)} autoFocus />
+                value={addName} onChange={e => setAddName(e.target.value)} autoFocus
+                autoComplete="on" autoCorrect="on" spellCheck={true} />
               <div style={{ display:'flex', gap:8, marginBottom:20 }}>
                 {(['fridge','freezer','pantry','condiments'] as Zone[]).map(z => (
                   <button key={z} type="button" onClick={() => setAddZone(z)}

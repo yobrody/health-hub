@@ -706,7 +706,8 @@ export default function Nutrition() {
 
               <input className="input-field" style={{ marginBottom: 10 }}
                 placeholder="What did you eat? e.g. Chicken and rice"
-                value={desc} onChange={e => setDesc(e.target.value)} autoFocus={!scanning && !analyzing} />
+                value={desc} onChange={e => setDesc(e.target.value)} autoFocus={!scanning && !analyzing}
+                autoComplete="on" autoCorrect="on" spellCheck={true} />
               <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
                 <input className="input-field" style={{ flex: 1 }}
                   placeholder="Calories" type="number" inputMode="numeric"

@@ -403,6 +403,9 @@ export default function Skincare() {
               value={form.name}
               onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
               style={{ marginBottom: 8 }}
+              autoComplete="on"
+              autoCorrect="on"
+              spellCheck={true}
             />
             <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
               <input
@@ -428,6 +431,9 @@ export default function Skincare() {
               value={form.amazon_url}
               onChange={e => setForm(f => ({ ...f, amazon_url: e.target.value }))}
               style={{ marginBottom: 12 }}
+              autoComplete="on"
+              autoCorrect="on"
+              spellCheck={true}
             />
             <button
               onClick={saveForm}

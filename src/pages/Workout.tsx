@@ -1013,6 +1013,9 @@ export default function Workout() {
                       autoFocus
                       onKeyDown={e => { if (e.key === 'Enter' && templateName.trim()) saveAsTemplate(templateName) }}
                       style={{ flex: 1, maxWidth: 180, background: 'var(--bg)', border: '1px solid var(--separator)', borderRadius: 10, padding: '8px 12px', fontSize: 14, color: 'var(--label)', textAlign: 'center' }}
+                      autoComplete="on"
+                      autoCorrect="on"
+                      spellCheck={true}
                     />
                     <button
                       onClick={() => saveAsTemplate(templateName)}
@@ -1113,7 +1116,7 @@ export default function Workout() {
                 >+ Add exercise</button>
               ) : (
                 <div>
-                  <input className="input-field" placeholder="Search exercises (e.g. bench press)" value={exSearch} onChange={e => setExSearch(e.target.value)} autoFocus style={{ marginBottom: 8 }} />
+                  <input className="input-field" placeholder="Search exercises (e.g. bench press)" value={exSearch} onChange={e => setExSearch(e.target.value)} autoFocus style={{ marginBottom: 8 }} autoComplete="on" autoCorrect="on" spellCheck={true} />
                   {exResults.length > 0 && (
                     <div className="card">
                       {exResults.map((r, i) => (

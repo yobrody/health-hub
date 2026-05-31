@@ -269,12 +269,12 @@ function SleepCard() {
             <button
               key={n}
               onClick={() => setQuality(n)}
-              className={`w-6 h-6 rounded-full border transition-colors text-[12px] ${
+              className={`w-7 h-7 rounded-full border transition-colors text-[12px] flex items-center justify-center ${
                 n <= quality
                   ? 'bg-[var(--c-accent)] border-[var(--c-accent)] text-white'
                   : 'bg-transparent border-[var(--c-border)] text-[var(--c-label-faint)]'
               }`}
-              style={{ WebkitTapHighlightColor: 'transparent' }}
+              style={{ WebkitTapHighlightColor: 'transparent', minWidth: 36, minHeight: 36 }}
             >
               {n}
             </button>

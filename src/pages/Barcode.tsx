@@ -34,6 +34,7 @@ export default function Barcode({ onAddFood }: { onAddFood?: (name: string, kcal
         image_url: serverData.image_url,
         per_100g: serverData.per_100g,
       } as BarcodeResult)
+      if (navigator.vibrate) navigator.vibrate(8)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Product not found')
     } finally {
@@ -61,6 +62,7 @@ export default function Barcode({ onAddFood }: { onAddFood?: (name: string, kcal
           onChange={e => setCode(e.target.value)}
           inputMode="numeric"
           autoFocus
+          spellCheck={false}
         />
         <button type="submit" disabled={loading || !code.trim()} style={{
           background: 'var(--blue)', color: '#fff', border: 'none', borderRadius: 10,

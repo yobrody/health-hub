@@ -178,7 +178,7 @@ export default function Timeline() {
           <div style={{ display: 'flex', gap: 4 }}>
             {[7, 14, 30].map(d => (
               <button key={d} onClick={() => setDays(d)} style={{
-                padding: '5px 10px', borderRadius: 6, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 600,
+                padding: '8px 12px', borderRadius: 6, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 600, minHeight: 36,
                 background: days === d ? 'var(--blue)' : 'var(--c-border)',
                 color: days === d ? '#fff' : 'var(--c-label-dim)',
               }}>{d}d</button>
@@ -230,8 +230,8 @@ export default function Timeline() {
             { id: 'workout', label: 'Workout' },
             { id: 'sleep', label: 'Sleep' },
           ] as const).map(f => (
-            <button key={f.id} onClick={() => setFilter(f.id)} style={{
-              flex: 1, padding: '8px 4px', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 600,
+            <button key={f.id} onClick={() => { setFilter(f.id); if (navigator.vibrate) navigator.vibrate(5) }} style={{
+              flex: 1, padding: '10px 4px', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 600, minHeight: 44,
               background: filter === f.id ? 'var(--blue)' : 'var(--c-card)',
               color: filter === f.id ? '#fff' : 'var(--c-label-dim)',
               transition: 'background 0.15s, color 0.15s',

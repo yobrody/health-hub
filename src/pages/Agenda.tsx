@@ -149,6 +149,9 @@ export default function Agenda() {
             onChange={e => setInput(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && addItem()}
             style={{ flex: 1 }}
+            autoComplete="on"
+            autoCorrect="on"
+            spellCheck={true}
           />
           <button
             className="btn-primary"
@@ -187,6 +190,11 @@ export default function Agenda() {
                         cursor: 'pointer',
                         flexShrink: 0,
                         padding: 0,
+                        minWidth: 44,
+                        minHeight: 44,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
                       }}
                     />
                     <div style={{ flex: 1, minWidth: 0 }}>
@@ -197,7 +205,7 @@ export default function Agenda() {
                     </div>
                     <button
                       onClick={() => remove(item.id)}
-                      style={{ background: 'none', border: 'none', color: 'var(--label3)', fontSize: 18, cursor: 'pointer', padding: '0 4px', lineHeight: 1, flexShrink: 0 }}
+                      style={{ background: 'none', border: 'none', color: 'var(--label3)', fontSize: 18, cursor: 'pointer', padding: '0 4px', lineHeight: 1, flexShrink: 0, minWidth: 44, minHeight: 44, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                     >×</button>
                   </div>
                 ))}

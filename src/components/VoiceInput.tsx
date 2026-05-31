@@ -175,6 +175,9 @@ export default function VoiceInput({ onTranscript, compact, disabled }: VoiceInp
           placeholder="Type or paste here (voice not available)..."
           value={fallbackText}
           onChange={e => setFallbackText(e.target.value)}
+          autoComplete="on"
+          autoCorrect="on"
+          spellCheck={true}
         />
         <button
           type="submit"

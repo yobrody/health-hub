@@ -130,6 +130,9 @@ export default function Lists() {
             onChange={e => setInput(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && addItem()}
             style={{ flex: 1 }}
+            autoComplete="on"
+            autoCorrect="on"
+            spellCheck={true}
           />
           <button
             className="btn-primary"
@@ -160,12 +163,12 @@ export default function Lists() {
                   >
                     <button
                       onClick={() => toggle(item.id)}
-                      style={{ background: 'none', border: '2px solid var(--blue)', borderRadius: '50%', width: 22, height: 22, cursor: 'pointer', flexShrink: 0, padding: 0 }}
+                      style={{ background: 'none', border: '2px solid var(--blue)', borderRadius: '50%', width: 22, height: 22, cursor: 'pointer', flexShrink: 0, padding: 0, minWidth: 44, minHeight: 44, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                     />
                     <span style={{ flex: 1, fontSize: 16 }}>{item.text}</span>
                     <button
                       onClick={() => remove(item.id)}
-                      style={{ background: 'none', border: 'none', color: 'var(--label3)', fontSize: 18, cursor: 'pointer', padding: '0 4px', lineHeight: 1 }}
+                      style={{ background: 'none', border: 'none', color: 'var(--label3)', fontSize: 18, cursor: 'pointer', padding: '0 4px', lineHeight: 1, minWidth: 44, minHeight: 44, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                     >×</button>
                   </div>
                 ))}
@@ -194,7 +197,7 @@ export default function Lists() {
                     >
                       <button
                         onClick={() => toggle(item.id)}
-                        style={{ background: 'var(--green)', border: '2px solid var(--green)', borderRadius: '50%', width: 22, height: 22, cursor: 'pointer', flexShrink: 0, padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                        style={{ background: 'var(--green)', border: '2px solid var(--green)', borderRadius: '50%', width: 22, height: 22, cursor: 'pointer', flexShrink: 0, padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: 44, minHeight: 44 }}
                       >
                         <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
                           <path d="M2 6l3 3 5-5" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
@@ -203,7 +206,7 @@ export default function Lists() {
                       <span style={{ flex: 1, fontSize: 16, textDecoration: 'line-through', color: 'var(--label3)' }}>{item.text}</span>
                       <button
                         onClick={() => remove(item.id)}
-                        style={{ background: 'none', border: 'none', color: 'var(--label3)', fontSize: 18, cursor: 'pointer', padding: '0 4px', lineHeight: 1 }}
+                        style={{ background: 'none', border: 'none', color: 'var(--label3)', fontSize: 18, cursor: 'pointer', padding: '0 4px', lineHeight: 1, minWidth: 44, minHeight: 44, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                       >×</button>
                     </div>
                   ))}

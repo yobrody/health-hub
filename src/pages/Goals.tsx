@@ -171,6 +171,7 @@ export default function GoalsPage() {
       setGoals(updated.goals)
       setDraft({})
       setEditing(false)
+      if (navigator.vibrate) navigator.vibrate(8)
       showToast('Goals saved')
     } catch {
       showToast('Failed to save goals', 'err')
