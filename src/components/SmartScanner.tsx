@@ -50,8 +50,7 @@ function saveDiaryEntry(datetime: string, thumbnail: string, foods: Array<{ name
   } catch { /* localStorage quota or access denied */ }
 }
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars -- fridgeData reserved for future fridge cross-ref on food detection
-export default function SmartScanner({ open, onClose, fridgeData, onFridgeUpdated }: Props) {
+export default function SmartScanner({ open, onClose, fridgeData: _fridgeData, onFridgeUpdated }: Props) {
   const [stage, setStage] = useState<Stage>('idle')
   const [saving, setSaving] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
