@@ -8,7 +8,7 @@ type Stage = 'idle' | 'analyzing' | 'barcode-result' | 'receipt-result' | 'food-
 interface Props {
   open: boolean
   onClose: () => void
-  fridgeData: FridgeData | null
+  fridgeData?: FridgeData | null
   onFridgeUpdated: () => void
 }
 
@@ -50,7 +50,7 @@ function saveDiaryEntry(datetime: string, thumbnail: string, foods: Array<{ name
   } catch { /* localStorage quota or access denied */ }
 }
 
-export default function SmartScanner({ open, onClose, fridgeData: _fridgeData, onFridgeUpdated }: Props) {
+export default function SmartScanner({ open, onClose, onFridgeUpdated }: Props) {
   const [stage, setStage] = useState<Stage>('idle')
   const [saving, setSaving] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
