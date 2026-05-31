@@ -231,7 +231,7 @@ export default function Timeline() {
             { id: 'sleep', label: 'Sleep' },
           ] as const).map(f => (
             <button key={f.id} onClick={() => setFilter(f.id)} style={{
-              flex: 1, padding: '8px 4px', borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600,
+              flex: 1, padding: '8px 4px', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 600,
               background: filter === f.id ? 'var(--blue)' : 'var(--c-card)',
               color: filter === f.id ? '#fff' : 'var(--c-label-dim)',
               transition: 'background 0.15s, color 0.15s',
