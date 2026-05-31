@@ -2,24 +2,135 @@ import { useEffect, useState } from 'react'
 import { api } from '../api/client'
 import type { BodyMetric, TDEEData, SleepStats } from '../api/client'
 
-function StatCard({ label, value, unit, color }: { label: string; value: string | number | null; unit?: string; color?: string }) {
+// ── Reusable components matching dark bento design from Today.tsx ────────────
+
+function Card({ children, className = '' }: { children: React.ReactNode; className?: string }) {
   return (
-    <div style={{ background: 'var(--card)', borderRadius: 14, padding: '14px 16px', flex: 1 }}>
-      <div style={{ fontSize: 12, color: 'var(--label2)', marginBottom: 4 }}>{label}</div>
-      <div style={{ fontSize: 24, fontWeight: 700, color: color || 'var(--label)', letterSpacing: '-0.5px' }}>
-        {value ?? '—'}{unit && <span style={{ fontSize: 14, fontWeight: 500, color: 'var(--label2)' }}> {unit}</span>}
+    <div className={`bg-[var(--c-card)] border border-[var(--c-border)] rounded-xl p-4 ${className}`}>
+      {children}
+    </div>
+  )
+}
+
+function CardLabel({ children }: { children: React.ReactNode }) {
+  return <div className="text-[11px] uppercase tracking-wider text-[var(--c-label-faint)] font-medium mb-2">{children}</div>
+}
+
+function BigNumber({ value, unit, color }: { value: string | number; unit?: string; color?: string }) {
+  return (
+    <div style={{
+      fontFamily: "'JetBrains Mono', ui-monospace, monospace",
+      letterSpacing: '-0.03em',
+      color: color || 'var(--c-label)',
+      fontSize: 28,
+      fontWeight: 600,
+      lineHeight: 1,
+    }}>
+      {value}
+      {unit && <span style={{ fontSize: 14, color: 'var(--c-label-dim)', marginLeft: 6, fontWeight: 400 }}>{unit}</span>}
+    </div>
+  )
+}
+
+function ProgressRing({ progress, size = 72, stroke = 6, color = 'var(--blue)' }: { progress: number; size?: number; stroke?: number; color?: string }) {
+  const r = (size - stroke) / 2
+  const c = 2 * Math.PI * r
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => { const raf = requestAnimationFrame(() => setMounted(true)); return () => cancelAnimationFrame(raf) }, [])
+  const displayProgress = mounted ? Math.min(progress, 1) : 0
+  const offset = c * (1 - displayProgress)
+  return (
+    <svg width={size} height={size} style={{ transform: 'rotate(-90deg)' }}>
+      <circle cx={size/2} cy={size/2} r={r} fill="none" stroke="var(--c-border)" strokeWidth={stroke} />
+      <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={color} strokeWidth={stroke}
+        strokeDasharray={c} strokeDashoffset={offset} strokeLinecap="round"
+        style={{ transition: 'stroke-dashoffset 0.8s cubic-bezier(0.4, 0, 0.2, 1)' }} />
+    </svg>
+  )
+}
+
+function Badge({ text, color }: { text: string; color: string }) {
+  return (
+    <span style={{
+      fontSize: 11, fontWeight: 600, padding: '3px 8px', borderRadius: 6,
+      background: `${color}18`, color, border: `1px solid ${color}30`,
+    }}>{text}</span>
+  )
+}
+
+// ── Sleep mini bar (horizontal bar for a single night) ──────────────────────
+
+function SleepBar({ hours, quality, maxHours = 10 }: { hours: number; quality: number; maxHours?: number }) {
+  const pct = Math.min(hours / maxHours * 100, 100)
+  const barColor = quality >= 4 ? 'var(--green)' : quality >= 3 ? 'var(--purple)' : 'var(--orange)'
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+      <div style={{ flex: 1, height: 8, background: 'var(--c-border)', borderRadius: 4, overflow: 'hidden' }}>
+        <div style={{ height: '100%', width: `${pct}%`, background: barColor, borderRadius: 4, transition: 'width 0.5s ease' }} />
+      </div>
+      <span style={{ fontSize: 11, color: 'var(--c-label-dim)', fontFamily: "'JetBrains Mono', monospace", minWidth: 32, textAlign: 'right' }}>
+        {hours.toFixed(1)}h
+      </span>
+    </div>
+  )
+}
+
+// ── Weight sparkline (interactive-style chart) ──────────────────────────────
+
+function WeightChart({ data, height = 120 }: { data: { date: string; value: number }[]; height?: number }) {
+  if (data.length < 2) return null
+  const values = data.map(d => d.value)
+  const min = Math.min(...values) - 0.5
+  const max = Math.max(...values) + 0.5
+  const range = max - min || 1
+  const w = 320
+  const h = height
+
+  const points = data.map((d, i) => {
+    const x = (i / (data.length - 1)) * w
+    const y = h - ((d.value - min) / range) * h
+    return `${x},${y}`
+  }).join(' ')
+
+  // Area fill under the line
+  const areaPoints = `0,${h} ${points} ${w},${h}`
+
+  const lastX = ((data.length - 1) / (data.length - 1)) * w
+  const lastY = h - ((data[data.length - 1].value - min) / range) * h
+
+  return (
+    <div>
+      <svg width="100%" viewBox={`0 0 ${w} ${h + 20}`} preserveAspectRatio="none" style={{ display: 'block', height }}>
+        <defs>
+          <linearGradient id="weightGradient" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="var(--blue)" stopOpacity="0.15" />
+            <stop offset="100%" stopColor="var(--blue)" stopOpacity="0" />
+          </linearGradient>
+        </defs>
+        <polygon points={areaPoints} fill="url(#weightGradient)" />
+        <polyline points={points} fill="none" stroke="var(--blue)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+        <circle cx={lastX} cy={lastY} r="5" fill="var(--blue)" />
+        <circle cx={lastX} cy={lastY} r="8" fill="var(--blue)" fillOpacity="0.2" />
+      </svg>
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4, padding: '0 2px' }}>
+        <span style={{ fontSize: 11, color: 'var(--c-label-faint)' }}>{data[0].date.slice(5)}</span>
+        <span style={{ fontSize: 11, color: 'var(--c-label-faint)' }}>{max.toFixed(1)} kg</span>
+        <span style={{ fontSize: 11, color: 'var(--c-label-faint)' }}>{data[data.length - 1].date.slice(5)}</span>
       </div>
     </div>
   )
 }
 
+// ── Main Metrics Page ───────────────────────────────────────────────────────
+
 export default function Metrics() {
   const [tdee, setTdee] = useState<TDEEData | null>(null)
   const [latest, setLatest] = useState<BodyMetric | null>(null)
   const [sleepStats, setSleepStats] = useState<SleepStats | null>(null)
+  const [metrics, setMetrics] = useState<BodyMetric[]>([])
   const [showLog, setShowLog] = useState(false)
   const [showSleep, setShowSleep] = useState(false)
-  const [metrics, setMetrics] = useState<BodyMetric[]>([])
+  const [rangeDays, setRangeDays] = useState(30)
 
   // Weight log form
   const [weight, setWeight] = useState('')
@@ -74,167 +185,291 @@ export default function Metrics() {
     } finally { setSubmitting(false) }
   }
 
-  // Weight chart — simple sparkline from metrics
-  const weights = metrics.filter(m => m.weight_kg).map(m => ({ date: m.date, value: m.weight_kg! })).slice(-30)
+  // Compute derived data
+  const weights = metrics.filter(m => m.weight_kg).map(m => ({ date: m.date, value: m.weight_kg! }))
+  const chartWeights = weights.slice(-rangeDays)
+  const latestWeight = weights.length > 0 ? weights[weights.length - 1] : null
+  const weekAgoWeight = weights.find(w => {
+    if (!latestWeight) return false
+    const diff = new Date(latestWeight.date).getTime() - new Date(w.date).getTime()
+    return diff >= 6 * 86400000 && diff <= 8 * 86400000
+  })
+  const weeklyChange = latestWeight && weekAgoWeight ? latestWeight.value - weekAgoWeight.value : null
+
+  // Trend direction for celebration
+  const goalDirection = tdee?.weight_trend?.direction
+  const trendMatchesGoal = goalDirection === 'losing' || goalDirection === 'maintaining'
 
   return (
     <div className="page" style={{ background: 'var(--bg)' }}>
-      <div className="page-content">
-        <div style={{ fontSize: 30, fontWeight: 700, letterSpacing: '-0.5px', marginBottom: 20 }}>Body & Recovery</div>
+      <div className="page-content" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        <div style={{ fontSize: 30, fontWeight: 700, letterSpacing: '-0.5px', marginBottom: 8 }}>Body & Recovery</div>
 
-        {/* TDEE Card */}
-        <div className="card" style={{ padding: 18, marginBottom: 12 }}>
-          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--label2)', marginBottom: 10 }}>TDEE Calculator</div>
-          <div style={{ display: 'flex', gap: 10, marginBottom: 12 }}>
-            <StatCard label="BMR" value={tdee?.bmr ?? null} unit="kcal" />
-            <StatCard label="TDEE" value={tdee?.tdee ?? null} unit="kcal" color="var(--blue)" />
+        {/* ─── HERO: Weight Display ─── */}
+        <Card>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+            <div>
+              <CardLabel>Current Weight</CardLabel>
+              {latestWeight ? (
+                <BigNumber value={latestWeight.value.toFixed(1)} unit="kg" color="var(--blue)" />
+              ) : (
+                <BigNumber value="--" unit="kg" />
+              )}
+              {weeklyChange !== null && (
+                <div style={{ marginTop: 8 }}>
+                  <Badge
+                    text={`${weeklyChange > 0 ? '+' : ''}${weeklyChange.toFixed(1)} kg / week`}
+                    color={weeklyChange < 0 ? '#10B981' : weeklyChange > 0 ? '#EF4444' : '#A1A1AA'}
+                  />
+                </div>
+              )}
+            </div>
+            {/* Mini sparkline in hero */}
+            {weights.length >= 3 && (
+              <div style={{ width: 120, height: 48 }}>
+                <svg width="100%" viewBox={`0 0 120 48`} preserveAspectRatio="none">
+                  {(() => {
+                    const last14 = weights.slice(-14)
+                    const vals = last14.map(d => d.value)
+                    const mn = Math.min(...vals) - 0.3
+                    const mx = Math.max(...vals) + 0.3
+                    const rng = mx - mn || 1
+                    const pts = last14.map((d, i) => {
+                      const x = (i / (last14.length - 1)) * 120
+                      const y = 48 - ((d.value - mn) / rng) * 48
+                      return `${x},${y}`
+                    }).join(' ')
+                    return <polyline points={pts} fill="none" stroke="var(--blue)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" opacity="0.7" />
+                  })()}
+                </svg>
+              </div>
+            )}
           </div>
-          {tdee?.avg_intake_14d && (
-            <div style={{ display: 'flex', gap: 10, marginBottom: 12 }}>
-              <StatCard label="Avg Intake (14d)" value={tdee.avg_intake_14d} unit="kcal" color={
-                tdee.avg_intake_14d > tdee.tdee + 200 ? 'var(--red)' : tdee.avg_intake_14d < tdee.tdee - 200 ? 'var(--orange)' : 'var(--green)'
-              } />
-              <StatCard label="Delta" value={`${tdee.avg_intake_14d - tdee.tdee > 0 ? '+' : ''}${tdee.avg_intake_14d - tdee.tdee}`} unit="kcal" />
+          {trendMatchesGoal && tdee?.weight_trend && (
+            <div style={{ marginTop: 12, padding: '8px 12px', background: '#10B98112', borderRadius: 8, border: '1px solid #10B98125' }}>
+              <span style={{ fontSize: 13, color: '#10B981', fontWeight: 500 }}>On track — weight is {tdee.weight_trend.direction}</span>
             </div>
           )}
-          {tdee?.weight_trend && (
-            <div style={{ fontSize: 13, color: 'var(--label2)', padding: '8px 12px', background: 'var(--bg)', borderRadius: 10 }}>
-              Weight trend: <strong>{tdee.weight_trend.direction}</strong> ({tdee.weight_trend.weekly_change_kg > 0 ? '+' : ''}{tdee.weight_trend.weekly_change_kg} kg/week)
-            </div>
-          )}
-          {tdee?.recommendation && (
-            <div style={{ fontSize: 13, color: 'var(--blue)', marginTop: 8 }}>{tdee.recommendation}</div>
-          )}
+        </Card>
+
+        {/* ─── Quick Log Buttons ─── */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+          <button onClick={() => { setShowLog(!showLog); setShowSleep(false) }} style={{
+            background: showLog ? 'var(--blue)' : 'var(--c-card)',
+            color: showLog ? '#fff' : 'var(--blue)',
+            border: `1px solid ${showLog ? 'var(--blue)' : 'var(--c-border)'}`,
+            borderRadius: 12, padding: '14px 12px', fontSize: 15, fontWeight: 600, cursor: 'pointer',
+            transition: 'all 0.15s',
+          }}>
+            {showLog ? 'Cancel' : '+ Log Weight'}
+          </button>
+          <button onClick={() => { setShowSleep(!showSleep); setShowLog(false) }} style={{
+            background: showSleep ? 'var(--purple)' : 'var(--c-card)',
+            color: showSleep ? '#fff' : 'var(--purple)',
+            border: `1px solid ${showSleep ? 'var(--purple)' : 'var(--c-border)'}`,
+            borderRadius: 12, padding: '14px 12px', fontSize: 15, fontWeight: 600, cursor: 'pointer',
+            transition: 'all 0.15s',
+          }}>
+            {showSleep ? 'Cancel' : '+ Log Sleep'}
+          </button>
         </div>
 
-        {/* Weight + Body Metrics */}
-        <div className="card" style={{ padding: 18, marginBottom: 12 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--label2)' }}>Body Metrics</div>
-            <button onClick={() => setShowLog(!showLog)} style={{ background: 'var(--blue)', color: '#fff', border: 'none', borderRadius: 8, padding: '6px 12px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
-              {showLog ? 'Cancel' : '+ Log'}
-            </button>
-          </div>
-
-          {latest && (
-            <div style={{ display: 'flex', gap: 10, marginBottom: 12 }}>
-              {latest.weight_kg && <StatCard label="Weight" value={latest.weight_kg} unit="kg" color="var(--blue)" />}
-              {latest.body_fat_pct && <StatCard label="Body Fat" value={latest.body_fat_pct} unit="%" />}
-              {latest.waist_cm && <StatCard label="Waist" value={latest.waist_cm} unit="cm" />}
-            </div>
-          )}
-
-          {/* Mini weight chart */}
-          {weights.length >= 2 && (
-            <div style={{ marginBottom: 12 }}>
-              <WeightChart data={weights} />
-            </div>
-          )}
-
-          {showLog && (
-            <form onSubmit={handleLogWeight} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {/* Log Weight Form */}
+        {showLog && (
+          <Card>
+            <form onSubmit={handleLogWeight} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               <div style={{ display: 'flex', gap: 8 }}>
-                <input className="input-field" style={{ flex: 1, padding: '10px 12px', fontSize: 15 }} placeholder="Weight (kg)" type="number" step="0.1" value={weight} onChange={e => setWeight(e.target.value)} />
-                <input className="input-field" style={{ flex: 1, padding: '10px 12px', fontSize: 15 }} placeholder="Body fat %" type="number" step="0.1" value={bodyFat} onChange={e => setBodyFat(e.target.value)} />
+                <input className="input-field" style={{ flex: 1, padding: '12px', fontSize: 16 }} placeholder="Weight (kg)" type="number" step="0.1" value={weight} onChange={e => setWeight(e.target.value)} autoFocus />
+                <input className="input-field" style={{ flex: 1, padding: '12px', fontSize: 16 }} placeholder="Body fat %" type="number" step="0.1" value={bodyFat} onChange={e => setBodyFat(e.target.value)} />
               </div>
               <div style={{ display: 'flex', gap: 8 }}>
-                <input className="input-field" style={{ flex: 1, padding: '10px 12px', fontSize: 15 }} placeholder="Waist (cm)" type="number" step="0.5" value={waist} onChange={e => setWaist(e.target.value)} />
-                <button type="submit" disabled={submitting || (!weight && !bodyFat && !waist)} style={{ background: 'var(--blue)', color: '#fff', border: 'none', borderRadius: 10, padding: '10px 16px', fontSize: 15, fontWeight: 600, cursor: 'pointer', opacity: (!weight && !bodyFat && !waist) ? 0.5 : 1 }}>
+                <input className="input-field" style={{ flex: 1, padding: '12px', fontSize: 16 }} placeholder="Waist (cm)" type="number" step="0.5" value={waist} onChange={e => setWaist(e.target.value)} />
+                <button type="submit" disabled={submitting || (!weight && !bodyFat && !waist)} style={{
+                  background: 'var(--blue)', color: '#fff', border: 'none', borderRadius: 10,
+                  padding: '12px 20px', fontSize: 15, fontWeight: 600, cursor: 'pointer',
+                  opacity: (!weight && !bodyFat && !waist) ? 0.5 : 1,
+                }}>
                   {submitting ? '...' : 'Save'}
                 </button>
               </div>
             </form>
-          )}
-        </div>
+          </Card>
+        )}
 
-        {/* Sleep Card */}
-        <div className="card" style={{ padding: 18, marginBottom: 12 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--label2)' }}>Sleep & Recovery</div>
-            <button onClick={() => setShowSleep(!showSleep)} style={{ background: 'var(--purple)', color: '#fff', border: 'none', borderRadius: 8, padding: '6px 12px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
-              {showSleep ? 'Cancel' : '+ Log'}
-            </button>
-          </div>
-
-          {sleepStats && sleepStats.entries > 0 && (
-            <div style={{ display: 'flex', gap: 10, marginBottom: 12 }}>
-              <StatCard label="Avg Sleep" value={sleepStats.avg_duration} unit="hrs" color="var(--purple)" />
-              <StatCard label="Avg Quality" value={sleepStats.avg_quality ? `${sleepStats.avg_quality}/5` : null} color="var(--purple)" />
-              {sleepStats.avg_hrv && <StatCard label="Avg HRV" value={sleepStats.avg_hrv} unit="ms" color="var(--green)" />}
-            </div>
-          )}
-
-          {showSleep && (
-            <form onSubmit={handleLogSleep} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {/* Log Sleep Form */}
+        {showSleep && (
+          <Card>
+            <form onSubmit={handleLogSleep} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               <div style={{ display: 'flex', gap: 8 }}>
                 <div style={{ flex: 1 }}>
-                  <label style={{ fontSize: 12, color: 'var(--label2)' }}>Bedtime</label>
-                  <input className="input-field" style={{ width: '100%', padding: '10px 12px', fontSize: 15 }} type="time" value={bedtime} onChange={e => setBedtime(e.target.value)} />
+                  <label style={{ fontSize: 12, color: 'var(--c-label-faint)' }}>Bedtime</label>
+                  <input className="input-field" style={{ width: '100%', padding: '12px', fontSize: 16 }} type="time" value={bedtime} onChange={e => setBedtime(e.target.value)} />
                 </div>
                 <div style={{ flex: 1 }}>
-                  <label style={{ fontSize: 12, color: 'var(--label2)' }}>Wake</label>
-                  <input className="input-field" style={{ width: '100%', padding: '10px 12px', fontSize: 15 }} type="time" value={wakeTime} onChange={e => setWakeTime(e.target.value)} />
+                  <label style={{ fontSize: 12, color: 'var(--c-label-faint)' }}>Wake</label>
+                  <input className="input-field" style={{ width: '100%', padding: '12px', fontSize: 16 }} type="time" value={wakeTime} onChange={e => setWakeTime(e.target.value)} />
                 </div>
               </div>
               <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                 <div style={{ flex: 1 }}>
-                  <label style={{ fontSize: 12, color: 'var(--label2)' }}>Quality (1-5)</label>
+                  <label style={{ fontSize: 12, color: 'var(--c-label-faint)' }}>Quality</label>
                   <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
                     {[1,2,3,4,5].map(n => (
                       <button key={n} type="button" onClick={() => setQuality(n)} style={{
                         width: 36, height: 36, borderRadius: 8, border: 'none', cursor: 'pointer',
-                        background: quality >= n ? 'var(--purple)' : 'var(--gray5)',
-                        color: quality >= n ? '#fff' : 'var(--label2)', fontWeight: 600, fontSize: 14,
+                        background: quality >= n ? 'var(--purple)' : 'var(--c-border)',
+                        color: quality >= n ? '#fff' : 'var(--c-label-dim)', fontWeight: 600, fontSize: 14,
                       }}>{n}</button>
                     ))}
                   </div>
                 </div>
                 <div style={{ flex: 1 }}>
-                  <label style={{ fontSize: 12, color: 'var(--label2)' }}>HRV (ms, optional)</label>
-                  <input className="input-field" style={{ width: '100%', padding: '10px 12px', fontSize: 15 }} type="number" placeholder="e.g. 45" value={hrv} onChange={e => setHrv(e.target.value)} />
+                  <label style={{ fontSize: 12, color: 'var(--c-label-faint)' }}>HRV (ms)</label>
+                  <input className="input-field" style={{ width: '100%', padding: '12px', fontSize: 16 }} type="number" placeholder="e.g. 45" value={hrv} onChange={e => setHrv(e.target.value)} />
                 </div>
               </div>
-              <button type="submit" disabled={submitting} style={{ background: 'var(--purple)', color: '#fff', border: 'none', borderRadius: 10, padding: '10px 16px', fontSize: 15, fontWeight: 600, cursor: 'pointer', width: '100%' }}>
+              <button type="submit" disabled={submitting} style={{
+                background: 'var(--purple)', color: '#fff', border: 'none', borderRadius: 10,
+                padding: '12px', fontSize: 15, fontWeight: 600, cursor: 'pointer', width: '100%',
+              }}>
                 {submitting ? '...' : 'Log Sleep'}
               </button>
             </form>
+          </Card>
+        )}
+
+        {/* ─── Body Composition ─── */}
+        {latest && (latest.body_fat_pct || latest.waist_cm) && (
+          <Card>
+            <CardLabel>Body Composition</CardLabel>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+              {latest.body_fat_pct && (
+                <div style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <ProgressRing progress={latest.body_fat_pct / 40} size={72} stroke={6} color="var(--orange)" />
+                  <div style={{ position: 'absolute', textAlign: 'center' }}>
+                    <div style={{ fontSize: 16, fontWeight: 700, fontFamily: "'JetBrains Mono', monospace" }}>{latest.body_fat_pct}%</div>
+                  </div>
+                </div>
+              )}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {latest.body_fat_pct && (
+                  <div>
+                    <span style={{ fontSize: 12, color: 'var(--c-label-faint)' }}>Body Fat</span>
+                    <div style={{ fontSize: 18, fontWeight: 600 }}>{latest.body_fat_pct}%</div>
+                  </div>
+                )}
+                {latest.waist_cm && (
+                  <div>
+                    <span style={{ fontSize: 12, color: 'var(--c-label-faint)' }}>Waist</span>
+                    <div style={{ fontSize: 18, fontWeight: 600 }}>{latest.waist_cm} cm</div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </Card>
+        )}
+
+        {/* ─── TDEE Card ─── */}
+        <Card>
+          <CardLabel>Energy Expenditure</CardLabel>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+            <div>
+              <div style={{ fontSize: 11, color: 'var(--c-label-faint)', marginBottom: 4 }}>BMR</div>
+              <BigNumber value={tdee?.bmr ?? '--'} unit="kcal" />
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: 'var(--c-label-faint)', marginBottom: 4 }}>TDEE</div>
+              <BigNumber value={tdee?.tdee ?? '--'} unit="kcal" color="var(--blue)" />
+            </div>
+          </div>
+          {tdee?.activity_level && (
+            <div style={{ marginBottom: 10 }}>
+              <Badge text={tdee.activity_level.replace('_', ' ').toUpperCase()} color="#6366F1" />
+            </div>
           )}
-        </div>
-      </div>
-    </div>
-  )
-}
+          {tdee?.avg_intake_14d && tdee?.tdee && (
+            <div style={{ padding: '10px 12px', background: 'var(--c-border)', borderRadius: 8, marginBottom: 8 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13 }}>
+                <span style={{ color: 'var(--c-label-dim)' }}>Avg Intake (14d)</span>
+                <span style={{ fontWeight: 600, color: tdee.avg_intake_14d > tdee.tdee + 200 ? '#EF4444' : tdee.avg_intake_14d < tdee.tdee - 200 ? 'var(--orange)' : '#10B981' }}>
+                  {tdee.avg_intake_14d.toLocaleString()} kcal
+                </span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, marginTop: 4 }}>
+                <span style={{ color: 'var(--c-label-dim)' }}>Delta</span>
+                <span style={{ fontWeight: 600 }}>
+                  {tdee.avg_intake_14d - tdee.tdee > 0 ? '+' : ''}{tdee.avg_intake_14d - tdee.tdee} kcal/day
+                </span>
+              </div>
+            </div>
+          )}
+          {tdee?.weight_trend && (
+            <div style={{ fontSize: 13, color: 'var(--c-label-dim)', padding: '8px 12px', background: 'var(--c-border)', borderRadius: 8, marginBottom: 8 }}>
+              Weight trend: <strong style={{ color: 'var(--c-label)' }}>{tdee.weight_trend.direction}</strong> ({tdee.weight_trend.weekly_change_kg > 0 ? '+' : ''}{tdee.weight_trend.weekly_change_kg} kg/week)
+            </div>
+          )}
+          {tdee?.recommendation && (
+            <div style={{ fontSize: 13, color: 'var(--blue)', marginTop: 4 }}>{tdee.recommendation}</div>
+          )}
+        </Card>
 
-function WeightChart({ data }: { data: { date: string; value: number }[] }) {
-  if (data.length < 2) return null
-  const values = data.map(d => d.value)
-  const min = Math.min(...values) - 0.5
-  const max = Math.max(...values) + 0.5
-  const range = max - min || 1
-  const w = 280
-  const h = 80
+        {/* ─── Sleep Summary ─── */}
+        <Card>
+          <CardLabel>Sleep (7-day avg)</CardLabel>
+          {sleepStats && sleepStats.entries > 0 ? (
+            <div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8, marginBottom: 14 }}>
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--purple)', fontFamily: "'JetBrains Mono', monospace" }}>
+                    {sleepStats.avg_duration?.toFixed(1) ?? '--'}
+                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--c-label-faint)' }}>hrs avg</div>
+                </div>
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--purple)' }}>
+                    {'*'.repeat(Math.round(sleepStats.avg_quality ?? 0))}
+                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--c-label-faint)' }}>{sleepStats.avg_quality?.toFixed(1)}/5</div>
+                </div>
+                <div style={{ textAlign: 'center' }}>
+                  <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--green)', fontFamily: "'JetBrains Mono', monospace" }}>
+                    {sleepStats.avg_hrv ?? '--'}
+                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--c-label-faint)' }}>HRV ms</div>
+                </div>
+              </div>
+              {/* Placeholder for nightly bars - would need per-night data from a new endpoint */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                {/* Show a single representative bar for now */}
+                <SleepBar hours={sleepStats.avg_duration ?? 7} quality={Math.round(sleepStats.avg_quality ?? 3)} />
+              </div>
+            </div>
+          ) : (
+            <div style={{ fontSize: 14, color: 'var(--c-label-dim)', padding: '12px 0' }}>
+              No sleep data yet. Tap "+ Log Sleep" above to start tracking.
+            </div>
+          )}
+        </Card>
 
-  const points = data.map((d, i) => {
-    const x = (i / (data.length - 1)) * w
-    const y = h - ((d.value - min) / range) * h
-    return `${x},${y}`
-  }).join(' ')
+        {/* ─── Weight History Chart ─── */}
+        {chartWeights.length >= 2 && (
+          <Card>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+              <CardLabel>Weight History</CardLabel>
+              <div style={{ display: 'flex', gap: 4 }}>
+                {[30, 60, 90].map(d => (
+                  <button key={d} onClick={() => setRangeDays(d)} style={{
+                    padding: '4px 10px', borderRadius: 6, border: 'none', cursor: 'pointer', fontSize: 11, fontWeight: 600,
+                    background: rangeDays === d ? 'var(--blue)' : 'var(--c-border)',
+                    color: rangeDays === d ? '#fff' : 'var(--c-label-dim)',
+                  }}>{d}d</button>
+                ))}
+              </div>
+            </div>
+            <WeightChart data={chartWeights} />
+          </Card>
+        )}
 
-  return (
-    <div style={{ padding: '8px 0' }}>
-      <div style={{ fontSize: 12, color: 'var(--label2)', marginBottom: 4 }}>Weight trend (last {data.length} entries)</div>
-      <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} style={{ width: '100%', height: 'auto' }}>
-        <polyline points={points} fill="none" stroke="var(--blue)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-        {data.length > 0 && (() => {
-          const lastX = ((data.length - 1) / (data.length - 1)) * w
-          const lastY = h - ((data[data.length - 1].value - min) / range) * h
-          return <circle cx={lastX} cy={lastY} r="4" fill="var(--blue)" />
-        })()}
-      </svg>
-      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--label3)' }}>
-        <span>{data[0].date.slice(5)}</span>
-        <span>{data[data.length - 1].value} kg</span>
-        <span>{data[data.length - 1].date.slice(5)}</span>
       </div>
     </div>
   )

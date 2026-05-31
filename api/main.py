@@ -1505,6 +1505,7 @@ IMPORTANT:
         meal_type = "Dinner"
 
     result.setdefault("meal", meal_type)
+    result.setdefault("matched_product", result.get("meal", description))
     result["description"] = description
 
     return result
@@ -1671,15 +1672,24 @@ def calculate_tdee(key=Depends(require_key)):
     else:
         avg_intake = None
 
-    # Weight trend (last 30 days)
+    # Weight trend (last 30 days) — require at least 3 data points spanning
+    # multiple days to avoid absurd extrapolations like "+28 kg/week" from a
+    # single-day pair of weigh-ins.
     weight_trend = None
     recent_weights = [(m["date"], m["weight_kg"]) for m in metrics if "weight_kg" in m][-30:]
-    if len(recent_weights) >= 2:
+    if len(recent_weights) >= 3:
         first_w = recent_weights[0][1]
         last_w = recent_weights[-1][1]
-        days_span = max((date.fromisoformat(recent_weights[-1][0]) - date.fromisoformat(recent_weights[0][0])).days, 1)
-        weekly_change = (last_w - first_w) / days_span * 7
-        weight_trend = {"weekly_change_kg": round(weekly_change, 2), "direction": "gaining" if weekly_change > 0.1 else "losing" if weekly_change < -0.1 else "maintaining"}
+        days_span = (date.fromisoformat(recent_weights[-1][0]) - date.fromisoformat(recent_weights[0][0])).days
+        if days_span >= 2:
+            weekly_change = (last_w - first_w) / days_span * 7
+            weight_trend = {"weekly_change_kg": round(weekly_change, 2), "direction": "gaining" if weekly_change > 0.1 else "losing" if weekly_change < -0.1 else "maintaining"}
+        # If all data points are on the same day, trend is meaningless
+
+    # Build response; include helpful message when trend data is insufficient
+    weight_trend_msg = None
+    if weight_trend is None and len(recent_weights) < 3:
+        weight_trend_msg = "Log weight for 3+ days to see trends"
 
     return {
         "bmr": round(bmr),
@@ -1689,6 +1699,7 @@ def calculate_tdee(key=Depends(require_key)):
         "avg_intake_14d": avg_intake,
         "logged_days_14d": logged_days,
         "weight_trend": weight_trend,
+        "weight_trend_message": weight_trend_msg,
         "recommendation": _tdee_recommendation(tdee, avg_intake, weight_trend),
     }
 

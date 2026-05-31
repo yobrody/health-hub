@@ -24,6 +24,23 @@ function MiniBar({ value, goal, color }: { value: number; goal: number; color: s
   )
 }
 
+function ProgressRing({ progress, size = 64, stroke = 5, color = 'var(--blue)' }: { progress: number; size?: number; stroke?: number; color?: string }) {
+  const r = (size - stroke) / 2
+  const c = 2 * Math.PI * r
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => { const raf = requestAnimationFrame(() => setMounted(true)); return () => cancelAnimationFrame(raf) }, [])
+  const displayProgress = mounted ? Math.min(progress, 1) : 0
+  const offset = c * (1 - displayProgress)
+  return (
+    <svg width={size} height={size} style={{ transform: 'rotate(-90deg)' }}>
+      <circle cx={size/2} cy={size/2} r={r} fill="none" stroke="var(--gray5)" strokeWidth={stroke} />
+      <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={color} strokeWidth={stroke}
+        strokeDasharray={c} strokeDashoffset={offset} strokeLinecap="round"
+        style={{ transition: 'stroke-dashoffset 0.8s cubic-bezier(0.4, 0, 0.2, 1)' }} />
+    </svg>
+  )
+}
+
 function WeekChart({ days }: { days: WeekStats['food_by_day'] }) {
   const displayDays = [...days].reverse()
   const maxKcal = Math.max(...displayDays.map(d => d.total_kcal ?? 0), 1000)
@@ -204,23 +221,79 @@ export default function GoalsPage() {
           </button>
         </div>
 
-        {/* This week */}
+        {/* This week — animated progress rings */}
         <div className="card" style={{ padding: 16, marginBottom: 12 }}>
           <div style={{ fontSize: 13, color: 'var(--label2)', fontWeight: 600, marginBottom: 12 }}>THIS WEEK</div>
+
+          {/* Celebration banner when weekly goals are hit */}
+          {(loggedDays >= 5 && workoutCount >= goals.gym_days) && (
+            <div style={{
+              marginBottom: 14, padding: '10px 14px', borderRadius: 10,
+              background: '#10B98112', border: '1px solid #10B98125',
+              fontSize: 14, fontWeight: 600, color: '#10B981', textAlign: 'center',
+            }}>
+              Weekly goals crushed! Keep the momentum going.
+            </div>
+          )}
+
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginBottom: 16 }}>
-            {[
-              { label: 'Days logged', value: `${loggedDays}/7`, color: loggedDays >= 5 ? 'var(--green)' : loggedDays >= 3 ? 'var(--orange)' : 'var(--red)' },
-              { label: 'Avg kcal',    value: avgKcal > 0 ? avgKcal.toLocaleString() : '\u2014', color: 'var(--blue)' },
-              { label: 'Workouts',    value: `${workoutCount}/${goals.gym_days}`, color: workoutCount >= goals.gym_days ? 'var(--green)' : 'var(--orange)' },
-            ].map(item => (
-              <div key={item.label} style={{ textAlign: 'center' }}>
-                <div style={{ fontSize: 24, fontWeight: 700, color: item.color }}>{item.value}</div>
-                <div style={{ fontSize: 11, color: 'var(--label2)', marginTop: 2 }}>{item.label}</div>
+            {/* Days logged ring */}
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
+              <div style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <ProgressRing progress={loggedDays / 7} size={64} stroke={5} color={loggedDays >= 5 ? 'var(--green)' : loggedDays >= 3 ? 'var(--orange)' : 'var(--red)'} />
+                <div style={{ position: 'absolute', fontSize: 16, fontWeight: 700, color: loggedDays >= 5 ? 'var(--green)' : loggedDays >= 3 ? 'var(--orange)' : 'var(--red)' }}>
+                  {loggedDays}/7
+                </div>
               </div>
-            ))}
+              <div style={{ fontSize: 11, color: 'var(--label2)' }}>Days logged</div>
+            </div>
+            {/* Avg kcal (no ring, just big number) */}
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+              <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--blue)', fontFamily: "'JetBrains Mono', monospace" }}>
+                {avgKcal > 0 ? avgKcal.toLocaleString() : '\u2014'}
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--label2)' }}>Avg kcal</div>
+            </div>
+            {/* Workouts ring */}
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
+              <div style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <ProgressRing progress={workoutCount / goals.gym_days} size={64} stroke={5} color={workoutCount >= goals.gym_days ? 'var(--green)' : 'var(--orange)'} />
+                <div style={{ position: 'absolute', fontSize: 16, fontWeight: 700, color: workoutCount >= goals.gym_days ? 'var(--green)' : 'var(--orange)' }}>
+                  {workoutCount}/{goals.gym_days}
+                </div>
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--label2)' }}>Workouts</div>
+            </div>
           </div>
           {stats && <WeekChart days={stats.food_by_day} />}
         </div>
+
+        {/* Prominent adaptive calorie suggestion */}
+        {suggestion.actionable && (
+          <div className="card" style={{ padding: 16, marginBottom: 12, border: '1.5px solid var(--blue)', background: 'var(--blue)08' }}>
+            <div style={{ fontSize: 13, color: 'var(--label2)', fontWeight: 600, marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+              Adaptive Recommendation
+            </div>
+            <div style={{ fontSize: 15, color: 'var(--label)', marginBottom: 10 }}>
+              {suggestion.reason}
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--blue)' }}>
+                {suggestion.deltaKcal > 0 ? '+' : ''}{suggestion.deltaKcal} kcal → {suggestion.suggested.toLocaleString()} kcal/day
+              </div>
+              <button
+                onClick={applySuggestion}
+                disabled={saving}
+                style={{
+                  background: 'var(--blue)', color: '#fff', border: 'none', borderRadius: 10,
+                  padding: '10px 20px', fontSize: 14, fontWeight: 700, cursor: 'pointer',
+                }}
+              >
+                Apply
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Body weight */}
         <div className="card" style={{ padding: 16, marginBottom: 12 }}>
