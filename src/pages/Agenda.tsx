@@ -116,8 +116,8 @@ export default function Agenda() {
         <div style={{ fontSize: 30, fontWeight: 700, marginBottom: 2 }}>Today</div>
         <div style={{ fontSize: 14, color: 'var(--label2)', marginBottom: 16 }}>{todayLabel()}</div>
 
-        {/* Priority selector */}
-        <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+        {/* Priority selector — stacks vertically on narrow screens */}
+        <div className="agenda-priority-selector" style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
           {PRIORITY_OPTS.map(p => (
             <button
               key={p.id}

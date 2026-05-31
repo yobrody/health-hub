@@ -406,3 +406,13 @@ input, textarea, button, select {
   vertical-align: middle;
 }
 @keyframes spinnerRot { to { transform: rotate(360deg); } }
+
+/* ── Agenda priority selector — stack on narrow screens ─────────────── */
+@media (max-width: 400px) {
+  .agenda-priority-selector {
+    flex-direction: column !important;
+  }
+  .agenda-priority-selector button {
+    width: 100% !important;
+  }
+}

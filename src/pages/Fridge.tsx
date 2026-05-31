@@ -802,6 +802,8 @@ function Appliance({ kind, items, slots, learnedShelfLife, activeDragName, onTap
   const itemsTopPct = overlay[kind].top
   const itemsBottomPct = overlay[kind].bottom
 
+  const zoneLabel = ZONE_CONFIG[kind].label
+
   return (
     <div style={{
       maxWidth: 320,
@@ -809,6 +811,15 @@ function Appliance({ kind, items, slots, learnedShelfLife, activeDragName, onTap
       position: 'relative',
       filter: `drop-shadow(0 18px 20px rgba(0,0,0,0.28)) drop-shadow(0 6px 8px rgba(0,0,0,0.18))`,
     }}>
+      {/* Zone label + item count badge */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, paddingLeft: 2 }}>
+        <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--label)', textTransform: 'uppercase', letterSpacing: 0.5 }}>{zoneLabel}</span>
+        <span style={{
+          background: ZONE_CONFIG[kind].accent, color: '#fff',
+          fontSize: 11, fontWeight: 700, borderRadius: 10,
+          padding: '1px 8px', minWidth: 22, textAlign: 'center',
+        }}>{items.length}</span>
+      </div>
       {kind === 'fridge' && <FridgeSvg itemCount={items.length} />}
       {kind === 'pantry' && <PantrySvg itemCount={items.length} />}
       {kind === 'freezer' && <FreezerSvg itemCount={items.length} />}

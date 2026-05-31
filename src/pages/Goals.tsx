@@ -77,11 +77,18 @@ function WeightSparkline({ weights }: { weights: WeightEntry[] }) {
           </span>
         )}
       </div>
-      <svg width="100%" viewBox={`0 0 ${W} ${H + 4}`} preserveAspectRatio="none" style={{ display: 'block', height: 52 }}>
-        <polyline points={pts.join(' ')} fill="none" stroke="var(--blue)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-        <circle cx={lastX} cy={lastY} r="4" fill="var(--blue)" />
-      </svg>
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 2 }}>
+      <div style={{ display: 'flex', gap: 4 }}>
+        {/* Y-axis min/max labels */}
+        <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', paddingTop: 2, paddingBottom: 2 }}>
+          <span style={{ fontSize: 10, color: 'var(--label3)', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{max.toFixed(1)}</span>
+          <span style={{ fontSize: 10, color: 'var(--label3)', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{min.toFixed(1)}</span>
+        </div>
+        <svg width="100%" viewBox={`0 0 ${W} ${H + 4}`} preserveAspectRatio="none" style={{ display: 'block', height: 52, flex: 1 }}>
+          <polyline points={pts.join(' ')} fill="none" stroke="var(--blue)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+          <circle cx={lastX} cy={lastY} r="4" fill="var(--blue)" />
+        </svg>
+      </div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 2, paddingLeft: 30 }}>
         <span style={{ fontSize: 11, color: 'var(--label3)' }}>{weights[0].date}</span>
         <span style={{ fontSize: 11, color: 'var(--label3)' }}>{latest.date}</span>
       </div>

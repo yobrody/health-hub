@@ -163,7 +163,7 @@ function QuickFoodInput({ onLogged }: { onLogged: () => void }) {
     e.preventDefault()
     const parsed = parse(text.trim())
     if (!parsed) {
-      showToast('Include kcal, e.g. "2 eggs 300kcal"', 'err')
+      showToast('Try: "2 eggs 300kcal 20g protein"', 'info')
       return
     }
     setBusy(true)
@@ -293,23 +293,23 @@ function SleepCard() {
       </div>
       <div className="flex items-center gap-3 mb-3">
         <div className="flex-1">
-          <div className="text-[11px] text-[var(--c-label-faint)] mb-1">Bedtime</div>
+          <div className="text-[12px] font-semibold text-[var(--c-label-dim)] mb-1">Bedtime</div>
           <input
             type="time"
             value={bedtime}
             onChange={e => setBedtime(e.target.value)}
-            className="w-full bg-[var(--c-bg)] border border-[var(--c-border)] rounded-lg px-2 py-1.5 text-[13px] text-[var(--c-label)] focus:outline-none focus:border-[var(--c-accent)]"
-            style={{ fontFamily: "'JetBrains Mono', ui-monospace, monospace" }}
+            className="w-full bg-[var(--c-bg)] border border-[var(--c-border)] rounded-lg px-2 py-1.5 text-[var(--c-label)] focus:outline-none focus:border-[var(--c-accent)]"
+            style={{ fontFamily: "'JetBrains Mono', ui-monospace, monospace", fontSize: 18 }}
           />
         </div>
         <div className="flex-1">
-          <div className="text-[11px] text-[var(--c-label-faint)] mb-1">Wake</div>
+          <div className="text-[12px] font-semibold text-[var(--c-label-dim)] mb-1">Wake up</div>
           <input
             type="time"
             value={wake}
             onChange={e => setWake(e.target.value)}
-            className="w-full bg-[var(--c-bg)] border border-[var(--c-border)] rounded-lg px-2 py-1.5 text-[13px] text-[var(--c-label)] focus:outline-none focus:border-[var(--c-accent)]"
-            style={{ fontFamily: "'JetBrains Mono', ui-monospace, monospace" }}
+            className="w-full bg-[var(--c-bg)] border border-[var(--c-border)] rounded-lg px-2 py-1.5 text-[var(--c-label)] focus:outline-none focus:border-[var(--c-accent)]"
+            style={{ fontFamily: "'JetBrains Mono', ui-monospace, monospace", fontSize: 18 }}
           />
         </div>
       </div>
@@ -526,7 +526,7 @@ function WaterTracker() {
     const next = Math.max(0, Math.min(12, n))
     setCount(next)
     try { localStorage.setItem('water_intake', JSON.stringify({ date: todayKey, count: next })) } catch { /* quota exceeded — non-fatal */ }
-    if (navigator.vibrate) navigator.vibrate(5)
+    if (navigator.vibrate) navigator.vibrate(8)
   }
 
   return (

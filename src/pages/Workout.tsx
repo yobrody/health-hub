@@ -110,7 +110,10 @@ function RestTimerInline({ seconds, onComplete }: { seconds: number; onComplete:
   useEffect(() => {
     if (remaining <= 0) { onCompleteRef.current(); return }
     if (remaining % 15 === 0 && remaining < seconds && navigator.vibrate) navigator.vibrate(30)
-    const t = setTimeout(() => setRemaining(r => r - 1), 1000)
+    // Tick faster in the final 3 seconds for tension
+    const interval = remaining <= 3 ? 100 : 1000
+    const decrement = remaining <= 3 ? 0.1 : 1
+    const t = setTimeout(() => setRemaining(r => Math.max(0, parseFloat((r - decrement).toFixed(1)))), interval)
     return () => clearTimeout(t)
   }, [remaining, seconds])
 
@@ -118,16 +121,20 @@ function RestTimerInline({ seconds, onComplete }: { seconds: number; onComplete:
     if (remaining === 0 && navigator.vibrate) navigator.vibrate([100, 50, 100, 50, 200])
   }, [remaining])
 
-  const mins = String(Math.floor(remaining / 60)).padStart(2, '0')
-  const secs = String(remaining % 60).padStart(2, '0')
+  const displaySecs = Math.ceil(remaining)
+  const mins = String(Math.floor(displaySecs / 60)).padStart(2, '0')
+  const secs = String(displaySecs % 60).padStart(2, '0')
   const pct = Math.max(0, remaining / seconds)
+  // Color shifts: blue -> orange at 3s -> red at 1s
+  const timerColor = remaining <= 1 ? 'var(--red, #FF3B30)' : remaining <= 3 ? 'var(--orange, #FF9500)' : 'var(--label)'
+  const barColor = remaining <= 1 ? 'var(--red, #FF3B30)' : remaining <= 3 ? 'var(--orange, #FF9500)' : 'var(--blue)'
   return (
     <div>
-      <div style={{ fontSize: 64, fontWeight: 700, letterSpacing: '-2px', fontVariantNumeric: 'tabular-nums', lineHeight: 1.05, color: 'var(--label)' }}>
+      <div style={{ fontSize: 64, fontWeight: 700, letterSpacing: '-2px', fontVariantNumeric: 'tabular-nums', lineHeight: 1.05, color: timerColor, transition: 'color 0.3s' }}>
         {mins}:{secs}
       </div>
       <div style={{ height: 4, background: 'var(--gray5)', borderRadius: 2, overflow: 'hidden', maxWidth: 220, margin: '12px auto 0' }}>
-        <div style={{ height: '100%', width: `${pct * 100}%`, background: 'var(--blue)', borderRadius: 2, transition: 'width 1s linear' }} />
+        <div style={{ height: '100%', width: `${pct * 100}%`, background: barColor, borderRadius: 2, transition: remaining <= 3 ? 'width 0.1s linear, background 0.3s' : 'width 1s linear, background 0.3s' }} />
       </div>
     </div>
   )
@@ -810,6 +817,8 @@ export default function Workout() {
         setFocusExIdx(next.exerciseIdx)
         setFocusSetIdx(next.setIdx)
         setPhase('rest')
+        // Auto-scroll to the active exercise card after advancing
+        setTimeout(() => document.getElementById('active-exercise')?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 100)
       } else {
         setRestTimer(null)
         setPhase('done')
@@ -869,6 +878,7 @@ export default function Workout() {
             }
             return (
               <>
+                <div id="active-exercise">
                 <ActiveSetCard
                   key={`${focusExIdx}-${focusSetIdx}`}
                   accent={accent}
@@ -902,6 +912,7 @@ export default function Workout() {
                     )}
                   </div>
                 )}
+              </div>
               </>
             )
           })()}

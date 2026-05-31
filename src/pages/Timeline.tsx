@@ -10,10 +10,13 @@ const TYPE_CONFIG: Record<string, { icon: string; color: string }> = {
   routine: { icon: '✨', color: 'var(--teal, var(--green))' },
 }
 
+type FilterType = 'all' | 'food' | 'workout' | 'sleep'
+
 export default function Timeline() {
   const [events, setEvents] = useState<TimelineEvent[]>([])
   const [days, setDays] = useState(7)
   const [loading, setLoading] = useState(true)
+  const [filter, setFilter] = useState<FilterType>('all')
 
   useEffect(() => {
     let cancelled = false
@@ -22,9 +25,12 @@ export default function Timeline() {
     return () => { cancelled = true; clearTimeout(t) }
   }, [days])
 
+  // Filter events by type
+  const filtered = filter === 'all' ? events : events.filter(ev => ev.type === filter)
+
   // Group events by date
   const grouped: Record<string, TimelineEvent[]> = {}
-  for (const ev of events) {
+  for (const ev of filtered) {
     if (!grouped[ev.date]) grouped[ev.date] = []
     grouped[ev.date].push(ev)
   }
@@ -48,7 +54,30 @@ export default function Timeline() {
           </div>
         </div>
 
+        {/* Type filter */}
+        <div style={{ display: 'flex', gap: 6, marginBottom: 16 }}>
+          {([
+            { id: 'all', label: 'All' },
+            { id: 'food', label: 'Food' },
+            { id: 'workout', label: 'Workout' },
+            { id: 'sleep', label: 'Sleep' },
+          ] as const).map(f => (
+            <button key={f.id} onClick={() => setFilter(f.id)} style={{
+              flex: 1, padding: '7px 4px', borderRadius: 10, border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: 600,
+              background: filter === f.id ? 'var(--blue)' : 'var(--card)',
+              color: filter === f.id ? '#fff' : 'var(--label2)',
+              transition: 'background 0.15s, color 0.15s',
+            }}>{f.label}</button>
+          ))}
+        </div>
+
         {loading && <div style={{ textAlign: 'center', color: 'var(--label2)', padding: 40 }}>Loading...</div>}
+
+        {!loading && filtered.length === 0 && filter !== 'all' && (
+          <div style={{ textAlign: 'center', color: 'var(--label2)', padding: 40 }}>
+            No {filter} events in the last {days} days. Try a different filter or time range.
+          </div>
+        )}
 
         {!loading && events.length === 0 && (
           <div style={{ textAlign: 'center', color: 'var(--label2)', padding: 40 }}>
