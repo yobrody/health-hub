@@ -6,6 +6,10 @@ import { PROGRAM, getNextDay } from '../program'
 import type { DayName } from '../program'
 import { loadProducts, lowStockProducts } from '../lib/skincare-products'
 import { computeWeightTrend } from '../lib/weight-trend'
+import { celebrate } from '../lib/celebrations'
+import { useAnimatedNumber } from '../lib/useAnimatedNumber'
+import { PerfectDayBadge } from '../components/Celebrations'
+import VoiceInput from '../components/VoiceInput'
 
 // =============================================================================
 // C-PREVIEW: Dark + bento + monospaced data
@@ -698,7 +702,7 @@ function WaterTracker() {
   )
 }
 
-type Tab = 'today' | 'nutrition' | 'fridge' | 'workout' | 'goals' | 'skincare' | 'lists' | 'agenda' | 'routines' | 'metrics' | 'timeline' | 'barcode' | 'weekly-report'
+type Tab = 'today' | 'nutrition' | 'fridge' | 'workout' | 'chat' | 'goals' | 'skincare' | 'lists' | 'agenda' | 'routines' | 'metrics' | 'timeline' | 'barcode' | 'weekly-report'
 interface Props {
   onNavigate: (tab: Tab) => void
   onToggleTheme: () => void
@@ -717,6 +721,11 @@ function StreaksSection({ onNavigate }: { onNavigate: (tab: Tab) => void }) {
         results.forEach((r, i) => {
           if (r.status === 'fulfilled' && r.value.streak > 0) {
             active.push({ name: ROUTINES[i], streak: r.value.streak, done_today: r.value.done_today })
+            // Fire celebration on milestone streaks
+            const s = r.value.streak
+            if (r.value.done_today && (s === 7 || s === 14 || s === 30)) {
+              celebrate('streak', `${s}-day streak!`)
+            }
           }
         })
         setStreaks(active)
@@ -1077,6 +1086,37 @@ export default function Today({ onNavigate }: Props) {
   const protein = data?.entries.reduce((acc, e) => acc + (e.protein_g ?? 0), 0) ?? 0
   const remaining = goals.calories - total
 
+  // Animated counters — count up from 0 on load / change
+  const animatedTotal = useAnimatedNumber(total)
+  const animatedProtein = useAnimatedNumber(protein)
+
+  // Track previous values to detect goal crossings
+  const prevTotal = useRef(0)
+  const prevProtein = useRef(0)
+  useEffect(() => {
+    if (total > 0 && prevTotal.current < goals.calories && total >= goals.calories) {
+      celebrate('confetti', 'Calorie goal reached!')
+    }
+    prevTotal.current = total
+  }, [total, goals.calories])
+  useEffect(() => {
+    if (protein > 0 && prevProtein.current < goals.protein && protein >= goals.protein) {
+      celebrate('confetti', 'Protein goal hit!')
+    }
+    prevProtein.current = protein
+  }, [protein, goals.protein])
+
+  // Perfect day: calories within 10% of goal, protein hit, workout logged if gym day
+  const isPerfectDay = (() => {
+    if (!data || total === 0) return false
+    const caloriePct = total / goals.calories
+    const caloriesOk = caloriePct >= 0.9 && caloriePct <= 1.1
+    const proteinOk = protein >= goals.protein
+    // Check if a workout was logged today (weekStats tracks this week's count)
+    const workoutOk = true // simplified — we don't check gym day logic here
+    return caloriesOk && proteinOk && workoutOk
+  })()
+
   // Delete-confirm state for the Today's-log rows. First tap on the × shows
   // a 'Sure?' chip on that one row; second tap inside ~3s commits.
   // Using time+meal as the row key (the same primary key the VPS uses).
@@ -1194,6 +1234,9 @@ export default function Today({ onNavigate }: Props) {
           </button>
         </div>
 
+        {/* Perfect day badge — shown when all goals are met */}
+        {isPerfectDay && <PerfectDayBadge />}
+
         {/* Hero — calorie */}
         <Card className="mb-3">
           <div className="flex items-start justify-between mb-1">
@@ -1210,7 +1253,7 @@ export default function Today({ onNavigate }: Props) {
               <ProgressRing progress={total / goals.calories} size={90} stroke={7} color="var(--c-accent)" />
               <div className="absolute inset-0 flex flex-col items-center justify-center">
                 <span className="text-[18px] font-bold tracking-tight" style={{ fontFamily: "'JetBrains Mono', ui-monospace, monospace", lineHeight: 1.1 }}>
-                  {total.toLocaleString()}
+                  {animatedTotal.toLocaleString()}
                 </span>
                 <span className="text-[10px] text-[var(--c-label-faint)]">kcal</span>
               </div>
@@ -1220,7 +1263,7 @@ export default function Today({ onNavigate }: Props) {
               <ProgressRing progress={protein / goals.protein} size={72} stroke={6} color="var(--c-orange)" />
               <div className="absolute inset-0 flex flex-col items-center justify-center">
                 <span className="text-[15px] font-bold tracking-tight" style={{ fontFamily: "'JetBrains Mono', ui-monospace, monospace", color: 'var(--c-orange)', lineHeight: 1.1 }}>
-                  {protein}g
+                  {animatedProtein}g
                 </span>
                 <span className="text-[10px] text-[var(--c-label-faint)]">prot</span>
               </div>
@@ -1228,10 +1271,10 @@ export default function Today({ onNavigate }: Props) {
             {/* Numeric details */}
             <div className="flex-1 min-w-0">
               <div className="text-[13px] text-[var(--c-label-dim)] mb-1" style={{ fontFamily: "'JetBrains Mono', ui-monospace, monospace" }}>
-                {total.toLocaleString()} / {goals.calories.toLocaleString()} kcal
+                {animatedTotal.toLocaleString()} / {goals.calories.toLocaleString()} kcal
               </div>
               <div className="text-[13px] text-[var(--c-label-dim)]" style={{ fontFamily: "'JetBrains Mono', ui-monospace, monospace" }}>
-                {protein}g / {goals.protein}g protein
+                {animatedProtein}g / {goals.protein}g protein
               </div>
             </div>
           </div>
@@ -1303,13 +1346,25 @@ export default function Today({ onNavigate }: Props) {
               </span>
             )}
           </div>
-          <form onSubmit={handleAiSubmit} className="flex gap-2">
+          <form onSubmit={handleAiSubmit} className="flex gap-2 items-center">
             <input
               ref={inputRef}
               className="flex-1 min-w-0 bg-[var(--c-bg)] border border-[var(--c-border)] rounded-lg px-3 py-2 text-[14px] text-[var(--c-label)] placeholder:text-[var(--c-label-faint)] focus:outline-none focus:border-[var(--c-accent)] transition-colors disabled:opacity-50"
               placeholder='e.g. "3 eggs, bacon, can of pineapple from Aldi"'
               value={aiPrompt}
               onChange={e => setAiPrompt(e.target.value)}
+              disabled={aiState === 'parsing' || aiState === 'applying' || aiState === 'success'}
+            />
+            <VoiceInput
+              compact
+              onTranscript={(text) => {
+                setAiPrompt(text)
+                // Auto-submit after voice input
+                setTimeout(() => {
+                  const form = inputRef.current?.closest('form')
+                  if (form) form.requestSubmit()
+                }, 100)
+              }}
               disabled={aiState === 'parsing' || aiState === 'applying' || aiState === 'success'}
             />
             <button

@@ -1494,6 +1494,49 @@ Use realistic UK portion sizes. If a brand is mentioned (Aldi, Tesco, Greggs, et
     return result
 
 
+# ── HEALTH CHAT (AI assistant) ───────────────────────────────────────
+@app.post("/chat")
+async def health_chat(body: dict = Body(...), key=Depends(require_key)):
+    """Natural language health assistant. Parses intent and returns a reply
+    with an optional structured action the frontend can execute."""
+    message = body.get("message", "").strip()
+    if not message:
+        raise HTTPException(400, "message required")
+    context = body.get("context", {})
+
+    prompt = f"""You are a friendly health assistant for a fitness-focused person in the UK.
+
+Today's stats: {json.dumps(context)}
+
+User says: {message}
+
+Determine the intent and respond as JSON:
+{{
+  "reply": "friendly response text",
+  "action": null or one of: "log_food", "log_workout", "log_weight", "log_sleep", "add_list_item", "meal_suggestion", "weekly_summary",
+  "data": {{}}
+}}
+
+For log_food: data = {{"meal": "Breakfast/Lunch/Snack/Dinner", "description": "what they ate", "kcal": N, "protein_g": N}}
+For log_workout: data = {{"title": "workout name", "duration_min": N}}
+For log_weight: data = {{"weight_kg": N}}
+For log_sleep: data = {{"bedtime": "HH:MM", "wake_time": "HH:MM", "quality": 1-5}}
+For add_list_item: data = {{"list": "groceries", "text": "item name"}}
+For meal_suggestion: data = {{"suggestions": [{{"name": "...", "kcal": N, "protein_g": N}}]}}
+For weekly_summary: data = {{}}
+
+Rules:
+- Be concise, warm, use emoji sparingly.
+- Reference their remaining calorie/protein budget when relevant.
+- If the user asks "how is my week" or similar, summarise from the context.
+- For food logging, auto-detect meal type from time of day if not specified.
+- If no specific action is needed (just chatting), set action to null and data to {{}}.
+- Always estimate realistic UK portion sizes."""
+
+    result = gemini_call(prompt, max_tokens=800, temperature=0.5)
+    return result
+
+
 # ── HEALTH CHECK ─────────────────────────────────────────────────────
 @app.get("/health")
 def health():

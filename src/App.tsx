@@ -12,23 +12,26 @@ import Metrics from './pages/Metrics'
 import Timeline from './pages/Timeline'
 import Barcode from './pages/Barcode'
 import WeeklyReport from './pages/WeeklyReport'
+import Chat from './pages/Chat'
 import CameraSheet from './components/CameraSheet'
 import SmartScanner from './components/SmartScanner'
 import { UpdatePrompt } from './components/UpdatePrompt'
+import Celebrations from './components/Celebrations'
 import { api } from './api/client'
 import type { FridgeData } from './api/client'
 import { registerToastHandler } from './toast'
 import type { Theme } from './main'
 import './App.css'
 
-type Tab = 'today' | 'nutrition' | 'fridge' | 'workout' | 'goals' | 'skincare' | 'lists' | 'agenda' | 'routines' | 'metrics' | 'timeline' | 'barcode' | 'weekly-report'
+type Tab = 'today' | 'nutrition' | 'fridge' | 'workout' | 'chat' | 'goals' | 'skincare' | 'lists' | 'agenda' | 'routines' | 'metrics' | 'timeline' | 'barcode' | 'weekly-report'
 
-// 4 visible tabs. Goals/Skincare/Lists/Agenda/Routines accessible via Today's quick actions.
+// 4 visible tabs + camera FAB. Chat replaces Fridge in the nav bar;
+// Fridge remains accessible via Today's quick-action tiles.
 const TABS: { id: Tab; label: string }[] = [
   { id: 'today',     label: 'Today'    },
   { id: 'nutrition', label: 'Nutrition'},
   { id: 'workout',   label: 'Workout'  },
-  { id: 'fridge',    label: 'Fridge'   },
+  { id: 'chat',      label: 'Chat'     },
 ]
 
 function TabIcon({ id, active }: { id: Tab; active: boolean }) {
@@ -77,6 +80,11 @@ function TabIcon({ id, active }: { id: Tab; active: boolean }) {
         <line x1="6" y1="10" x2="18" y2="10"/>
         <line x1="9" y1="6" x2="9" y2="7"/>
         <line x1="9" y1="13" x2="9" y2="14"/>
+      </svg>
+    )
+    case 'chat': return (
+      <svg {...s} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
       </svg>
     )
     default: return null
@@ -300,6 +308,7 @@ export default function App({ onToggleTheme, theme }: Props) {
           {tab === 'nutrition' && <Nutrition />}
           {tab === 'fridge'    && <Fridge />}
           {tab === 'workout'   && <Workout />}
+          {tab === 'chat'      && <Chat />}
           {tab === 'skincare'  && <Skincare />}
           {tab === 'goals'     && <GoalsPage />}
           {tab === 'lists'     && <Lists />}
@@ -383,6 +392,9 @@ export default function App({ onToggleTheme, theme }: Props) {
 
       {/* PWA update prompt — appears when a newer SW is waiting. */}
       <UpdatePrompt />
+
+      {/* Celebration animations (confetti, streak flames) */}
+      <Celebrations />
 
       {/* Toast */}
       {toast && (
