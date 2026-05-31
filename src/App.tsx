@@ -11,6 +11,7 @@ import Routines from './pages/Routines'
 import Metrics from './pages/Metrics'
 import Timeline from './pages/Timeline'
 import Barcode from './pages/Barcode'
+import WeeklyReport from './pages/WeeklyReport'
 import CameraSheet from './components/CameraSheet'
 import SmartScanner from './components/SmartScanner'
 import { UpdatePrompt } from './components/UpdatePrompt'
@@ -20,7 +21,7 @@ import { registerToastHandler } from './toast'
 import type { Theme } from './main'
 import './App.css'
 
-type Tab = 'today' | 'nutrition' | 'fridge' | 'workout' | 'goals' | 'skincare' | 'lists' | 'agenda' | 'routines' | 'metrics' | 'timeline' | 'barcode'
+type Tab = 'today' | 'nutrition' | 'fridge' | 'workout' | 'goals' | 'skincare' | 'lists' | 'agenda' | 'routines' | 'metrics' | 'timeline' | 'barcode' | 'weekly-report'
 
 // 4 visible tabs. Goals/Skincare/Lists/Agenda/Routines accessible via Today's quick actions.
 const TABS: { id: Tab; label: string }[] = [
@@ -80,6 +81,99 @@ function TabIcon({ id, active }: { id: Tab; active: boolean }) {
     )
     default: return null
   }
+}
+
+function OnboardingFlow({ name, setName, calories, setCalories, protein, setProtein, onComplete }: {
+  name: string; setName: (v: string) => void
+  calories: string; setCalories: (v: string) => void
+  protein: string; setProtein: (v: string) => void
+  onComplete: () => void
+}) {
+  const [step, setStep] = useState(0)
+
+  const dots = (
+    <div style={{ display: 'flex', justifyContent: 'center', gap: 6, marginTop: 20 }}>
+      {[0, 1, 2].map(i => (
+        <div key={i} style={{
+          width: i === step ? 18 : 6, height: 6, borderRadius: 3,
+          background: i === step ? 'var(--blue)' : 'var(--gray4)',
+          transition: 'width 0.2s ease, background 0.2s ease',
+        }} />
+      ))}
+    </div>
+  )
+
+  return (
+    <div
+      style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 500, display: 'flex', alignItems: 'flex-end' }}
+      onClick={e => { if (e.target === e.currentTarget && step === 2) onComplete() }}
+    >
+      <div style={{ width: '100%', background: 'var(--card)', borderRadius: '22px 22px 0 0', padding: '18px 20px calc(38px + var(--safe-bottom))' }}>
+        <div style={{ width: 40, height: 5, borderRadius: 3, background: 'var(--gray4)', margin: '0 auto 20px' }} />
+
+        {step === 0 && (
+          <div className="onboard-step-enter" key="step-0">
+            <div style={{ fontSize: 40, textAlign: 'center', marginBottom: 8 }}>
+              {'\uD83C\uDF31'}
+            </div>
+            <div style={{ fontSize: 24, fontWeight: 700, textAlign: 'center', marginBottom: 4 }}>Welcome to Health Hub</div>
+            <div style={{ fontSize: 15, color: 'var(--label2)', textAlign: 'center', marginBottom: 24 }}>
+              Track nutrition, workouts, and habits — all in one place.
+            </div>
+            <div style={{ marginBottom: 4 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--label2)', marginBottom: 6 }}>What should we call you?</div>
+              <input
+                className="input-field"
+                placeholder="Your name"
+                value={name}
+                onChange={e => setName(e.target.value)}
+                autoFocus
+              />
+            </div>
+            <button className="btn-primary" style={{ marginTop: 16 }} onClick={() => setStep(1)}>Next</button>
+          </div>
+        )}
+
+        {step === 1 && (
+          <div className="onboard-step-enter" key="step-1">
+            <div style={{ fontSize: 40, textAlign: 'center', marginBottom: 8 }}>
+              {'\uD83C\uDFAF'}
+            </div>
+            <div style={{ fontSize: 24, fontWeight: 700, textAlign: 'center', marginBottom: 4 }}>Daily targets</div>
+            <div style={{ fontSize: 15, color: 'var(--label2)', textAlign: 'center', marginBottom: 24 }}>
+              Set your nutrition goals. You can change these any time.
+            </div>
+            <div style={{ display: 'flex', gap: 10, marginBottom: 4 }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--label2)', marginBottom: 6 }}>Calories</div>
+                <input className="input-field" type="number" inputMode="numeric" placeholder="2800" value={calories} onChange={e => setCalories(e.target.value)} />
+              </div>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--label2)', marginBottom: 6 }}>Protein (g)</div>
+                <input className="input-field" type="number" inputMode="numeric" placeholder="140" value={protein} onChange={e => setProtein(e.target.value)} />
+              </div>
+            </div>
+            <button className="btn-primary" style={{ marginTop: 16 }} onClick={() => setStep(2)}>Next</button>
+          </div>
+        )}
+
+        {step === 2 && (
+          <div className="onboard-step-enter" key="step-2">
+            <div style={{ fontSize: 40, textAlign: 'center', marginBottom: 8 }}>
+              {'\uD83D\uDE80'}
+            </div>
+            <div style={{ fontSize: 24, fontWeight: 700, textAlign: 'center', marginBottom: 4 }}>You're all set!</div>
+            <div style={{ fontSize: 15, color: 'var(--label2)', textAlign: 'center', marginBottom: 24 }}>
+              {name.trim() ? `Welcome, ${name.trim()}!` : 'Welcome!'} Start logging meals, workouts, and habits.
+            </div>
+            <button className="btn-primary" onClick={onComplete}>Get started</button>
+          </div>
+        )}
+
+        {dots}
+      </div>
+    </div>
+  )
 }
 
 type ToastState = { msg: string; type: 'ok' | 'err' | 'info'; id: number } | null
@@ -176,7 +270,7 @@ export default function App({ onToggleTheme, theme }: Props) {
   // Pages reachable only by tile-click (not in the bottom nav) get a small
   // back-to-Today chevron, fixed top-left, so the route isn't a one-way
   // trip (audit P1-5). The bottom nav still works for jumping anywhere.
-  const SECONDARY_TABS = new Set<Tab>(['skincare', 'goals', 'lists', 'agenda', 'routines', 'metrics', 'timeline', 'barcode'])
+  const SECONDARY_TABS = new Set<Tab>(['skincare', 'goals', 'lists', 'agenda', 'routines', 'metrics', 'timeline', 'barcode', 'weekly-report'])
 
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
@@ -201,18 +295,21 @@ export default function App({ onToggleTheme, theme }: Props) {
             </svg>
           </button>
         )}
-        {tab === 'today'     && <Today onNavigate={setTab} onToggleTheme={onToggleTheme} themeIcon={themeIcon} />}
-        {tab === 'nutrition' && <Nutrition />}
-        {tab === 'fridge'    && <Fridge />}
-        {tab === 'workout'   && <Workout />}
-        {tab === 'skincare'  && <Skincare />}
-        {tab === 'goals'     && <GoalsPage />}
-        {tab === 'lists'     && <Lists />}
-        {tab === 'agenda'    && <Agenda />}
-        {tab === 'routines'  && <Routines />}
-        {tab === 'metrics'   && <Metrics />}
-        {tab === 'timeline'  && <Timeline />}
-        {tab === 'barcode'   && <Barcode />}
+        <div key={tab} className="page-transition-enter" style={{ height: '100%' }}>
+          {tab === 'today'     && <Today onNavigate={setTab} onToggleTheme={onToggleTheme} themeIcon={themeIcon} />}
+          {tab === 'nutrition' && <Nutrition />}
+          {tab === 'fridge'    && <Fridge />}
+          {tab === 'workout'   && <Workout />}
+          {tab === 'skincare'  && <Skincare />}
+          {tab === 'goals'     && <GoalsPage />}
+          {tab === 'lists'     && <Lists />}
+          {tab === 'agenda'    && <Agenda />}
+          {tab === 'routines'  && <Routines />}
+          {tab === 'metrics'   && <Metrics />}
+          {tab === 'timeline'  && <Timeline />}
+          {tab === 'barcode'   && <Barcode />}
+        {tab === 'weekly-report' && <WeeklyReport />}
+        </div>
       </div>
 
       {/* Tab Bar — 2 tabs | camera FAB | 2 tabs */}
@@ -294,25 +391,13 @@ export default function App({ onToggleTheme, theme }: Props) {
         </div>
       )}
 
-      {/* Onboarding */}
-      {showOnboarding && (
-        <div
-          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 500, display: 'flex', alignItems: 'flex-end' }}
-          onClick={e => { if (e.target === e.currentTarget) saveOnboarding() }}
-        >
-          <div style={{ width: '100%', background: 'var(--card)', borderRadius: '22px 22px 0 0', padding: '18px 20px calc(38px + var(--safe-bottom))' }}>
-            <div style={{ width: 40, height: 5, borderRadius: 3, background: 'var(--gray4)', margin: '0 auto 20px' }} />
-            <div style={{ fontSize: 24, fontWeight: 700, marginBottom: 4 }}>Welcome to Health Hub</div>
-            <div style={{ fontSize: 15, color: 'var(--label2)', marginBottom: 20 }}>Quick setup — takes 10 seconds.</div>
-            <input className="input-field" placeholder="Your name" value={name} onChange={e => setName(e.target.value)} style={{ marginBottom: 10 }} />
-            <div style={{ display: 'flex', gap: 10, marginBottom: 20 }}>
-              <input className="input-field" type="number" inputMode="numeric" placeholder="Daily calories" value={calories} onChange={e => setCalories(e.target.value)} />
-              <input className="input-field" type="number" inputMode="numeric" placeholder="Protein (g)" value={protein} onChange={e => setProtein(e.target.value)} />
-            </div>
-            <button className="btn-primary" onClick={saveOnboarding}>Get started</button>
-          </div>
-        </div>
-      )}
+      {/* Onboarding — multi-step */}
+      {showOnboarding && <OnboardingFlow
+        name={name} setName={setName}
+        calories={calories} setCalories={setCalories}
+        protein={protein} setProtein={setProtein}
+        onComplete={saveOnboarding}
+      />}
     </div>
   )
 }

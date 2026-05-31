@@ -70,17 +70,25 @@ const Icon = {
   ),
 }
 
-/** SVG circular progress ring. Fills clockwise from 12 o'clock. */
+/** SVG circular progress ring. Fills clockwise from 12 o'clock.
+ *  Animates from 0 to the target value on mount so it visually fills in. */
 function ProgressRing({ progress, size = 80, stroke = 6, color = 'var(--c-accent)' }: { progress: number; size?: number; stroke?: number; color?: string }) {
   const r = (size - stroke) / 2
   const c = 2 * Math.PI * r
-  const offset = c * (1 - Math.min(progress, 1))
+  // Start at 0 on mount, then animate to the real value
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => {
+    const raf = requestAnimationFrame(() => setMounted(true))
+    return () => cancelAnimationFrame(raf)
+  }, [])
+  const displayProgress = mounted ? Math.min(progress, 1) : 0
+  const offset = c * (1 - displayProgress)
   return (
     <svg width={size} height={size} style={{ transform: 'rotate(-90deg)' }}>
       <circle cx={size/2} cy={size/2} r={r} fill="none" stroke="var(--c-border)" strokeWidth={stroke} />
       <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={color} strokeWidth={stroke}
         strokeDasharray={c} strokeDashoffset={offset} strokeLinecap="round"
-        style={{ transition: 'stroke-dashoffset 0.6s ease' }} />
+        style={{ transition: 'stroke-dashoffset 0.7s cubic-bezier(0.4, 0, 0.2, 1)' }} />
     </svg>
   )
 }
@@ -111,7 +119,7 @@ function Card({ children, className = '', onClick, span, style }: {
   return (
     <Comp
       onClick={onClick}
-      className={`bg-[var(--c-card)] border border-[var(--c-border)] rounded-xl p-4 text-left transition-colors ${onClick ? 'cursor-pointer hover:border-[#3F3F46] active:bg-[#1F1F23]' : ''} ${span === 'full' ? 'col-span-2' : ''} ${className}`}
+      className={`bg-[var(--c-card)] border border-[var(--c-border)] rounded-xl p-4 text-left transition-colors ${onClick ? 'cursor-pointer hover:border-[#3F3F46] active:bg-[#1F1F23] card-press' : ''} ${span === 'full' ? 'col-span-2' : ''} ${className}`}
       style={{ WebkitTapHighlightColor: 'transparent', ...style }}
     >
       {children}
@@ -560,7 +568,7 @@ function WaterTracker() {
   )
 }
 
-type Tab = 'today' | 'nutrition' | 'fridge' | 'workout' | 'goals' | 'skincare' | 'lists' | 'agenda' | 'routines' | 'metrics' | 'timeline' | 'barcode'
+type Tab = 'today' | 'nutrition' | 'fridge' | 'workout' | 'goals' | 'skincare' | 'lists' | 'agenda' | 'routines' | 'metrics' | 'timeline' | 'barcode' | 'weekly-report'
 interface Props {
   onNavigate: (tab: Tab) => void
   onToggleTheme: () => void
@@ -619,6 +627,13 @@ export default function Today({ onNavigate }: Props) {
 
   const [data, setData] = useState<TodayData | null>(null)
   const [loading, setLoading] = useState(true)
+
+  // Pull-to-refresh state
+  const [ptrPulling, setPtrPulling] = useState(false)
+  const [ptrRefreshing, setPtrRefreshing] = useState(false)
+  const [ptrOffset, setPtrOffset] = useState(0)
+  const ptrStartY = useRef(0)
+  const pageRef = useRef<HTMLDivElement>(null)
   // Natural-language assistant state. Replaces the old two-input quick-log
   // (text + manual kcal). User types one freeform line; Gemini parses to
   // structured actions; user confirms; actions execute.
@@ -678,6 +693,46 @@ export default function Today({ onNavigate }: Props) {
     window.addEventListener('food-logged', onFoodLogged)
     return () => window.removeEventListener('food-logged', onFoodLogged)
   }, [])
+
+  // Pull-to-refresh handlers
+  const PTR_THRESHOLD = 60
+  function onPtrTouchStart(e: React.TouchEvent) {
+    if (pageRef.current && pageRef.current.scrollTop <= 0) {
+      ptrStartY.current = e.touches[0].clientY
+      setPtrPulling(true)
+    }
+  }
+  function onPtrTouchMove(e: React.TouchEvent) {
+    if (!ptrPulling || ptrRefreshing) return
+    const dy = e.touches[0].clientY - ptrStartY.current
+    if (dy > 0) {
+      setPtrOffset(Math.min(dy * 0.5, 80))
+    } else {
+      setPtrOffset(0)
+    }
+  }
+  function onPtrTouchEnd() {
+    if (!ptrPulling) return
+    setPtrPulling(false)
+    if (ptrOffset >= PTR_THRESHOLD && !ptrRefreshing) {
+      setPtrRefreshing(true)
+      setPtrOffset(PTR_THRESHOLD)
+      // Reload all data
+      Promise.all([
+        api.getToday().then(setData).catch(() => {}),
+        api.getWeekStats().then(setWeekStats).catch(() => {}),
+        api.getFridge().then(setFridgeData).catch(() => {}),
+        api.getAgendaToday().then(d => setAgendaCount({ open: d.items.filter(i => !i.done).length, total: d.items.length })).catch(() => {}),
+        api.getList('shopping').then(d => setShoppingCount(d.items.filter(i => !i.checked).length)).catch(() => {}),
+      ]).finally(() => {
+        setPtrRefreshing(false)
+        setPtrOffset(0)
+        showToast('Refreshed')
+      })
+    } else {
+      setPtrOffset(0)
+    }
+  }
 
   async function handleAiSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -948,7 +1003,39 @@ export default function Today({ onNavigate }: Props) {
   const nextDay = PROGRAM[nextWorkout]
 
   return (
-    <div className="page" style={{ background: 'var(--c-bg)', color: 'var(--c-label)' }}>
+    <div
+      ref={pageRef}
+      className="page"
+      style={{ background: 'var(--c-bg)', color: 'var(--c-label)' }}
+      onTouchStart={onPtrTouchStart}
+      onTouchMove={onPtrTouchMove}
+      onTouchEnd={onPtrTouchEnd}
+    >
+      {/* Pull-to-refresh indicator */}
+      {(ptrOffset > 0 || ptrRefreshing) && (
+        <div style={{
+          display: 'flex', justifyContent: 'center', alignItems: 'center',
+          height: ptrOffset,
+          transition: ptrPulling ? 'none' : 'height 0.2s ease',
+          overflow: 'hidden',
+        }}>
+          {ptrRefreshing ? (
+            <span className="ptr-spinner" />
+          ) : (
+            <svg
+              width="20" height="20" viewBox="0 0 24 24" fill="none"
+              stroke="var(--c-label-faint)" strokeWidth="2" strokeLinecap="round"
+              style={{
+                transform: `rotate(${Math.min(ptrOffset / PTR_THRESHOLD, 1) * 180}deg)`,
+                opacity: Math.min(ptrOffset / PTR_THRESHOLD, 1),
+                transition: 'opacity 0.1s',
+              }}
+            >
+              <path d="M12 5v14"/><path d="m19 12-7 7-7-7"/>
+            </svg>
+          )}
+        </div>
+      )}
       <div className="page-content">
 
         {/* Header */}
@@ -1388,6 +1475,18 @@ export default function Today({ onNavigate }: Props) {
             </div>
             <div className="text-[13px] text-[var(--c-label-dim)]">7-day log</div>
             <div className="text-[12px] text-[var(--c-label-faint)] mt-0.5">Unified activity</div>
+          </Card>
+
+          {/* Weekly Report tile */}
+          <Card onClick={() => onNavigate('weekly-report')}>
+            <div className="flex items-center justify-between mb-2">
+              <CardLabel>Weekly Report</CardLabel>
+              <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" className="text-[var(--c-label-faint)]">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>
+              </svg>
+            </div>
+            <div className="text-[13px] text-[var(--c-label-dim)]">Full summary</div>
+            <div className="text-[12px] text-[var(--c-label-faint)] mt-0.5">Goals + trends</div>
           </Card>
 
           {/* Scan tile — barcode lookup */}
