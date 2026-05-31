@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState, useRef, useCallback } from 'react'
 import { api } from '../api/client'
 import { showToast } from '../toast'
 import type { TodayData, WeekStats, FridgeData, AiAction, AiActResponse } from '../api/client'
@@ -122,6 +122,212 @@ function BigNumber({ value, unit, color, mono = true }: { value: string | number
   )
 }
 
+/** Minimal inline food logger. Parses "2 eggs 300kcal 20g protein" style
+ *  freeform text and calls api.addFood(). Sits below the calorie hero card
+ *  so the user can log without navigating to Nutrition. */
+function QuickFoodInput({ onLogged }: { onLogged: () => void }) {
+  const [text, setText] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  function parse(raw: string): { description: string; kcal: number; protein_g?: number } | null {
+    const kcalMatch = raw.match(/(\d+)\s*kcal/i)
+    if (!kcalMatch) return null
+    const kcal = parseInt(kcalMatch[1])
+    const proteinMatch = raw.match(/(\d+)\s*g\s*protein/i)
+    const protein_g = proteinMatch ? parseInt(proteinMatch[1]) : undefined
+    // Strip the macro annotations to get a clean description
+    const description = raw
+      .replace(/(\d+)\s*kcal/i, '')
+      .replace(/(\d+)\s*g\s*protein/i, '')
+      .replace(/\s{2,}/g, ' ')
+      .trim()
+    return { description: description || 'Quick entry', kcal, protein_g }
+  }
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault()
+    const parsed = parse(text.trim())
+    if (!parsed) {
+      showToast('Include kcal, e.g. "2 eggs 300kcal"', 'err')
+      return
+    }
+    setBusy(true)
+    const hour = new Date().getHours()
+    const meal = hour < 11 ? 'Breakfast' : hour < 15 ? 'Lunch' : hour < 18 ? 'Snack' : 'Dinner'
+    try {
+      await api.addFood({ meal, description: parsed.description, kcal: parsed.kcal, protein_g: parsed.protein_g })
+      setText('')
+      showToast(`${parsed.description} logged`)
+      onLogged()
+    } catch {
+      showToast('Failed to log food', 'err')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <form onSubmit={submit} className="flex gap-2 mt-3">
+      <input
+        className="flex-1 min-w-0 bg-[var(--c-bg)] border border-[var(--c-border)] rounded-lg px-3 py-1.5 text-[13px] text-[var(--c-label)] placeholder:text-[var(--c-label-faint)] focus:outline-none focus:border-[var(--c-accent)] transition-colors"
+        placeholder='Quick: "2 eggs 300kcal 20g protein"'
+        value={text}
+        onChange={e => setText(e.target.value)}
+        disabled={busy}
+      />
+      <button
+        type="submit"
+        disabled={busy || !text.trim()}
+        className="bg-[var(--c-accent)] text-white rounded-lg px-3 py-1.5 text-[12px] font-semibold disabled:opacity-30 transition-opacity flex-shrink-0"
+      >
+        {busy ? '...' : 'Log'}
+      </button>
+    </form>
+  )
+}
+
+/** Sleep quick-log card. Shows time inputs + quality dots when no sleep
+ *  is logged today; flips to a summary after logging. */
+function SleepCard() {
+  const [logged, setLogged] = useState<{ bedtime: string; wake_time: string; quality: number } | null>(null)
+  const [bedtime, setBedtime] = useState('23:00')
+  const [wake, setWake] = useState('07:00')
+  const [quality, setQuality] = useState(3)
+  const [busy, setBusy] = useState(false)
+  const [hidden, setHidden] = useState(false)
+
+  // Check if sleep was already logged today (via localStorage cache)
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('sleep_logged_today')
+      if (raw) {
+        const cached = JSON.parse(raw) as { date: string; bedtime: string; wake_time: string; quality: number }
+        if (cached.date === new Date().toISOString().slice(0, 10)) {
+          setLogged(cached)
+        }
+      }
+    } catch { /* ignore */ }
+  }, [])
+
+  const submit = useCallback(async () => {
+    setBusy(true)
+    try {
+      await api.logSleep({ bedtime, wake_time: wake, quality })
+      const entry = { bedtime, wake_time: wake, quality }
+      setLogged(entry)
+      try {
+        localStorage.setItem('sleep_logged_today', JSON.stringify({
+          ...entry, date: new Date().toISOString().slice(0, 10),
+        }))
+      } catch { /* quota */ }
+      showToast('Sleep logged')
+    } catch {
+      showToast('Failed to log sleep', 'err')
+    } finally {
+      setBusy(false)
+    }
+  }, [bedtime, wake, quality])
+
+  if (hidden) return null
+
+  // Duration calculation helper
+  function calcDuration(bed: string, wk: string): string {
+    const [bh, bm] = bed.split(':').map(Number)
+    const [wh, wm] = wk.split(':').map(Number)
+    let mins = (wh * 60 + wm) - (bh * 60 + bm)
+    if (mins < 0) mins += 24 * 60
+    const h = Math.floor(mins / 60)
+    const m = mins % 60
+    return m > 0 ? `${h}h ${m}m` : `${h}h`
+  }
+
+  if (logged) {
+    return (
+      <Card span="full">
+        <div className="flex items-center justify-between">
+          <div>
+            <CardLabel>Sleep</CardLabel>
+            <div className="flex items-baseline gap-2 mt-1">
+              <span className="text-[18px] font-semibold" style={{ fontFamily: "'JetBrains Mono', ui-monospace, monospace" }}>
+                {calcDuration(logged.bedtime, logged.wake_time)}
+              </span>
+              <span className="text-[12px] text-[var(--c-label-faint)]">
+                {logged.bedtime} - {logged.wake_time}
+              </span>
+            </div>
+            <div className="text-[12px] text-[var(--c-label-faint)] mt-1">
+              {'★'.repeat(logged.quality)}{'☆'.repeat(5 - logged.quality)}
+            </div>
+          </div>
+          <Icon.CheckCircle size={20} className="text-[var(--c-green)]" />
+        </div>
+      </Card>
+    )
+  }
+
+  return (
+    <Card span="full">
+      <div className="flex items-center justify-between mb-2">
+        <CardLabel>Log sleep</CardLabel>
+        <button
+          onClick={() => setHidden(true)}
+          className="text-[11px] text-[var(--c-label-faint)] hover:text-[var(--c-label)]"
+        >
+          dismiss
+        </button>
+      </div>
+      <div className="flex items-center gap-3 mb-3">
+        <div className="flex-1">
+          <div className="text-[11px] text-[var(--c-label-faint)] mb-1">Bedtime</div>
+          <input
+            type="time"
+            value={bedtime}
+            onChange={e => setBedtime(e.target.value)}
+            className="w-full bg-[var(--c-bg)] border border-[var(--c-border)] rounded-lg px-2 py-1.5 text-[13px] text-[var(--c-label)] focus:outline-none focus:border-[var(--c-accent)]"
+            style={{ fontFamily: "'JetBrains Mono', ui-monospace, monospace" }}
+          />
+        </div>
+        <div className="flex-1">
+          <div className="text-[11px] text-[var(--c-label-faint)] mb-1">Wake</div>
+          <input
+            type="time"
+            value={wake}
+            onChange={e => setWake(e.target.value)}
+            className="w-full bg-[var(--c-bg)] border border-[var(--c-border)] rounded-lg px-2 py-1.5 text-[13px] text-[var(--c-label)] focus:outline-none focus:border-[var(--c-accent)]"
+            style={{ fontFamily: "'JetBrains Mono', ui-monospace, monospace" }}
+          />
+        </div>
+      </div>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-1">
+          <span className="text-[11px] text-[var(--c-label-faint)] mr-1">Quality</span>
+          {[1, 2, 3, 4, 5].map(n => (
+            <button
+              key={n}
+              onClick={() => setQuality(n)}
+              className={`w-6 h-6 rounded-full border transition-colors text-[12px] ${
+                n <= quality
+                  ? 'bg-[var(--c-accent)] border-[var(--c-accent)] text-white'
+                  : 'bg-transparent border-[var(--c-border)] text-[var(--c-label-faint)]'
+              }`}
+              style={{ WebkitTapHighlightColor: 'transparent' }}
+            >
+              {n}
+            </button>
+          ))}
+        </div>
+        <button
+          onClick={submit}
+          disabled={busy}
+          className="bg-[var(--c-accent)] text-white rounded-lg px-3 py-1.5 text-[12px] font-semibold disabled:opacity-50"
+        >
+          {busy ? '...' : 'Save'}
+        </button>
+      </div>
+    </Card>
+  )
+}
+
 /** Today bento tile for body weight. Shows latest reading + 7-day delta
  *  arrow. Taps through to Goals where you can log a new value, see the
  *  full sparkline, and apply the suggested calorie target.
@@ -139,12 +345,43 @@ function WeightTile({ onNavigate }: { onNavigate: (tab: Tab) => void }) {
     try { entries = JSON.parse(localStorage.getItem('weight_log') || '[]') } catch { /* ignore */ }
     return computeWeightTrend(entries)
   })
+  const [showInput, setShowInput] = useState(false)
+  const [weightVal, setWeightVal] = useState('')
+  const [saving, setSaving] = useState(false)
   useEffect(() => {
     api.getWeightLog(14)
       .then(r => setState(computeWeightTrend(r.entries.map(e => ({ date: e.date, kg: e.kg })))))
       .catch(() => { /* offline / VPS down */ })
   }, [])
   const { entries, latest, delta } = state
+
+  async function logWeight(e: React.FormEvent) {
+    e.preventDefault()
+    e.stopPropagation()
+    const kg = parseFloat(weightVal)
+    if (isNaN(kg) || kg < 20 || kg > 300) {
+      showToast('Enter a valid weight (20-300 kg)', 'err')
+      return
+    }
+    setSaving(true)
+    try {
+      await api.addMetric({ weight_kg: kg })
+      await api.addWeightEntry(kg)
+      // Update local state
+      const today = new Date().toISOString().slice(0, 10)
+      const newEntries = [...entries.filter(w => w.date !== today), { date: today, kg }]
+        .sort((a, b) => a.date.localeCompare(b.date))
+      setState(computeWeightTrend(newEntries))
+      try { localStorage.setItem('weight_log', JSON.stringify(newEntries.slice(-60))) } catch { /* quota */ }
+      setWeightVal('')
+      setShowInput(false)
+      showToast(`Weight logged: ${kg.toFixed(1)} kg`)
+    } catch {
+      showToast('Failed to log weight', 'err')
+    } finally {
+      setSaving(false)
+    }
+  }
 
   // Compute sparkline polyline from the last ~14d of entries. Only renders
   // once we have ≥3 points — fewer than that, the line looks like noise.
@@ -169,43 +406,78 @@ function WeightTile({ onNavigate }: { onNavigate: (tab: Tab) => void }) {
   })()
 
   return (
-    <Card onClick={() => onNavigate('goals')}>
+    <Card onClick={() => !showInput && onNavigate('goals')}>
       <div className="flex items-center justify-between mb-2">
         <CardLabel>Weight</CardLabel>
-        <Icon.Chevron size={16} className="text-[var(--c-label-faint)]" />
+        <div className="flex items-center gap-1.5">
+          <button
+            onClick={(e) => { e.stopPropagation(); setShowInput(v => !v) }}
+            className="text-[11px] text-[var(--c-accent)] font-medium hover:text-[var(--c-label)] transition-colors"
+            style={{ WebkitTapHighlightColor: 'transparent' }}
+          >
+            {showInput ? 'cancel' : 'Log'}
+          </button>
+          <Icon.Chevron size={16} className="text-[var(--c-label-faint)]" />
+        </div>
       </div>
-      <div className="flex items-baseline gap-2">
-        <span className="text-[28px] font-bold tracking-tight" style={{ fontFamily: "'JetBrains Mono', ui-monospace, monospace" }}>
-          {latest ? latest.kg.toFixed(1) : '—'}
-        </span>
-        <span className="text-[13px] text-[var(--c-label-faint)]" style={{ fontFamily: "'JetBrains Mono', ui-monospace, monospace" }}>
-          kg
-        </span>
-      </div>
-      {sparkline && (
-        <svg
-          viewBox={`0 0 ${sparkline.W} ${sparkline.H}`}
-          className="w-full mt-1.5"
-          style={{ height: 22 }}
-          aria-hidden="true"
-        >
-          <polyline
-            fill="none"
-            stroke={sparkline.stroke}
-            strokeWidth="1.25"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            points={sparkline.pts}
+      {showInput ? (
+        <form onSubmit={logWeight} onClick={e => e.stopPropagation()} className="flex gap-2 items-center">
+          <input
+            type="number"
+            step="0.1"
+            inputMode="decimal"
+            placeholder={latest ? latest.kg.toFixed(1) : '75.0'}
+            value={weightVal}
+            onChange={e => setWeightVal(e.target.value)}
+            autoFocus
+            className="flex-1 min-w-0 bg-[var(--c-bg)] border border-[var(--c-border)] rounded-lg px-2 py-1.5 text-[14px] text-[var(--c-label)] focus:outline-none focus:border-[var(--c-accent)]"
+            style={{ fontFamily: "'JetBrains Mono', ui-monospace, monospace" }}
           />
-        </svg>
-      )}
-      <div className="text-[11px] text-[var(--c-label-faint)] mt-1.5">
-        {delta !== null
-          ? <span style={{ color: delta > 0.1 ? 'var(--c-green)' : delta < -0.1 ? 'var(--c-orange)' : 'var(--c-label-faint)' }}>
-              {delta > 0 ? '↑' : delta < 0 ? '↓' : '→'} {Math.abs(delta).toFixed(1)}kg vs 7d ago
+          <span className="text-[13px] text-[var(--c-label-faint)]">kg</span>
+          <button
+            type="submit"
+            disabled={saving || !weightVal}
+            className="bg-[var(--c-accent)] text-white rounded-lg px-2.5 py-1.5 text-[12px] font-semibold disabled:opacity-30"
+          >
+            {saving ? '...' : 'Save'}
+          </button>
+        </form>
+      ) : (
+        <>
+          <div className="flex items-baseline gap-2">
+            <span className="text-[28px] font-bold tracking-tight" style={{ fontFamily: "'JetBrains Mono', ui-monospace, monospace" }}>
+              {latest ? latest.kg.toFixed(1) : '—'}
             </span>
-          : latest ? 'log a few more days for trend' : 'tap to log'}
-      </div>
+            <span className="text-[13px] text-[var(--c-label-faint)]" style={{ fontFamily: "'JetBrains Mono', ui-monospace, monospace" }}>
+              kg
+            </span>
+          </div>
+          {sparkline && (
+            <svg
+              viewBox={`0 0 ${sparkline.W} ${sparkline.H}`}
+              className="w-full mt-1.5"
+              style={{ height: 22 }}
+              aria-hidden="true"
+            >
+              <polyline
+                fill="none"
+                stroke={sparkline.stroke}
+                strokeWidth="1.25"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                points={sparkline.pts}
+              />
+            </svg>
+          )}
+          <div className="text-[11px] text-[var(--c-label-faint)] mt-1.5">
+            {delta !== null
+              ? <span style={{ color: delta > 0.1 ? 'var(--c-green)' : delta < -0.1 ? 'var(--c-orange)' : 'var(--c-label-faint)' }}>
+                  {delta > 0 ? '↑' : delta < 0 ? '↓' : '→'} {Math.abs(delta).toFixed(1)}kg vs 7d ago
+                </span>
+              : latest ? 'log a few more days for trend' : 'tap to log'}
+          </div>
+        </>
+      )}
     </Card>
   )
 }
@@ -693,6 +965,12 @@ export default function Today({ onNavigate }: Props) {
             <div className="h-full bg-[var(--c-orange)] rounded-full transition-[width] duration-700"
                  style={{ width: `${proteinPct}%` }} />
           </div>
+
+          {/* Quick-add food — one-line inline logger */}
+          <QuickFoodInput onLogged={() => {
+            api.getToday().then(setData).catch(() => {})
+            setBarPulseKey(k => k + 1)
+          }} />
         </Card>
 
         {/* AI assistant — single freeform input. Replaces the old two-input
@@ -1028,6 +1306,10 @@ export default function Today({ onNavigate }: Props) {
               latest morning weigh-in (typed via AI or Goals form) shows
               here without a reload. */}
           <WeightTile onNavigate={onNavigate} />
+
+          {/* Sleep quick-log — full width. Shows input when not logged today,
+              summary after logging. */}
+          <SleepCard />
 
           {/* Hydration — full width */}
           <WaterTracker />

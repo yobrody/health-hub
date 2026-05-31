@@ -358,6 +358,42 @@ export default function Nutrition() {
           )
         )}
 
+        {/* Recent foods — tap to pre-fill and open the add sheet. Shows
+            last 5 unique meals deduped by name for fast re-logging. */}
+        {!showDiary && recentFoods.length > 0 && (
+          <>
+            <div className="section-label">Recent</div>
+            <div className="card" style={{ padding: '10px 14px' }}>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                {recentFoods.slice(0, 5).map((r, i) => (
+                  <button key={i} type="button"
+                    onClick={() => {
+                      setDesc(r.desc)
+                      setKcal(String(r.kcal))
+                      setProteinG(r.protein_g ? String(r.protein_g) : '')
+                      setShowAdd(true)
+                      setScanMsg(null)
+                      setPhotoAnalysis(null)
+                    }}
+                    style={{
+                      background: 'var(--gray6)',
+                      border: '1px solid var(--separator)',
+                      borderRadius: 20,
+                      padding: '5px 12px',
+                      fontSize: 13,
+                      fontWeight: 500,
+                      color: 'var(--label)',
+                      cursor: 'pointer',
+                      WebkitTapHighlightColor: 'transparent',
+                    }}>
+                    {r.desc} <span style={{ color: 'var(--label3)', fontSize: 11 }}>{r.kcal} kcal{r.protein_g ? ` \u00B7 ${r.protein_g}g` : ''}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </>
+        )}
+
         {/* 7-day history */}
         {!showDiary && history.length > 0 && (
           <>
