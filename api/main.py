@@ -1196,3 +1196,355 @@ def healthkit_latest(key=Depends(require_key)):
         "weight_count": len(store["weight_log"]),
         "workout_count": len(store["workouts"]),
     }
+
+
+# ── HEALTH CHECK ─────────────────────────────────────────────────────
+@app.get("/health")
+def health():
+    return {"status": "ok", "service": "health-hub", "version": "1.0.0"}
+
+
+# ── BODY METRICS (weight, body fat, measurements) ────────────────────
+METRICS_FILE = DATA_DIR / "body_metrics.json"
+
+def load_metrics() -> list:
+    if METRICS_FILE.exists():
+        return json.loads(METRICS_FILE.read_text())
+    return []
+
+def save_metrics(data: list):
+    METRICS_FILE.write_text(json.dumps(data, indent=2))
+
+class BodyMetricIn(BaseModel):
+    weight_kg: Optional[float] = None
+    body_fat_pct: Optional[float] = None
+    waist_cm: Optional[float] = None
+    chest_cm: Optional[float] = None
+    arm_cm: Optional[float] = None
+    notes: Optional[str] = None
+    date: Optional[str] = None
+
+@app.get("/metrics")
+def get_metrics(days: int = 90, key=Depends(require_key)):
+    metrics = load_metrics()
+    cutoff = (date.today() - timedelta(days=days)).isoformat()
+    recent = [m for m in metrics if m.get("date", "") >= cutoff]
+    return {"metrics": recent}
+
+@app.post("/metrics")
+def add_metric(entry: BodyMetricIn, key=Depends(require_key)):
+    metrics = load_metrics()
+    d = entry.date or date.today().isoformat()
+    record = {
+        "id": f"{int(datetime.now().timestamp()*1000)}",
+        "date": d,
+        "logged_at": datetime.now().isoformat(),
+    }
+    if entry.weight_kg is not None: record["weight_kg"] = entry.weight_kg
+    if entry.body_fat_pct is not None: record["body_fat_pct"] = entry.body_fat_pct
+    if entry.waist_cm is not None: record["waist_cm"] = entry.waist_cm
+    if entry.chest_cm is not None: record["chest_cm"] = entry.chest_cm
+    if entry.arm_cm is not None: record["arm_cm"] = entry.arm_cm
+    if entry.notes: record["notes"] = entry.notes
+    metrics.append(record)
+    save_metrics(metrics)
+    return {"ok": True, "metric": record}
+
+@app.get("/metrics/latest")
+def get_latest_metric(key=Depends(require_key)):
+    metrics = load_metrics()
+    if not metrics:
+        return {"metric": None}
+    return {"metric": metrics[-1]}
+
+
+# ── TDEE CALCULATOR ──────────────────────────────────────────────────
+import math
+
+@app.get("/tdee")
+def calculate_tdee(key=Depends(require_key)):
+    """Calculate TDEE from profile + activity level + adaptive adjustment from food log."""
+    profile_data = {}
+    if PROFILE_FILE.exists():
+        try:
+            profile_data = json.loads(PROFILE_FILE.read_text())
+        except Exception:
+            pass
+
+    weight_kg = profile_data.get("weight_kg", 80.0)
+    height_cm = profile_data.get("height_cm", 180.0)
+    age = profile_data.get("age", 25)
+    sex = profile_data.get("sex", "male")
+    activity_level = profile_data.get("activity_level", "moderate")
+
+    # Latest weight from body metrics if available
+    metrics = load_metrics()
+    if metrics:
+        for m in reversed(metrics):
+            if "weight_kg" in m:
+                weight_kg = m["weight_kg"]
+                break
+
+    # Mifflin-St Jeor BMR
+    if sex == "female":
+        bmr = 10 * weight_kg + 6.25 * height_cm - 5 * age - 161
+    else:
+        bmr = 10 * weight_kg + 6.25 * height_cm - 5 * age + 5
+
+    multipliers = {
+        "sedentary": 1.2,
+        "light": 1.375,
+        "moderate": 1.55,
+        "active": 1.725,
+        "very_active": 1.9,
+    }
+    mult = multipliers.get(activity_level, 1.55)
+    tdee = round(bmr * mult)
+
+    # Adaptive: compare avg intake over last 14 days vs TDEE
+    avg_intake = 0
+    logged_days = 0
+    for i in range(14):
+        d = (date.today() - timedelta(days=i)).isoformat()
+        content = read_food_file(d)
+        day_kcal = sum(int(m) for m in re.findall(r"~(\d+) kcal\)", content))
+        if day_kcal > 0:
+            avg_intake += day_kcal
+            logged_days += 1
+    if logged_days >= 3:
+        avg_intake = round(avg_intake / logged_days)
+    else:
+        avg_intake = None
+
+    # Weight trend (last 30 days)
+    weight_trend = None
+    recent_weights = [(m["date"], m["weight_kg"]) for m in metrics if "weight_kg" in m][-30:]
+    if len(recent_weights) >= 2:
+        first_w = recent_weights[0][1]
+        last_w = recent_weights[-1][1]
+        days_span = max((date.fromisoformat(recent_weights[-1][0]) - date.fromisoformat(recent_weights[0][0])).days, 1)
+        weekly_change = (last_w - first_w) / days_span * 7
+        weight_trend = {"weekly_change_kg": round(weekly_change, 2), "direction": "gaining" if weekly_change > 0.1 else "losing" if weekly_change < -0.1 else "maintaining"}
+
+    return {
+        "bmr": round(bmr),
+        "tdee": tdee,
+        "activity_level": activity_level,
+        "weight_kg": weight_kg,
+        "avg_intake_14d": avg_intake,
+        "logged_days_14d": logged_days,
+        "weight_trend": weight_trend,
+        "recommendation": _tdee_recommendation(tdee, avg_intake, weight_trend),
+    }
+
+def _tdee_recommendation(tdee: int, avg_intake: Optional[int], weight_trend: Optional[dict]) -> str:
+    if avg_intake is None:
+        return "Log food for 3+ days to get adaptive recommendations."
+    diff = avg_intake - tdee
+    if weight_trend and weight_trend["direction"] == "gaining" and diff > 200:
+        return f"Eating ~{diff} kcal above TDEE. Weight trending up. Consider reducing to {tdee} kcal for maintenance."
+    elif weight_trend and weight_trend["direction"] == "losing" and diff < -200:
+        return f"Eating ~{abs(diff)} kcal below TDEE. Weight trending down — on track if cutting."
+    elif abs(diff) <= 200:
+        return "Intake aligns well with TDEE. Weight should be stable."
+    else:
+        return f"Avg intake: {avg_intake} kcal vs TDEE: {tdee} kcal. Delta: {diff:+d} kcal/day."
+
+@app.put("/tdee/profile")
+def update_tdee_profile(key=Depends(require_key),
+                        weight_kg: Optional[float] = None,
+                        height_cm: Optional[float] = None,
+                        age: Optional[int] = None,
+                        sex: Optional[str] = None,
+                        activity_level: Optional[str] = None):
+    """Update TDEE profile fields (stored in profile.json)."""
+    existing = {}
+    if PROFILE_FILE.exists():
+        try:
+            existing = json.loads(PROFILE_FILE.read_text())
+        except Exception:
+            pass
+    if weight_kg is not None: existing["weight_kg"] = weight_kg
+    if height_cm is not None: existing["height_cm"] = height_cm
+    if age is not None: existing["age"] = age
+    if sex is not None: existing["sex"] = sex
+    if activity_level is not None: existing["activity_level"] = activity_level
+    PROFILE_FILE.write_text(json.dumps(existing, indent=2))
+    return {"ok": True, "profile": existing}
+
+
+# ── HRV + SLEEP TRACKING ────────────────────────────────────────────
+SLEEP_FILE = DATA_DIR / "sleep.json"
+
+def load_sleep() -> list:
+    if SLEEP_FILE.exists():
+        return json.loads(SLEEP_FILE.read_text())
+    return []
+
+def save_sleep(data: list):
+    SLEEP_FILE.write_text(json.dumps(data, indent=2))
+
+class SleepEntryIn(BaseModel):
+    bedtime: str          # HH:MM
+    wake_time: str        # HH:MM
+    quality: int = 3      # 1-5 scale
+    hrv_ms: Optional[int] = None
+    resting_hr: Optional[int] = None
+    notes: Optional[str] = None
+    date: Optional[str] = None
+
+@app.get("/sleep")
+def get_sleep(days: int = 30, key=Depends(require_key)):
+    entries = load_sleep()
+    cutoff = (date.today() - timedelta(days=days)).isoformat()
+    recent = [e for e in entries if e.get("date", "") >= cutoff]
+    return {"entries": recent}
+
+@app.post("/sleep")
+def log_sleep(entry: SleepEntryIn, key=Depends(require_key)):
+    entries = load_sleep()
+    d = entry.date or date.today().isoformat()
+    bed_h, bed_m = map(int, entry.bedtime.split(":"))
+    wake_h, wake_m = map(int, entry.wake_time.split(":"))
+    bed_mins = bed_h * 60 + bed_m
+    wake_mins = wake_h * 60 + wake_m
+    if wake_mins <= bed_mins:
+        wake_mins += 24 * 60
+    duration_hrs = round((wake_mins - bed_mins) / 60, 1)
+
+    record = {
+        "id": f"{int(datetime.now().timestamp()*1000)}",
+        "date": d,
+        "bedtime": entry.bedtime,
+        "wake_time": entry.wake_time,
+        "duration_hrs": duration_hrs,
+        "quality": min(max(entry.quality, 1), 5),
+        "logged_at": datetime.now().isoformat(),
+    }
+    if entry.hrv_ms is not None: record["hrv_ms"] = entry.hrv_ms
+    if entry.resting_hr is not None: record["resting_hr"] = entry.resting_hr
+    if entry.notes: record["notes"] = entry.notes
+    entries.append(record)
+    save_sleep(entries)
+    return {"ok": True, "sleep": record}
+
+@app.get("/sleep/stats")
+def sleep_stats(days: int = 7, key=Depends(require_key)):
+    entries = load_sleep()
+    cutoff = (date.today() - timedelta(days=days)).isoformat()
+    recent = [e for e in entries if e.get("date", "") >= cutoff]
+    if not recent:
+        return {"avg_duration": None, "avg_quality": None, "avg_hrv": None, "entries": 0}
+    avg_dur = round(sum(e["duration_hrs"] for e in recent) / len(recent), 1)
+    avg_qual = round(sum(e["quality"] for e in recent) / len(recent), 1)
+    hrv_entries = [e["hrv_ms"] for e in recent if "hrv_ms" in e]
+    avg_hrv = round(sum(hrv_entries) / len(hrv_entries)) if hrv_entries else None
+    return {"avg_duration": avg_dur, "avg_quality": avg_qual, "avg_hrv": avg_hrv, "entries": len(recent)}
+
+
+# ── HEALTH TIMELINE ──────────────────────────────────────────────────
+@app.get("/timeline")
+def get_timeline(days: int = 7, key=Depends(require_key)):
+    """Unified chronological view across food, workouts, sleep, metrics, routines."""
+    events = []
+    for i in range(days):
+        d = (date.today() - timedelta(days=i)).isoformat()
+
+        content = read_food_file(d)
+        day_kcal = sum(int(m) for m in re.findall(r"~(\d+) kcal\)", content))
+        if day_kcal > 0:
+            entries = parse_entries(content)
+            events.append({"date": d, "type": "food", "summary": f"{day_kcal} kcal logged", "detail": f"{len(entries)} meals", "value": day_kcal})
+
+        workouts = load_workouts()
+        day_workouts = [w for w in workouts if w.get("start_time", "").startswith(d)]
+        for w in day_workouts:
+            events.append({"date": d, "type": "workout", "summary": w["title"], "detail": f"{len(w.get('exercises', []))} exercises"})
+
+        sleep_entries = load_sleep()
+        day_sleep = [s for s in sleep_entries if s.get("date") == d]
+        for s in day_sleep:
+            qual_label = ["", "Poor", "Fair", "OK", "Good", "Great"][s.get("quality", 3)]
+            events.append({"date": d, "type": "sleep", "summary": f"{s['duration_hrs']}h sleep ({qual_label})", "detail": f"HRV: {s.get('hrv_ms', '?')} ms" if s.get("hrv_ms") else None})
+
+        metrics = load_metrics()
+        day_metrics = [m for m in metrics if m.get("date") == d]
+        for m in day_metrics:
+            parts = []
+            if "weight_kg" in m: parts.append(f"{m['weight_kg']}kg")
+            if "body_fat_pct" in m: parts.append(f"{m['body_fat_pct']}% BF")
+            if parts:
+                events.append({"date": d, "type": "metric", "summary": " . ".join(parts)})
+
+        routines_data = load_routines()
+        for rname, rdata in routines_data.items():
+            for entry in rdata.get("log", []):
+                if entry.get("date") == d:
+                    events.append({"date": d, "type": "routine", "summary": rname.replace("-", " ").title()})
+
+    events.sort(key=lambda e: e["date"], reverse=True)
+    return {"events": events, "days": days}
+
+
+# ── BARCODE SCANNER (nutrition lookup) ────────────────────────────────
+@app.get("/barcode/{code}")
+def barcode_lookup(code: str, key=Depends(require_key)):
+    """Look up a barcode via Open Food Facts (free, no API key needed)."""
+    import urllib.request
+    url = f"https://world.openfoodfacts.org/api/v2/product/{code}.json"
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "HealthHub/1.0"})
+        with urllib.request.urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read())
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Open Food Facts lookup failed: {e}")
+
+    if data.get("status") != 1:
+        raise HTTPException(status_code=404, detail="Product not found")
+
+    product = data.get("product", {})
+    nutrients = product.get("nutriments", {})
+    return {
+        "code": code,
+        "name": product.get("product_name", "Unknown"),
+        "brand": product.get("brands", ""),
+        "serving_size": product.get("serving_size", ""),
+        "per_100g": {
+            "kcal": nutrients.get("energy-kcal_100g", 0),
+            "protein_g": nutrients.get("proteins_100g", 0),
+            "carbs_g": nutrients.get("carbohydrates_100g", 0),
+            "fat_g": nutrients.get("fat_100g", 0),
+            "fiber_g": nutrients.get("fiber_100g", 0),
+            "sugar_g": nutrients.get("sugars_100g", 0),
+            "salt_g": nutrients.get("salt_100g", 0),
+        },
+        "image_url": product.get("image_front_url", ""),
+    }
+
+
+# ── WITHINGS OAUTH STUB ─────────────────────────────────────────────
+WITHINGS_FILE = DATA_DIR / "withings_config.json"
+
+@app.get("/withings/status")
+def withings_status(key=Depends(require_key)):
+    if WITHINGS_FILE.exists():
+        try:
+            config = json.loads(WITHINGS_FILE.read_text())
+            return {"connected": bool(config.get("access_token")), "last_sync": config.get("last_sync")}
+        except Exception:
+            pass
+    return {"connected": False, "last_sync": None, "message": "Withings integration not configured. Requires Withings Body Smart scale + OAuth setup."}
+
+@app.get("/withings/auth-url")
+def withings_auth_url(key=Depends(require_key)):
+    """Generate OAuth2 authorization URL for Withings. Needs client_id in config."""
+    if WITHINGS_FILE.exists():
+        try:
+            config = json.loads(WITHINGS_FILE.read_text())
+            client_id = config.get("client_id")
+            if client_id:
+                redirect_uri = config.get("redirect_uri", "https://health-hub-dwz.pages.dev/withings-callback")
+                return {"url": f"https://account.withings.com/oauth2_user/authorize2?response_type=code&client_id={client_id}&scope=user.metrics&redirect_uri={redirect_uri}&state=healthhub"}
+        except Exception:
+            pass
+    return {"url": None, "message": "Configure Withings client_id first. Purchase scale + register at developer.withings.com."}
