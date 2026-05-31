@@ -243,6 +243,20 @@ export const api = {
   },
   lookupBarcode,
 
+  // Smart scan — unified barcode/receipt/food detection
+  smartScan: async (file: File): Promise<SmartScanResult> => {
+    const image = await fileToBase64(file)
+    const headers = new Headers({ 'Content-Type': 'application/json' })
+    if (KEY) headers.set('X-Health-Key', KEY)
+    const res = await fetch(`${BASE}/scan/smart`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ image, mimeType: file.type || 'image/jpeg' }),
+    })
+    if (!res.ok) throw new Error(`Smart scan failed: ${res.status}`)
+    return res.json()
+  },
+
   // Body metrics
   getTDEE: () => request<TDEEData>('/tdee'),
   getLatestMetric: () => request<{ metric: BodyMetric | null }>('/metrics/latest'),
@@ -342,6 +356,12 @@ export interface ScannedItem {
   section: string
 }
 export interface ScanResult { items?: ScannedItem[]; store?: { name: string; location: string | null } | null; error?: string; raw?: string }
+
+// Smart scan — unified result from POST /scan/smart
+export type SmartScanResult =
+  | { type: 'barcode'; code: string | null }
+  | { type: 'receipt'; items: ScannedItem[]; store?: { name: string; location: string | null } | null }
+  | { type: 'food'; foods: Array<{ name: string; kcal: number; protein_g: number; carbs_g: number; fat_g: number; grams?: number | null }>; confidence: 'high' | 'medium' | 'low' }
 export interface FoodAnalysis {
   name: string; kcal: number; protein_g: number; carbs_g: number; fat_g: number
   description: string; confidence: 'high' | 'medium' | 'low'

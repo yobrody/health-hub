@@ -12,6 +12,7 @@ import Metrics from './pages/Metrics'
 import Timeline from './pages/Timeline'
 import Barcode from './pages/Barcode'
 import CameraSheet from './components/CameraSheet'
+import SmartScanner from './components/SmartScanner'
 import { UpdatePrompt } from './components/UpdatePrompt'
 import { api } from './api/client'
 import type { FridgeData } from './api/client'
@@ -101,6 +102,7 @@ export default function App({ onToggleTheme, theme }: Props) {
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [toastExiting, setToastExiting] = useState(false)
   const [showCamera, setShowCamera] = useState(false)
+  const [showSmartScan, setShowSmartScan] = useState(false)
   const [fridgeData, setFridgeData] = useState<FridgeData | null>(null)
 
   // Register module-level toast handler so any page can call showToast()
@@ -243,7 +245,7 @@ export default function App({ onToggleTheme, theme }: Props) {
         <div style={{ flex: 1, display: 'flex', justifyContent: 'center', alignItems: 'flex-start' }}>
           <button
             className="camera-fab"
-            onClick={() => setShowCamera(true)}
+            onClick={() => setShowSmartScan(true)}
             aria-label="Open camera"
           >
             <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
@@ -266,10 +268,18 @@ export default function App({ onToggleTheme, theme }: Props) {
         ))}
       </div>
 
-      {/* Camera sheet */}
+      {/* Legacy camera sheet (accessible from other entry points) */}
       <CameraSheet
         open={showCamera}
         onClose={() => setShowCamera(false)}
+        fridgeData={fridgeData}
+        onFridgeUpdated={refreshFridge}
+      />
+
+      {/* Smart scanner — unified barcode/receipt/food auto-detect */}
+      <SmartScanner
+        open={showSmartScan}
+        onClose={() => setShowSmartScan(false)}
         fridgeData={fridgeData}
         onFridgeUpdated={refreshFridge}
       />

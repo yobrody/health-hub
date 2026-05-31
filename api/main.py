@@ -635,6 +635,86 @@ async def scan_receipt(input: ScanInput, key=Depends(require_key)):
     ]
     return {"items": items, "store": parsed.get("store")}
 
+# ── SMART SCAN (unified barcode / receipt / food) ────────────────────
+@app.post("/scan/smart")
+async def smart_scan(input: ScanInput, key=Depends(require_key)):
+    """Unified scanner — auto-detects barcode, receipt, or food photo.
+
+    Returns one of:
+      {"type": "barcode", "code": "1234567890"}
+      {"type": "receipt", "items": [...], "store": {...}}
+      {"type": "food", "foods": [...], "confidence": "high"}
+    """
+    media_type = input.mimeType or "image/jpeg"
+    prompt = (
+        "Look at this image and classify it as exactly ONE of these three categories:\n\n"
+        '1. "barcode" — you see a barcode, QR code, or product packaging with a visible barcode/EAN number\n'
+        '2. "receipt" — you see a grocery store receipt, shopping bill, or till printout\n'
+        '3. "food" — you see actual food, a meal, a drink, ingredients, or a plate of food\n\n'
+        "Respond as JSON based on the category:\n\n"
+        'For barcode: {"type": "barcode", "code": "<the barcode number>"}\n'
+        "  Extract the EAN/UPC number visible in the image. If you can see the barcode lines but\n"
+        "  cannot read the number, set code to null.\n\n"
+        'For receipt: {"type": "receipt", "store": {"name": "store name", "location": null},\n'
+        '  "items": [{"name": "readable item name", "unit_size_g": 340, "unit_count": null, "cost": 1.89, "section": "fridge"}]}\n'
+        "  Rules for receipt items:\n"
+        '  - name: clean readable name (e.g. "greek yogurt" not "GREEK YOG 10%")\n'
+        "  - unit_size_g: pack size in grams if visible (parse '340g' -> 340, '1kg' -> 1000, '1.5L' -> 1500), null if not shown\n"
+        "  - unit_count: discrete count if applicable (eggs: 6/12), null otherwise\n"
+        "  - cost: item price as a number, null if not visible\n"
+        '  - section: "fridge"|"freezer"|"pantry"|"condiments"\n'
+        "  SKIP non-food items (bags, cleaning products, toiletries)\n\n"
+        'For food: {"type": "food", "foods": [\n'
+        '  {"name": "item name", "kcal": 300, "protein_g": 20, "carbs_g": 40, "fat_g": 10, "grams": 200}\n'
+        "], \"confidence\": \"high\"}\n"
+        "  Estimate calories and macros for each distinct food item visible.\n"
+        '  confidence: "high" if clearly identifiable, "medium" if somewhat ambiguous, "low" if very uncertain\n'
+    )
+    parsed = gemini_call(prompt, image_b64=input.image, mime_type=media_type, max_tokens=2000, temperature=0.2)
+    scan_type = parsed.get("type", "food")
+
+    if scan_type == "barcode":
+        return {"type": "barcode", "code": parsed.get("code")}
+
+    if scan_type == "receipt":
+        raw_items = parsed.get("items") or []
+        valid_sections = {"fridge", "freezer", "pantry", "condiments"}
+        items = [
+            {
+                "name": (i.get("name") or "").strip().lower(),
+                "section": i["section"] if i.get("section") in valid_sections else "fridge",
+                "unit_size_g": i.get("unit_size_g") if isinstance(i.get("unit_size_g"), (int, float)) else None,
+                "unit_count": i.get("unit_count") if isinstance(i.get("unit_count"), int) else None,
+                "cost": i.get("cost") if isinstance(i.get("cost"), (int, float)) else None,
+                "size": (
+                    f"{int(i['unit_size_g'])}g" if isinstance(i.get("unit_size_g"), (int, float))
+                    else None
+                ),
+            }
+            for i in raw_items
+            if isinstance(i, dict) and i.get("name")
+        ]
+        return {"type": "receipt", "items": items, "store": parsed.get("store")}
+
+    # Default: food
+    raw_foods = parsed.get("foods") or []
+    foods = [
+        {
+            "name": (f.get("name") or "unknown").strip(),
+            "kcal": int(f.get("kcal") or 0),
+            "protein_g": round(float(f.get("protein_g") or 0)),
+            "carbs_g": round(float(f.get("carbs_g") or 0)),
+            "fat_g": round(float(f.get("fat_g") or 0)),
+            "grams": int(f.get("grams") or 0) if f.get("grams") else None,
+        }
+        for f in raw_foods
+        if isinstance(f, dict) and f.get("name")
+    ]
+    confidence = parsed.get("confidence", "medium")
+    if confidence not in ("high", "medium", "low"):
+        confidence = "medium"
+    return {"type": "food", "foods": foods, "confidence": confidence}
+
 # ── MEALS AI ──────────────────────────────────────────────────────────
 @app.post("/ai/meals")
 def suggest_meals(key=Depends(require_key)):
