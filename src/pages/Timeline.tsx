@@ -244,8 +244,16 @@ export default function Timeline() {
         {loading && <div style={{ textAlign: 'center', color: 'var(--c-label-dim)', padding: 40 }}>Loading...</div>}
 
         {!loading && filtered.length === 0 && (
-          <div style={{ textAlign: 'center', color: 'var(--c-label-dim)', padding: 40, fontSize: 14 }}>
-            {filter !== 'all' ? `No ${filter} events in the last ${days} days.` : 'No activity logged yet. Start by logging food, a workout, or sleep.'}
+          <div style={{ textAlign: 'center', padding: '48px 24px' }}>
+            <div style={{ fontSize: 52, marginBottom: 12 }}>📅</div>
+            <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--c-label)', marginBottom: 8 }}>
+              {filter !== 'all' ? `No ${filter} events yet` : 'Your health timeline starts here'}
+            </div>
+            <div style={{ fontSize: 14, color: 'var(--c-label-dim)', lineHeight: 1.6, maxWidth: 280, margin: '0 auto' }}>
+              {filter !== 'all'
+                ? `No ${filter} events in the last ${days} days. Try expanding the time range or logging a ${filter} entry.`
+                : 'Every meal, workout, and sleep log will appear here as a timeline. Start by logging something on the Today page.'}
+            </div>
           </div>
         )}
 

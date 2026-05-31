@@ -1927,6 +1927,177 @@ def withings_status(key=Depends(require_key)):
             pass
     return {"connected": False, "last_sync": None, "message": "Withings integration not configured. Requires Withings Body Smart scale + OAuth setup."}
 
+# ── HEALTH INSIGHTS ENGINE ─────���──────────────────────────────────────
+@app.get("/insights")
+def health_insights(key=Depends(require_key)):
+    """Analyze the last 30 days of health data and return up to 6 actionable
+    insights with correlations across sleep, nutrition, fitness, and weight."""
+    insights = []
+    today_d = date.today()
+
+    # ── Gather data ──────────────────────────────────────────────────────
+    # Food data per day (last 30 days)
+    food_days = []
+    for i in range(30):
+        d = (today_d - timedelta(days=i)).isoformat()
+        content = read_food_file(d)
+        entries = parse_entries(content)
+        total_kcal = sum(e["kcal"] for e in entries)
+        total_protein = sum(e.get("protein_g", 0) for e in entries)
+        logged = bool(content.strip())
+        day_of_week = (today_d - timedelta(days=i)).weekday()  # 0=Mon, 6=Sun
+        food_days.append({
+            "date": d, "kcal": total_kcal, "protein": total_protein,
+            "logged": logged, "is_weekend": day_of_week >= 5,
+        })
+
+    # Workouts (last 30 days)
+    workouts = load_workouts()
+    cutoff_30 = (today_d - timedelta(days=30)).isoformat()
+    recent_workouts = [w for w in workouts if w.get("start_time", "")[:10] >= cutoff_30]
+    workout_dates = set(w.get("start_time", "")[:10] for w in recent_workouts)
+
+    # Sleep data (last 30 days)
+    sleep_entries = load_sleep()
+    recent_sleep = [s for s in sleep_entries if s.get("date", "") >= cutoff_30]
+
+    # Weight data (last 30 days)
+    weights = load_weights()
+    recent_weights = [w for w in weights if w.get("date", "") >= cutoff_30]
+    recent_weights.sort(key=lambda w: w["date"])
+
+    # Goals
+    goals = read_goals()
+
+    # ── Insight: Sleep duration on workout days vs rest days ─────────────
+    if recent_sleep and workout_dates:
+        sleep_workout = [s for s in recent_sleep if s["date"] in workout_dates]
+        sleep_rest = [s for s in recent_sleep if s["date"] not in workout_dates]
+        if len(sleep_workout) >= 3 and len(sleep_rest) >= 3:
+            avg_workout = sum(s["duration_hrs"] for s in sleep_workout) / len(sleep_workout)
+            avg_rest = sum(s["duration_hrs"] for s in sleep_rest) / len(sleep_rest)
+            diff_mins = round((avg_workout - avg_rest) * 60)
+            if abs(diff_mins) >= 15:
+                direction = "longer" if diff_mins > 0 else "shorter"
+                insights.append({
+                    "text": f"You sleep {abs(diff_mins)} minutes {direction} on days you work out",
+                    "type": "positive" if diff_mins > 0 else "neutral",
+                    "icon": "\U0001F4AA",
+                    "category": "sleep",
+                    "data": {"workout_avg_hrs": round(avg_workout, 1), "rest_avg_hrs": round(avg_rest, 1), "diff_mins": diff_mins},
+                })
+
+    # ── Insight: Sleep quality on gym days vs rest days ──────────────────
+    if recent_sleep and workout_dates:
+        qual_workout = [s["quality"] for s in recent_sleep if s["date"] in workout_dates]
+        qual_rest = [s["quality"] for s in recent_sleep if s["date"] not in workout_dates]
+        if len(qual_workout) >= 3 and len(qual_rest) >= 3:
+            avg_q_gym = round(sum(qual_workout) / len(qual_workout), 1)
+            avg_q_rest = round(sum(qual_rest) / len(qual_rest), 1)
+            if abs(avg_q_gym - avg_q_rest) >= 0.4:
+                insights.append({
+                    "text": f"Best sleep quality: {avg_q_gym}/5 on gym days vs {avg_q_rest}/5 on rest days",
+                    "type": "positive" if avg_q_gym > avg_q_rest else "negative",
+                    "icon": "\U0001F31F",
+                    "category": "sleep",
+                    "data": {"gym_quality": avg_q_gym, "rest_quality": avg_q_rest},
+                })
+
+    # ── Insight: Protein weekday vs weekend ─────────────────────────────
+    weekday_food = [d for d in food_days if not d["is_weekend"] and d["logged"]]
+    weekend_food = [d for d in food_days if d["is_weekend"] and d["logged"]]
+    if len(weekday_food) >= 5 and len(weekend_food) >= 2:
+        avg_protein_wd = sum(d["protein"] for d in weekday_food) / len(weekday_food)
+        avg_protein_we = sum(d["protein"] for d in weekend_food) / len(weekend_food)
+        if avg_protein_wd > 0:
+            pct_diff = round((avg_protein_wd - avg_protein_we) / avg_protein_wd * 100)
+            if abs(pct_diff) >= 15:
+                direction = "lower" if pct_diff > 0 else "higher"
+                insights.append({
+                    "text": f"Your protein is {abs(pct_diff)}% {direction} on weekends",
+                    "type": "negative" if pct_diff > 15 else "neutral",
+                    "icon": "\U0001F969",
+                    "category": "nutrition",
+                    "data": {"weekday_avg_g": round(avg_protein_wd), "weekend_avg_g": round(avg_protein_we), "pct_diff": pct_diff},
+                })
+
+    # ── Insight: Calorie goal adherence this week ───────────────────────
+    this_week = [d for d in food_days[:7] if d["logged"]]
+    if this_week:
+        goal_cal = goals.get("calories", 2200)
+        # Within 10% of goal counts as "hit"
+        hits = sum(1 for d in this_week if abs(d["kcal"] - goal_cal) <= goal_cal * 0.10)
+        if len(this_week) >= 4:
+            insights.append({
+                "text": f"You've hit your calorie goal {hits} out of {len(this_week)} days this week",
+                "type": "positive" if hits >= len(this_week) * 0.7 else "negative" if hits <= 2 else "neutral",
+                "icon": "\U0001F3AF",
+                "category": "nutrition",
+                "data": {"hits": hits, "days_logged": len(this_week), "goal_kcal": goal_cal},
+            })
+
+    # ── Insight: Weight trend over 2 weeks ───���──────────────────────────
+    if len(recent_weights) >= 4:
+        two_weeks_ago = (today_d - timedelta(days=14)).isoformat()
+        first_half = [w for w in recent_weights if w["date"] <= two_weeks_ago]
+        second_half = [w for w in recent_weights if w["date"] > two_weeks_ago]
+        if first_half and second_half:
+            avg_first = sum(w["kg"] for w in first_half) / len(first_half)
+            avg_second = sum(w["kg"] for w in second_half) / len(second_half)
+            delta = round(avg_second - avg_first, 1)
+            if abs(delta) >= 0.2:
+                direction = "down" if delta < 0 else "up"
+                insights.append({
+                    "text": f"Your average weight is trending {direction} {abs(delta)}kg over 2 weeks",
+                    "type": "positive" if delta < 0 else "neutral",
+                    "icon": "\u2696\uFE0F",
+                    "category": "weight",
+                    "data": {"first_half_avg": round(avg_first, 1), "second_half_avg": round(avg_second, 1), "delta_kg": delta},
+                })
+
+    # ── Insight: Logging consistency weekday vs weekend ──────────────────
+    weekdays_total = sum(1 for d in food_days if not d["is_weekend"])
+    weekends_total = sum(1 for d in food_days if d["is_weekend"])
+    weekdays_logged = sum(1 for d in food_days if not d["is_weekend"] and d["logged"])
+    weekends_logged = sum(1 for d in food_days if d["is_weekend"] and d["logged"])
+    if weekdays_total >= 10 and weekends_total >= 4:
+        wd_pct = round(weekdays_logged / weekdays_total * 100)
+        we_pct = round(weekends_logged / weekends_total * 100)
+        if abs(wd_pct - we_pct) >= 20:
+            insights.append({
+                "text": f"You log food more consistently on weekdays ({wd_pct}%) than weekends ({we_pct}%)",
+                "type": "neutral" if we_pct >= 50 else "negative",
+                "icon": "\U0001F4DD",
+                "category": "nutrition",
+                "data": {"weekday_pct": wd_pct, "weekend_pct": we_pct},
+            })
+
+    # ── Insight: Workout frequency ──────────────────────────────────────
+    if recent_workouts:
+        workouts_per_week = len(recent_workouts) / (30 / 7)
+        goal_gym = goals.get("gym_days", 4)
+        if workouts_per_week >= goal_gym:
+            insights.append({
+                "text": f"Averaging {workouts_per_week:.1f} workouts/week — above your {goal_gym}x goal",
+                "type": "positive",
+                "icon": "\U0001F525",
+                "category": "fitness",
+                "data": {"avg_per_week": round(workouts_per_week, 1), "goal": goal_gym},
+            })
+        elif workouts_per_week < goal_gym * 0.6:
+            insights.append({
+                "text": f"Only {workouts_per_week:.1f} workouts/week vs your {goal_gym}x goal",
+                "type": "negative",
+                "icon": "\U0001F3CB\uFE0F",
+                "category": "fitness",
+                "data": {"avg_per_week": round(workouts_per_week, 1), "goal": goal_gym},
+            })
+
+    # Return the top 6 most interesting (prioritize positive + negative over neutral)
+    insights.sort(key=lambda x: {"positive": 0, "negative": 1, "neutral": 2}[x["type"]])
+    return {"insights": insights[:6], "period_days": 30, "generated_at": datetime.now().isoformat()}
+
+
 @app.get("/withings/auth-url")
 def withings_auth_url(key=Depends(require_key)):
     """Generate OAuth2 authorization URL for Withings. Needs client_id in config."""

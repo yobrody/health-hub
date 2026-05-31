@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { api } from '../api/client'
+import { celebrate } from '../lib/celebrations'
 import type { BodyMetric, TDEEData, SleepStats } from '../api/client'
 
 // ── Reusable components matching dark bento design from Today.tsx ────────────
@@ -200,6 +201,26 @@ export default function Metrics() {
   const goalDirection = tdee?.weight_trend?.direction
   const trendMatchesGoal = goalDirection === 'losing' || goalDirection === 'maintaining'
 
+  // Celebrate consecutive-day weight logging streak
+  const celebratedRef = useRef(false)
+  useEffect(() => {
+    if (celebratedRef.current || weights.length < 3) return
+    // Count consecutive days from today backwards
+    const today = new Date().toISOString().slice(0, 10)
+    const dates = new Set(weights.map(w => w.date))
+    let streak = 0
+    for (let i = 0; i < 60; i++) {
+      const d = new Date(Date.now() - i * 86400000).toISOString().slice(0, 10)
+      if (dates.has(d)) streak++
+      else break
+    }
+    if (streak >= 7) {
+      celebratedRef.current = true
+      celebrate('streak', `${streak}-day logging streak!`)
+    }
+    void today // suppress unused lint
+  }, [weights])
+
   return (
     <div className="page" style={{ background: 'var(--bg)' }}>
       <div className="page-content" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -207,47 +228,63 @@ export default function Metrics() {
 
         {/* ─── HERO: Weight Display ─── */}
         <Card>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-            <div>
-              <CardLabel>Current Weight</CardLabel>
-              {latestWeight ? (
-                <BigNumber value={latestWeight.value.toFixed(1)} unit="kg" color="var(--blue)" />
-              ) : (
-                <BigNumber value="--" unit="kg" />
-              )}
-              {weeklyChange !== null && (
-                <div style={{ marginTop: 8 }}>
-                  <Badge
-                    text={`${weeklyChange > 0 ? '+' : ''}${weeklyChange.toFixed(1)} kg / week`}
-                    color={weeklyChange < 0 ? '#10B981' : weeklyChange > 0 ? '#EF4444' : '#A1A1AA'}
-                  />
+          {latestWeight ? (
+            <>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                <div>
+                  <CardLabel>Current Weight</CardLabel>
+                  <BigNumber value={latestWeight.value.toFixed(1)} unit="kg" color="var(--blue)" />
+                  {weeklyChange !== null && (
+                    <div style={{ marginTop: 8 }}>
+                      <Badge
+                        text={`${weeklyChange > 0 ? '+' : ''}${weeklyChange.toFixed(1)} kg / week`}
+                        color={weeklyChange < 0 ? '#10B981' : weeklyChange > 0 ? '#EF4444' : '#A1A1AA'}
+                      />
+                    </div>
+                  )}
+                </div>
+                {/* Mini sparkline in hero */}
+                {weights.length >= 3 && (
+                  <div style={{ width: 120, height: 48 }}>
+                    <svg width="100%" viewBox={`0 0 120 48`} preserveAspectRatio="none">
+                      {(() => {
+                        const last14 = weights.slice(-14)
+                        const vals = last14.map(d => d.value)
+                        const mn = Math.min(...vals) - 0.3
+                        const mx = Math.max(...vals) + 0.3
+                        const rng = mx - mn || 1
+                        const pts = last14.map((d, i) => {
+                          const x = (i / (last14.length - 1)) * 120
+                          const y = 48 - ((d.value - mn) / rng) * 48
+                          return `${x},${y}`
+                        }).join(' ')
+                        return <polyline points={pts} fill="none" stroke="var(--blue)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" opacity="0.7" />
+                      })()}
+                    </svg>
+                  </div>
+                )}
+              </div>
+              {trendMatchesGoal && tdee?.weight_trend && (
+                <div style={{ marginTop: 12, padding: '8px 12px', background: '#10B98112', borderRadius: 8, border: '1px solid #10B98125' }}>
+                  <span style={{ fontSize: 13, color: '#10B981', fontWeight: 500 }}>On track — weight is {tdee.weight_trend.direction}</span>
                 </div>
               )}
-            </div>
-            {/* Mini sparkline in hero */}
-            {weights.length >= 3 && (
-              <div style={{ width: 120, height: 48 }}>
-                <svg width="100%" viewBox={`0 0 120 48`} preserveAspectRatio="none">
-                  {(() => {
-                    const last14 = weights.slice(-14)
-                    const vals = last14.map(d => d.value)
-                    const mn = Math.min(...vals) - 0.3
-                    const mx = Math.max(...vals) + 0.3
-                    const rng = mx - mn || 1
-                    const pts = last14.map((d, i) => {
-                      const x = (i / (last14.length - 1)) * 120
-                      const y = 48 - ((d.value - mn) / rng) * 48
-                      return `${x},${y}`
-                    }).join(' ')
-                    return <polyline points={pts} fill="none" stroke="var(--blue)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" opacity="0.7" />
-                  })()}
-                </svg>
+            </>
+          ) : (
+            <div style={{ textAlign: 'center', padding: '24px 16px' }}>
+              <div style={{ fontSize: 48, marginBottom: 10 }}>⚖️</div>
+              <div style={{ fontSize: 17, fontWeight: 700, color: 'var(--c-label)', marginBottom: 6 }}>
+                Log your first weigh-in
               </div>
-            )}
-          </div>
-          {trendMatchesGoal && tdee?.weight_trend && (
-            <div style={{ marginTop: 12, padding: '8px 12px', background: '#10B98112', borderRadius: 8, border: '1px solid #10B98125' }}>
-              <span style={{ fontSize: 13, color: '#10B981', fontWeight: 500 }}>On track — weight is {tdee.weight_trend.direction}</span>
+              <div style={{ fontSize: 13, color: 'var(--c-label-dim)', lineHeight: 1.5, maxWidth: 260, margin: '0 auto 16px' }}>
+                Track your weight over time to see trends, TDEE estimates, and progress toward your goals.
+              </div>
+              <button onClick={() => { setShowLog(true); setShowSleep(false) }} style={{
+                background: 'var(--blue)', color: '#fff', border: 'none',
+                borderRadius: 12, padding: '11px 22px', fontSize: 14, fontWeight: 600, cursor: 'pointer',
+              }}>
+                + Log Weight
+              </button>
             </div>
           )}
         </Card>

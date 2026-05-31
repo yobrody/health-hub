@@ -13,6 +13,7 @@ import Timeline from './pages/Timeline'
 import Barcode from './pages/Barcode'
 import WeeklyReport from './pages/WeeklyReport'
 import Chat from './pages/Chat'
+import Insights from './pages/Insights'
 import CameraSheet from './components/CameraSheet'
 import SmartScanner from './components/SmartScanner'
 import { UpdatePrompt } from './components/UpdatePrompt'
@@ -23,7 +24,7 @@ import { registerToastHandler } from './toast'
 import type { Theme } from './main'
 import './App.css'
 
-type Tab = 'today' | 'nutrition' | 'fridge' | 'workout' | 'chat' | 'goals' | 'skincare' | 'lists' | 'agenda' | 'routines' | 'metrics' | 'timeline' | 'barcode' | 'weekly-report'
+type Tab = 'today' | 'nutrition' | 'fridge' | 'workout' | 'chat' | 'goals' | 'skincare' | 'lists' | 'agenda' | 'routines' | 'metrics' | 'timeline' | 'barcode' | 'weekly-report' | 'insights'
 
 // 4 visible tabs + camera FAB. Chat accessible via Today tile.
 const TABS: { id: Tab; label: string }[] = [
@@ -277,7 +278,7 @@ export default function App({ onToggleTheme, theme }: Props) {
   // Pages reachable only by tile-click (not in the bottom nav) get a small
   // back-to-Today chevron, fixed top-left, so the route isn't a one-way
   // trip (audit P1-5). The bottom nav still works for jumping anywhere.
-  const SECONDARY_TABS = new Set<Tab>(['skincare', 'goals', 'lists', 'agenda', 'routines', 'metrics', 'timeline', 'barcode', 'weekly-report', 'chat'])
+  const SECONDARY_TABS = new Set<Tab>(['skincare', 'goals', 'lists', 'agenda', 'routines', 'metrics', 'timeline', 'barcode', 'weekly-report', 'chat', 'insights'])
 
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
@@ -308,6 +309,7 @@ export default function App({ onToggleTheme, theme }: Props) {
           {tab === 'fridge'    && <Fridge />}
           {tab === 'workout'   && <Workout />}
           {tab === 'chat'      && <Chat />}
+          {tab === 'insights'  && <Insights />}
           {tab === 'skincare'  && <Skincare />}
           {tab === 'goals'     && <GoalsPage />}
           {tab === 'lists'     && <Lists />}

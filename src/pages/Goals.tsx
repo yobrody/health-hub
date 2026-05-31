@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { api } from '../api/client'
 import { showToast } from '../toast'
+import { celebrate } from '../lib/celebrations'
 import type { WeekStats, Goals, GoalsUpdateInput } from '../api/client'
 import { MEAL_PLAN, DEFAULT_SCHEDULE, PROGRAM } from '../program'
 import { BUILD_SHA, BUILD_DATE } from '../build-info'
@@ -204,6 +205,16 @@ export default function GoalsPage() {
   const loggedDays = stats?.logged_days ?? 0
   const avgKcal = stats?.avg_kcal ?? 0
   const workoutCount = stats?.workout_count ?? 0
+
+  // Celebrate when ALL weekly goals are met simultaneously
+  const celebratedRef = useRef(false)
+  useEffect(() => {
+    if (celebratedRef.current) return
+    if (stats && loggedDays >= 5 && workoutCount >= goals.gym_days) {
+      celebratedRef.current = true
+      celebrate('confetti', 'All weekly goals crushed!')
+    }
+  }, [stats, loggedDays, workoutCount, goals.gym_days])
 
   return (
     <div className="page" style={{ background: 'var(--bg)' }}>

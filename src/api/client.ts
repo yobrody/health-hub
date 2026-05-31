@@ -308,6 +308,9 @@ export const api = {
   // Stats
   getWeekStats: () => request<WeekStats>('/stats/week'),
 
+  // Insights
+  getInsights: () => request<InsightsResponse>('/insights'),
+
   // Weekly report
   getWeeklyReport: () => request<WeeklyReport>('/report/weekly'),
 
@@ -600,6 +603,20 @@ export interface TimelineEvent {
   summary: string
   detail?: string | null
   time?: string
+}
+
+// Insights
+export interface Insight {
+  text: string
+  type: 'positive' | 'neutral' | 'negative'
+  icon: string
+  category: 'sleep' | 'nutrition' | 'fitness' | 'weight'
+  data: Record<string, number>
+}
+export interface InsightsResponse {
+  insights: Insight[]
+  period_days: number
+  generated_at: string
 }
 
 // Weekly Report

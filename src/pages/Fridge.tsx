@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, useRef } from 'react'
 import { api } from '../api/client'
 import type { FridgeData, FridgeItem, Meal, MealDetail, ScanResult, ScannedItem, ShelfLifeMap, SlotMap, SlotPos, FridgeItemDetail } from '../api/client'
 import { showToast } from '../toast'
+import { celebrate } from '../lib/celebrations'
 import { computeAteMacros } from '../lib/ate-macros'
 import {
   DndContext, useDraggable, useDroppable, DragOverlay, PointerSensor, useSensor, useSensors,
@@ -1642,6 +1643,7 @@ export default function Fridge() {
       const preview = detected.slice(0, 3).map(i => i.name).join(', ')
       const more = detected.length > 3 ? ` +${detected.length - 3} more` : ''
       setScanStatus(`\u2713 Added ${added} items${storeLabel}: ${preview}${more}`)
+      if (added >= 5) celebrate('confetti', 'Fridge restocked!')
       const updated = await api.getFridge()
       setData(updated)
       // Background batch enrichment \u2014 fills nutrition + brand + allergens
@@ -1830,10 +1832,46 @@ export default function Fridge() {
         {/* ── Empty state ── */}
         {totalItems === 0 && (
           <div style={{ textAlign: 'center', padding: '52px 24px' }}>
-            <div style={{ fontSize: 64, marginBottom: 14 }}>🛒</div>
-            <div style={{ fontSize: 19, fontWeight: 700, marginBottom: 8 }}>Fridge is empty</div>
-            <div style={{ fontSize: 14, color: 'var(--label2)', lineHeight: 1.6 }}>
-              Scan a receipt to add everything at once,<br />or tap + Add to add items manually.
+            <div style={{ fontSize: 64, marginBottom: 14 }}>🧊</div>
+            <div style={{ fontSize: 19, fontWeight: 700, marginBottom: 8, color: 'var(--label)' }}>Your fridge is waiting</div>
+            <div style={{ fontSize: 14, color: 'var(--label2)', lineHeight: 1.6, maxWidth: 300, margin: '0 auto 20px' }}>
+              Track what's in your fridge, pantry, and freezer. Get expiry alerts and meal suggestions based on what you have.
+            </div>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'center', flexWrap: 'wrap' }}>
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                style={{
+                  background: 'linear-gradient(135deg, #3B82F6 0%, #2563EB 100%)',
+                  color: '#fff',
+                  border: 'none',
+                  borderRadius: 14,
+                  padding: '12px 20px',
+                  fontSize: 14,
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                }}
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" /><line x1="7" y1="12" x2="17" y2="12" /><line x1="7" y1="8" x2="13" y2="8" /><line x1="7" y1="16" x2="15" y2="16" /></svg>
+                Scan a receipt
+              </button>
+              <button
+                onClick={() => setShowAdd(true)}
+                style={{
+                  background: 'var(--card)',
+                  color: 'var(--label)',
+                  border: '1.5px solid var(--separator)',
+                  borderRadius: 14,
+                  padding: '12px 20px',
+                  fontSize: 14,
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                }}
+              >
+                + Add manually
+              </button>
             </div>
           </div>
         )}

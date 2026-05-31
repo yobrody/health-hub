@@ -1292,8 +1292,14 @@ export default function Workout() {
         })()}
 
         {workouts.length === 0 && (
-          <div style={{ textAlign: 'center', padding: '24px 24px', color: 'var(--label2)' }}>
-            <div style={{ fontSize: 14 }}>Tap Begin above to start your first session</div>
+          <div style={{ textAlign: 'center', padding: '48px 24px' }}>
+            <div style={{ fontSize: 56, marginBottom: 12 }}>🏋️</div>
+            <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--label)', marginBottom: 8 }}>
+              Start your first workout
+            </div>
+            <div style={{ fontSize: 14, color: 'var(--label2)', lineHeight: 1.6, maxWidth: 280, margin: '0 auto' }}>
+              Your program is ready above. Tap Begin to start tracking sets, rest timers, and progressive overload.
+            </div>
           </div>
         )}
       </div>

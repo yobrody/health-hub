@@ -1,7 +1,6 @@
-// ── Chat — AI Health Assistant ────────────────────────────────────────
-// Chat-style interface for natural language health logging and queries.
-// User can type or voice-input; AI parses intent and returns structured
-// actions (log food, log weight, add to list, etc.) with confirm buttons.
+// ── Chat — Voice-First AI Health Coach ───────────────────────────────
+// Voice-first conversational interface for health logging and coaching.
+// Large mic button as primary input; AI responses styled as coach messages.
 
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { api } from '../api/client'
@@ -48,11 +47,48 @@ function saveHistory(msgs: ChatMessage[]) {
   } catch { /* quota exceeded — silently drop */ }
 }
 
+// ── Example prompt cards ─────────────────────────────────────────────
+const EXAMPLE_PROMPTS = [
+  { text: 'Log my breakfast', icon: '🍳', color: '#F97316' },
+  { text: "How's my week?", icon: '📊', color: '#3B82F6' },
+  { text: 'What should I eat?', icon: '💡', color: '#10B981' },
+  { text: 'Log 79kg', icon: '⚖️', color: '#A855F7' },
+]
+
+// ── Action done checkmark animation ──────────────────────────────────
+function ActionDoneCheck() {
+  return (
+    <div style={{
+      marginTop: 10,
+      display: 'flex',
+      alignItems: 'center',
+      gap: 6,
+      animation: 'checkPop 0.4s cubic-bezier(0.34, 1.56, 0.64, 1)',
+    }}>
+      <div style={{
+        width: 24,
+        height: 24,
+        borderRadius: '50%',
+        background: '#10B981',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+      }}>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+          <path d="m5 12 5 5L20 7" />
+        </svg>
+      </div>
+      <span style={{ fontSize: 13, fontWeight: 700, color: '#10B981' }}>Done</span>
+    </div>
+  )
+}
+
 // ── Component ────────────────────────────────────────────────────────
 export default function Chat() {
   const [messages, setMessages] = useState<ChatMessage[]>(loadHistory)
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
+  const [interimTranscript, setInterimTranscript] = useState('')
   const scrollRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -82,6 +118,7 @@ export default function Chat() {
     }
     addMessage(userMsg)
     setInput('')
+    setInterimTranscript('')
     setSending(true)
 
     try {
@@ -239,6 +276,7 @@ export default function Chat() {
   }
 
   function handleVoiceTranscript(text: string) {
+    setInterimTranscript('')
     sendMessage(text)
   }
 
@@ -247,8 +285,15 @@ export default function Chat() {
     localStorage.removeItem(STORAGE_KEY)
   }
 
+  const isEmpty = messages.length === 0
+
   return (
-    <div className="page" style={{ display: 'flex', flexDirection: 'column', padding: 0 }}>
+    <div className="page" style={{
+      display: 'flex',
+      flexDirection: 'column',
+      padding: 0,
+      background: 'linear-gradient(180deg, var(--c-bg) 0%, rgba(59,130,246,0.03) 100%)',
+    }}>
       {/* Header */}
       <div
         style={{
@@ -263,10 +308,10 @@ export default function Chat() {
       >
         <div>
           <div style={{ fontSize: 24, fontWeight: 700, letterSpacing: '-0.5px', color: 'var(--c-label)' }}>
-            Health Chat
+            Health Coach
           </div>
           <div style={{ fontSize: 13, color: 'var(--c-label-faint)', marginTop: 2 }}>
-            Talk naturally about food, workouts, and health
+            Voice-first health assistant
           </div>
         </div>
         {messages.length > 0 && (
@@ -289,7 +334,7 @@ export default function Chat() {
         )}
       </div>
 
-      {/* Messages */}
+      {/* Messages / Empty State */}
       <div
         ref={scrollRef}
         style={{
@@ -302,56 +347,105 @@ export default function Chat() {
           WebkitOverflowScrolling: 'touch',
         }}
       >
-        {messages.length === 0 && (
+        {/* ── Empty State: Voice-first coach greeting ── */}
+        {isEmpty && (
           <div style={{
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'center',
             justifyContent: 'center',
             flex: 1,
-            gap: 16,
-            padding: '40px 20px',
+            gap: 20,
+            padding: '20px 16px 40px',
           }}>
-            <div style={{ fontSize: 40 }}>{'\uD83D\uDCAC'}</div>
-            <div style={{ textAlign: 'center' }}>
-              <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--c-label)', marginBottom: 8 }}>
-                Your health assistant
+            {/* Large mic button — the hero of the empty state */}
+            <div style={{
+              marginTop: 20,
+              marginBottom: 8,
+            }}>
+              <VoiceInput
+                onTranscript={handleVoiceTranscript}
+                disabled={sending}
+              />
+            </div>
+
+            {/* Interim transcript while speaking */}
+            {interimTranscript && (
+              <div style={{
+                fontSize: 15,
+                color: 'var(--c-label-dim)',
+                textAlign: 'center',
+                maxWidth: 280,
+                lineHeight: 1.5,
+                fontStyle: 'italic',
+                animation: 'slideUpSubtle 0.15s ease-out',
+              }}>
+                {interimTranscript}
               </div>
-              <div style={{ fontSize: 14, color: 'var(--c-label-dim)', lineHeight: 1.5, maxWidth: 300 }}>
-                Try saying things like:
+            )}
+
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--c-label)', marginBottom: 6 }}>
+                Hey! I'm your health coach
+              </div>
+              <div style={{ fontSize: 14, color: 'var(--c-label-dim)', lineHeight: 1.6, maxWidth: 300 }}>
+                Tap the mic and tell me what you ate, how you trained, or ask me anything about your health.
               </div>
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, width: '100%', maxWidth: 320 }}>
-              {[
-                'had 2 eggs and toast for breakfast',
-                'did 30 min chest workout',
-                'weigh 79.5',
-                'add milk to groceries',
-                'what should I eat for dinner?',
-                'how is my week going?',
-              ].map(example => (
+
+            {/* Example prompt cards — tappable, colorful, with icons */}
+            <div style={{
+              display: 'grid',
+              gridTemplateColumns: '1fr 1fr',
+              gap: 10,
+              width: '100%',
+              maxWidth: 340,
+            }}>
+              {EXAMPLE_PROMPTS.map(prompt => (
                 <button
-                  key={example}
-                  onClick={() => sendMessage(example)}
+                  key={prompt.text}
+                  onClick={() => sendMessage(prompt.text)}
                   style={{
                     background: 'var(--c-card)',
                     border: '1px solid var(--c-border)',
-                    borderRadius: 12,
-                    padding: '10px 14px',
-                    fontSize: 13,
-                    color: 'var(--c-label-dim)',
-                    textAlign: 'left',
+                    borderRadius: 14,
+                    padding: '14px 12px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'flex-start',
+                    gap: 8,
                     cursor: 'pointer',
-                    transition: 'border-color 0.15s',
+                    transition: 'transform 0.1s, border-color 0.15s',
+                    textAlign: 'left',
                   }}
                 >
-                  "{example}"
+                  <span style={{
+                    fontSize: 22,
+                    width: 36,
+                    height: 36,
+                    borderRadius: 10,
+                    background: `${prompt.color}15`,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                  }}>
+                    {prompt.icon}
+                  </span>
+                  <span style={{
+                    fontSize: 13,
+                    fontWeight: 600,
+                    color: 'var(--c-label)',
+                    lineHeight: 1.3,
+                  }}>
+                    {prompt.text}
+                  </span>
                 </button>
               ))}
             </div>
           </div>
         )}
 
+        {/* ── Chat messages ── */}
         {messages.map(msg => (
           <div
             key={msg.id}
@@ -363,61 +457,54 @@ export default function Chat() {
           >
             <div
               style={{
-                maxWidth: '80%',
-                padding: '10px 14px',
-                borderRadius: msg.role === 'user' ? '16px 16px 4px 16px' : '16px 16px 16px 4px',
-                background: msg.role === 'user' ? 'var(--c-accent)' : 'var(--c-card)',
+                maxWidth: '82%',
+                padding: msg.role === 'assistant' ? '12px 16px' : '10px 14px',
+                borderRadius: msg.role === 'user' ? '18px 18px 4px 18px' : '18px 18px 18px 4px',
+                background: msg.role === 'user'
+                  ? 'var(--c-accent)'
+                  : 'var(--c-card)',
                 color: msg.role === 'user' ? '#fff' : 'var(--c-label)',
                 fontSize: 14,
-                lineHeight: 1.5,
+                lineHeight: 1.6,
                 border: msg.role === 'assistant' ? '1px solid var(--c-border)' : 'none',
+                boxShadow: msg.role === 'assistant' ? '0 2px 8px rgba(0,0,0,0.04)' : 'none',
               }}
             >
               <div style={{ whiteSpace: 'pre-wrap' }}>{msg.text}</div>
 
-              {/* Action button */}
+              {/* Action button — pill-shaped and colorful */}
               {msg.action && !msg.actionDone && (
                 <button
                   onClick={() => executeAction(msg)}
                   style={{
-                    marginTop: 8,
-                    background: 'var(--c-accent)',
+                    marginTop: 10,
+                    background: 'linear-gradient(135deg, #3B82F6 0%, #2563EB 100%)',
                     color: '#fff',
                     border: 'none',
-                    borderRadius: 8,
-                    padding: '7px 14px',
+                    borderRadius: 20,
+                    padding: '9px 18px',
                     fontSize: 13,
-                    fontWeight: 600,
+                    fontWeight: 700,
                     cursor: 'pointer',
-                    width: '100%',
-                    transition: 'opacity 0.15s',
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    transition: 'transform 0.1s',
                   }}
                 >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="m5 12 5 5L20 7" />
+                  </svg>
                   {msg.action.label}
                 </button>
               )}
-              {msg.actionDone && (
-                <div style={{
-                  marginTop: 8,
-                  fontSize: 12,
-                  color: 'var(--c-green)',
-                  fontWeight: 600,
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: 4,
-                }}>
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" /><path d="m9 11 3 3L22 4" />
-                  </svg>
-                  Done
-                </div>
-              )}
+              {msg.actionDone && <ActionDoneCheck />}
 
               {/* Timestamp */}
               <div style={{
                 fontSize: 10,
                 color: msg.role === 'user' ? 'rgba(255,255,255,0.6)' : 'var(--c-label-faint)',
-                marginTop: 4,
+                marginTop: 6,
                 textAlign: msg.role === 'user' ? 'right' : 'left',
               }}>
                 {new Date(msg.timestamp).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}
@@ -431,12 +518,12 @@ export default function Chat() {
           <div style={{ display: 'flex', justifyContent: 'flex-start' }}>
             <div
               style={{
-                padding: '12px 18px',
-                borderRadius: '16px 16px 16px 4px',
+                padding: '14px 20px',
+                borderRadius: '18px 18px 18px 4px',
                 background: 'var(--c-card)',
                 border: '1px solid var(--c-border)',
                 display: 'flex',
-                gap: 4,
+                gap: 5,
                 alignItems: 'center',
               }}
             >
@@ -444,8 +531,8 @@ export default function Chat() {
                 <span
                   key={i}
                   style={{
-                    width: 6,
-                    height: 6,
+                    width: 7,
+                    height: 7,
                     borderRadius: '50%',
                     background: 'var(--c-label-faint)',
                     animation: `typingDot 1.2s ease-in-out ${i * 0.15}s infinite`,
@@ -457,64 +544,71 @@ export default function Chat() {
         )}
       </div>
 
-      {/* Input area */}
-      <div
-        style={{
-          flexShrink: 0,
-          padding: '12px 16px',
-          paddingBottom: 'calc(12px + var(--safe-bottom))',
-          background: 'var(--c-card)',
-          borderTop: '1px solid var(--c-border)',
-        }}
-      >
-        <form
-          onSubmit={handleSubmit}
-          style={{ display: 'flex', gap: 8, alignItems: 'center' }}
+      {/* Input area — visible when there are messages */}
+      {!isEmpty && (
+        <div
+          style={{
+            flexShrink: 0,
+            padding: '12px 16px',
+            paddingBottom: 'calc(12px + var(--safe-bottom))',
+            background: 'var(--c-card)',
+            borderTop: '1px solid var(--c-border)',
+          }}
         >
-          <input
-            ref={inputRef}
-            className="flex-1 min-w-0 bg-[var(--c-bg)] border border-[var(--c-border)] rounded-lg px-3 py-2.5 text-[14px] text-[var(--c-label)] placeholder:text-[var(--c-label-faint)] focus:outline-none focus:border-[var(--c-accent)] transition-colors disabled:opacity-50"
-            placeholder="Type anything health-related..."
-            value={input}
-            onChange={e => setInput(e.target.value)}
-            disabled={sending}
-          />
-          <VoiceInput
-            onTranscript={handleVoiceTranscript}
-            compact
-            disabled={sending}
-          />
-          <button
-            type="submit"
-            disabled={!input.trim() || sending}
-            aria-label="Send message"
-            style={{
-              width: 36,
-              height: 36,
-              borderRadius: 10,
-              background: 'var(--c-accent)',
-              border: 'none',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              opacity: !input.trim() || sending ? 0.3 : 1,
-              transition: 'opacity 0.15s',
-              flexShrink: 0,
-            }}
+          <form
+            onSubmit={handleSubmit}
+            style={{ display: 'flex', gap: 8, alignItems: 'center' }}
           >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M22 2 11 13" /><path d="m22 2-7 20-4-9-9-4z" />
-            </svg>
-          </button>
-        </form>
-      </div>
+            <input
+              ref={inputRef}
+              className="flex-1 min-w-0 bg-[var(--c-bg)] border border-[var(--c-border)] rounded-xl px-3 py-2.5 text-[14px] text-[var(--c-label)] placeholder:text-[var(--c-label-faint)] focus:outline-none focus:border-[var(--c-accent)] transition-colors disabled:opacity-50"
+              placeholder="Type or tap mic..."
+              value={input}
+              onChange={e => setInput(e.target.value)}
+              disabled={sending}
+            />
+            <VoiceInput
+              onTranscript={handleVoiceTranscript}
+              compact
+              disabled={sending}
+            />
+            <button
+              type="submit"
+              disabled={!input.trim() || sending}
+              aria-label="Send message"
+              style={{
+                width: 36,
+                height: 36,
+                borderRadius: 18,
+                background: !input.trim() || sending ? 'var(--c-border)' : 'var(--c-accent)',
+                border: 'none',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                opacity: !input.trim() || sending ? 0.4 : 1,
+                transition: 'opacity 0.15s, background 0.15s',
+                flexShrink: 0,
+              }}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M22 2 11 13" /><path d="m22 2-7 20-4-9-9-4z" />
+              </svg>
+            </button>
+          </form>
+        </div>
+      )}
 
       {/* Inline animation styles */}
       <style>{`
         @keyframes typingDot {
           0%, 60%, 100% { opacity: 0.3; transform: translateY(0); }
           30% { opacity: 1; transform: translateY(-4px); }
+        }
+        @keyframes checkPop {
+          0% { transform: scale(0); opacity: 0; }
+          60% { transform: scale(1.2); }
+          100% { transform: scale(1); opacity: 1; }
         }
       `}</style>
     </div>
