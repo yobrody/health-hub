@@ -1208,8 +1208,14 @@ export default function Today({ onNavigate }: Props) {
                       <span className={`inline-block w-1 h-1 rounded-full ${typeStyle[a.type]}`} />
                       <span>
                         {a.type === 'log_food' && (<>
-                          {a.count > 1 ? `${a.count} ` : ''}{a.name}
-                          <span className="text-[var(--c-label-faint)]"> · ~{a.kcal * a.count} kcal · {a.protein_g * a.count}g protein → {a.meal}{a.date ? ` · ${a.date}` : ''}</span>
+                          <span className="text-[var(--c-label)]">{a.matched_product || a.name}</span>
+                          {a.brand_or_shop && <span className="text-[var(--c-accent)]"> · {a.brand_or_shop}</span>}
+                          <span className="text-[var(--c-label-faint)]"> · ~{a.kcal * a.count} kcal · {a.protein_g * a.count}g protein</span>
+                          {a.confidence && (
+                            <span className={`ml-1 text-[10px] px-1 py-0.5 rounded ${a.confidence === 'high' ? 'bg-[rgba(52,199,89,0.15)] text-[var(--c-green)]' : a.confidence === 'medium' ? 'bg-[rgba(255,159,10,0.15)] text-[var(--c-orange)]' : 'bg-[rgba(255,69,58,0.15)] text-[var(--c-red,#ff453a)]'}`}>
+                              {a.confidence}
+                            </span>
+                          )}
                         </>)}
                         {a.type === 'add_fridge' && (<>
                           {a.size ? `${a.size} of ` : ''}{a.name}

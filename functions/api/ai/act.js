@@ -112,11 +112,15 @@ the items individually if they want detail.
 
 Available action types:
 1. log_food — log eaten food to the calorie/protein log
-   args: { name: string, count?: number, kcal: number, protein_g: number, meal?: "Breakfast"|"Lunch"|"Snack"|"Dinner", date?: string }
+   args: { name: string, count?: number, kcal: number, protein_g: number, meal?: "Breakfast"|"Lunch"|"Snack"|"Dinner", date?: string, matched_product?: string, brand_or_shop?: string, confidence?: "high"|"medium"|"low", confidence_reason?: string }
    Notes: estimate kcal+protein per UNIT for typical UK supermarket portions.
    If the user says "3 eggs", emit ONE entry with count=3 and kcal/protein per egg
    (the app multiplies). If meal isn't stated, pick by time of day — current
    default is "${defaultMeal}".
+   IMPORTANT: If a brand/shop is mentioned (Its Bagels, Greggs, Aldi, Tesco, Pret, etc.),
+   set matched_product to the exact product name from that shop, brand_or_shop to the brand,
+   and confidence to "high" if you know the actual nutrition, "medium" if estimating.
+   Always set confidence_reason explaining your estimate source.
    Date handling: if the user references a past day ("yesterday", "last night",
    "this morning" but it's now afternoon/evening), set date to that day's
    ISO YYYY-MM-DD. Default = today (omit the field). "this morning" said
