@@ -243,6 +243,21 @@ export const api = {
   },
   lookupBarcode,
 
+  // Body metrics
+  getTDEE: () => request<TDEEData>('/tdee'),
+  getLatestMetric: () => request<{ metric: BodyMetric | null }>('/metrics/latest'),
+  getMetrics: (days = 90) => request<{ metrics: BodyMetric[] }>(`/metrics?days=${days}`),
+  addMetric: (data: { weight_kg?: number; body_fat_pct?: number; waist_cm?: number }) =>
+    request<{ ok: boolean }>('/metrics', { method: 'POST', body: JSON.stringify(data) }),
+
+  // Sleep
+  getSleepStats: (days = 7) => request<SleepStats>(`/sleep/stats?days=${days}`),
+  logSleep: (data: { bedtime: string; wake_time: string; quality: number; hrv_ms?: number }) =>
+    request<{ ok: boolean }>('/sleep', { method: 'POST', body: JSON.stringify(data) }),
+
+  // Timeline
+  getTimeline: (days = 7) => request<{ events: TimelineEvent[] }>(`/timeline?days=${days}`),
+
   // Workouts — VPS returns { value: WorkoutData[], Count: N }, unwrap it
   getWorkouts: (limit = 30) =>
     request<WorkoutData[] | { value: WorkoutData[] }>(`/workouts?limit=${limit}`).then(unwrap),
@@ -498,3 +513,52 @@ export interface AgendaItemData {
   scheduled_date: string; done: boolean; created_at: string; done_at?: string | null
 }
 export interface AgendaData { date: string; items: AgendaItemData[] }
+
+// Barcode page result type (richer than BarcodeLookupResult used internally)
+export interface BarcodeResult {
+  name: string
+  brand?: string
+  serving_size?: string
+  image_url?: string
+  per_100g: {
+    kcal: number
+    protein_g: number
+    carbs_g: number
+    fat_g: number
+  }
+}
+
+// Body metrics
+export interface BodyMetric {
+  date: string
+  weight_kg?: number | null
+  body_fat_pct?: number | null
+  waist_cm?: number | null
+}
+
+// TDEE calculator response
+export interface TDEEData {
+  tdee: number
+  bmr: number
+  activity_level?: string
+  avg_intake_14d?: number
+  weight_trend?: { direction: string; weekly_change_kg: number }
+  recommendation?: string
+}
+
+// Sleep stats
+export interface SleepStats {
+  avg_quality: number | null
+  avg_duration: number | null
+  avg_hrv?: number | null
+  entries: number
+}
+
+// Timeline
+export interface TimelineEvent {
+  date: string
+  type: string
+  summary: string
+  detail?: string | null
+  time?: string
+}
