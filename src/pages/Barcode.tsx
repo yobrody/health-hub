@@ -29,8 +29,8 @@ export default function Barcode({ onAddFood }: { onAddFood?: (name: string, kcal
   function handleAddToLog() {
     if (!result || !onAddFood) return
     const mult = parseFloat(servings) || 1
-    const kcal = Math.round(result.per_100g.kcal * mult)
-    const protein = Math.round(result.per_100g.protein_g * mult)
+    const kcal = Math.round((result.per_100g?.kcal ?? 0) * mult)
+    const protein = Math.round((result.per_100g?.protein_g ?? 0) * mult)
     onAddFood(result.name, kcal, protein)
   }
 
@@ -77,10 +77,10 @@ export default function Barcode({ onAddFood }: { onAddFood?: (name: string, kcal
 
           <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--label2)', marginBottom: 8 }}>Per 100g</div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 8, marginBottom: 14 }}>
-            <NutrientBox label="Calories" value={result.per_100g.kcal} unit="kcal" color="var(--orange)" />
-            <NutrientBox label="Protein" value={result.per_100g.protein_g} unit="g" color="var(--blue)" />
-            <NutrientBox label="Carbs" value={result.per_100g.carbs_g} unit="g" color="var(--green)" />
-            <NutrientBox label="Fat" value={result.per_100g.fat_g} unit="g" color="var(--purple)" />
+            <NutrientBox label="Calories" value={result.per_100g?.kcal ?? 0} unit="kcal" color="var(--orange)" />
+            <NutrientBox label="Protein" value={result.per_100g?.protein_g ?? 0} unit="g" color="var(--blue)" />
+            <NutrientBox label="Carbs" value={result.per_100g?.carbs_g ?? 0} unit="g" color="var(--green)" />
+            <NutrientBox label="Fat" value={result.per_100g?.fat_g ?? 0} unit="g" color="var(--purple)" />
           </div>
 
           {onAddFood && (
@@ -92,7 +92,7 @@ export default function Barcode({ onAddFood }: { onAddFood?: (name: string, kcal
                 flex: 1, background: 'var(--green)', color: '#fff', border: 'none', borderRadius: 10,
                 padding: '10px 16px', fontSize: 15, fontWeight: 600, cursor: 'pointer',
               }}>
-                Add to food log ({Math.round(result.per_100g.kcal * (parseFloat(servings) || 1))} kcal)
+                Add to food log ({Math.round((result.per_100g?.kcal ?? 0) * (parseFloat(servings) || 1))} kcal)
               </button>
             </div>
           )}
