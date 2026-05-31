@@ -16,8 +16,10 @@ export default function Timeline() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    setLoading(true)
-    api.getTimeline(days).then(r => setEvents(r.events)).finally(() => setLoading(false))
+    let cancelled = false
+    const t = setTimeout(() => { if (!cancelled) setLoading(true) }, 0)
+    api.getTimeline(days).then(r => { if (!cancelled) setEvents(r.events) }).finally(() => { if (!cancelled) setLoading(false) })
+    return () => { cancelled = true; clearTimeout(t) }
   }, [days])
 
   // Group events by date
@@ -27,7 +29,8 @@ export default function Timeline() {
     grouped[ev.date].push(ev)
   }
 
-  const today = new Date().toISOString().slice(0, 10)
+  const [today] = useState(() => new Date().toISOString().slice(0, 10))
+  const [yesterday] = useState(() => new Date(Date.now() - 86400000).toISOString().slice(0, 10))
 
   return (
     <div className="page" style={{ background: 'var(--bg)' }}>
@@ -55,7 +58,7 @@ export default function Timeline() {
 
         {Object.entries(grouped).map(([dateStr, dayEvents]) => {
           const dateLabel = dateStr === today ? 'Today' :
-            dateStr === new Date(Date.now() - 86400000).toISOString().slice(0, 10) ? 'Yesterday' :
+            dateStr === yesterday ? 'Yesterday' :
             new Date(dateStr + 'T12:00:00').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })
 
           return (
