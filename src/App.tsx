@@ -25,13 +25,12 @@ import './App.css'
 
 type Tab = 'today' | 'nutrition' | 'fridge' | 'workout' | 'chat' | 'goals' | 'skincare' | 'lists' | 'agenda' | 'routines' | 'metrics' | 'timeline' | 'barcode' | 'weekly-report'
 
-// 4 visible tabs + camera FAB. Chat replaces Fridge in the nav bar;
-// Fridge remains accessible via Today's quick-action tiles.
+// 4 visible tabs + camera FAB. Chat accessible via Today tile.
 const TABS: { id: Tab; label: string }[] = [
   { id: 'today',     label: 'Today'    },
   { id: 'nutrition', label: 'Nutrition'},
   { id: 'workout',   label: 'Workout'  },
-  { id: 'chat',      label: 'Chat'     },
+  { id: 'fridge',    label: 'Fridge'   },
 ]
 
 function TabIcon({ id, active }: { id: Tab; active: boolean }) {
@@ -278,7 +277,7 @@ export default function App({ onToggleTheme, theme }: Props) {
   // Pages reachable only by tile-click (not in the bottom nav) get a small
   // back-to-Today chevron, fixed top-left, so the route isn't a one-way
   // trip (audit P1-5). The bottom nav still works for jumping anywhere.
-  const SECONDARY_TABS = new Set<Tab>(['skincare', 'goals', 'lists', 'agenda', 'routines', 'metrics', 'timeline', 'barcode', 'weekly-report'])
+  const SECONDARY_TABS = new Set<Tab>(['skincare', 'goals', 'lists', 'agenda', 'routines', 'metrics', 'timeline', 'barcode', 'weekly-report', 'chat'])
 
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
