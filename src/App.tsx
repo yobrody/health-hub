@@ -8,6 +8,9 @@ import Skincare from './pages/Skincare'
 import Lists from './pages/Lists'
 import Agenda from './pages/Agenda'
 import Routines from './pages/Routines'
+import Metrics from './pages/Metrics'
+import Timeline from './pages/Timeline'
+import Barcode from './pages/Barcode'
 import CameraSheet from './components/CameraSheet'
 import { UpdatePrompt } from './components/UpdatePrompt'
 import { api } from './api/client'
@@ -16,7 +19,7 @@ import { registerToastHandler } from './toast'
 import type { Theme } from './main'
 import './App.css'
 
-type Tab = 'today' | 'nutrition' | 'fridge' | 'workout' | 'goals' | 'skincare' | 'lists' | 'agenda' | 'routines'
+type Tab = 'today' | 'nutrition' | 'fridge' | 'workout' | 'goals' | 'skincare' | 'lists' | 'agenda' | 'routines' | 'metrics' | 'timeline' | 'barcode'
 
 // 4 visible tabs. Goals/Skincare/Lists/Agenda/Routines accessible via Today's quick actions.
 const TABS: { id: Tab; label: string }[] = [
@@ -171,7 +174,7 @@ export default function App({ onToggleTheme, theme }: Props) {
   // Pages reachable only by tile-click (not in the bottom nav) get a small
   // back-to-Today chevron, fixed top-left, so the route isn't a one-way
   // trip (audit P1-5). The bottom nav still works for jumping anywhere.
-  const SECONDARY_TABS = new Set<Tab>(['skincare', 'goals', 'lists', 'agenda', 'routines'])
+  const SECONDARY_TABS = new Set<Tab>(['skincare', 'goals', 'lists', 'agenda', 'routines', 'metrics', 'timeline', 'barcode'])
 
   return (
     <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
@@ -205,6 +208,9 @@ export default function App({ onToggleTheme, theme }: Props) {
         {tab === 'lists'     && <Lists />}
         {tab === 'agenda'    && <Agenda />}
         {tab === 'routines'  && <Routines />}
+        {tab === 'metrics'   && <Metrics />}
+        {tab === 'timeline'  && <Timeline />}
+        {tab === 'barcode'   && <Barcode />}
       </div>
 
       {/* Tab Bar — 2 tabs | camera FAB | 2 tabs */}

@@ -449,6 +449,25 @@ function DayCard({ day, isNext, onStart }: { day: ProgramDay; isNext: boolean; o
   )
 }
 
+/** Workout template — saved to localStorage after completing a workout. */
+interface WorkoutTemplate {
+  id: string
+  name: string
+  exercises: { name: string; sets: number; weight_kg?: number; reps?: number }[]
+  savedAt: string
+}
+
+function loadTemplates(): WorkoutTemplate[] {
+  try {
+    const raw = localStorage.getItem('workout_templates')
+    return raw ? JSON.parse(raw) as WorkoutTemplate[] : []
+  } catch { return [] }
+}
+
+function saveTemplates(templates: WorkoutTemplate[]) {
+  try { localStorage.setItem('workout_templates', JSON.stringify(templates)) } catch { /* quota */ }
+}
+
 export default function Workout() {
   const [workouts, setWorkouts] = useState<WorkoutData[]>([])
   const [prs, setPRs] = useState<Record<string, { weight_kg: number; reps: number; date: string }>>({})
@@ -470,6 +489,9 @@ export default function Workout() {
   const [focusSetIdx, setFocusSetIdx] = useState(0)
   const [phase, setPhase] = useState<'active' | 'rest' | 'done'>('active')
   const [showManage, setShowManage] = useState(false)
+  const [templates, setTemplates] = useState<WorkoutTemplate[]>(loadTemplates)
+  const [showSaveTemplate, setShowSaveTemplate] = useState(false)
+  const [templateName, setTemplateName] = useState('')
   const repsInputRef = useRef<HTMLInputElement>(null)
   const searchTimeout = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
@@ -685,6 +707,58 @@ export default function Workout() {
   }
 
 
+  function saveAsTemplate(name: string) {
+    if (!live || !name.trim()) return
+    const tmpl: WorkoutTemplate = {
+      id: `tmpl-${Date.now()}`,
+      name: name.trim(),
+      exercises: live.exercises.map(ex => ({
+        name: ex.name,
+        sets: ex.sets.length,
+        weight_kg: ex.sets[0]?.weight_kg,
+        reps: ex.sets[0]?.reps,
+      })),
+      savedAt: new Date().toISOString(),
+    }
+    const updated = [tmpl, ...templates.filter(t => t.id !== tmpl.id)].slice(0, 20)
+    setTemplates(updated)
+    saveTemplates(updated)
+    setShowSaveTemplate(false)
+    setTemplateName('')
+    showToast(`Template "${name.trim()}" saved`)
+  }
+
+  function startFromTemplate(tmpl: WorkoutTemplate) {
+    const exercises: LiveExercise[] = tmpl.exercises.map(ex => {
+      const pr = prs[ex.name]
+      const prevSets = lastSetsByExercise[ex.name]
+      const predicted = predictNextWeight({
+        prevBest: pr ? { weight_kg: pr.weight_kg, reps: pr.reps } : null,
+        prevSets,
+        properlyEating,
+      })
+      const sets: LiveSet[] = Array.from({ length: ex.sets }, () => ({
+        weight_kg: predicted.weight_kg ?? ex.weight_kg,
+        reps: predicted.reps ?? ex.reps,
+        done: false,
+      }))
+      return { name: ex.name, sets, prevBest: pr }
+    })
+    setLive({ title: tmpl.name, startTime: new Date().toISOString(), exercises })
+    setFocusExIdx(0)
+    setFocusSetIdx(0)
+    setPhase('active')
+    setRestTimer(null)
+    if (navigator.vibrate) navigator.vibrate(20)
+  }
+
+  function deleteTemplate(id: string) {
+    const updated = templates.filter(t => t.id !== id)
+    setTemplates(updated)
+    saveTemplates(updated)
+    showToast('Template removed')
+  }
+
   async function deleteWorkout(w: WorkoutData) {
     if (!confirm(`Delete "${w.title}" from ${new Date(w.start_time).toLocaleDateString()}?`)) return
     try {
@@ -898,7 +972,30 @@ export default function Workout() {
                   onClick={finishWorkout}
                   disabled={finishing}
                   style={{ marginTop: 22, background: 'var(--blue)', color: '#fff', border: 'none', borderRadius: 14, padding: '13px 32px', fontSize: 15, fontWeight: 600, cursor: 'pointer', minWidth: 200, opacity: finishing ? 0.5 : 1 }}
-                >{finishing ? 'Saving…' : 'Save workout'}</button>
+                >{finishing ? 'Saving...' : 'Save workout'}</button>
+                {/* Save as template */}
+                {!showSaveTemplate ? (
+                  <button
+                    onClick={() => { setShowSaveTemplate(true); setTemplateName(liveNonNull.title) }}
+                    style={{ marginTop: 10, background: 'none', border: '1px solid var(--separator)', borderRadius: 14, padding: '10px 20px', fontSize: 13, fontWeight: 600, cursor: 'pointer', color: 'var(--label2)' }}
+                  >Save as template</button>
+                ) : (
+                  <div style={{ marginTop: 12, display: 'flex', gap: 8, justifyContent: 'center' }}>
+                    <input
+                      value={templateName}
+                      onChange={e => setTemplateName(e.target.value)}
+                      placeholder="Template name"
+                      autoFocus
+                      onKeyDown={e => { if (e.key === 'Enter' && templateName.trim()) saveAsTemplate(templateName) }}
+                      style={{ flex: 1, maxWidth: 180, background: 'var(--bg)', border: '1px solid var(--separator)', borderRadius: 10, padding: '8px 12px', fontSize: 14, color: 'var(--label)', textAlign: 'center' }}
+                    />
+                    <button
+                      onClick={() => saveAsTemplate(templateName)}
+                      disabled={!templateName.trim()}
+                      style={{ background: 'var(--green)', color: '#fff', border: 'none', borderRadius: 10, padding: '8px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer', opacity: templateName.trim() ? 1 : 0.4 }}
+                    >Save</button>
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -1026,6 +1123,47 @@ export default function Workout() {
     <div className="page" style={{ background: 'var(--bg)' }}>
       <div className="page-content">
         <div style={{ fontSize: 30, fontWeight: 700, marginBottom: 16 }}>Workout</div>
+
+        {/* Templates — saved workout templates */}
+        {templates.length > 0 && (
+          <>
+            <div className="section-label" style={{ marginTop: 0 }}>Templates</div>
+            <div style={{ display: 'flex', gap: 8, overflowX: 'auto', marginBottom: 16, paddingBottom: 4 }}>
+              {templates.map(tmpl => (
+                <div
+                  key={tmpl.id}
+                  style={{
+                    background: 'var(--card)', border: '1px solid var(--separator)',
+                    borderRadius: 14, padding: '12px 14px', minWidth: 140, flexShrink: 0,
+                    position: 'relative',
+                  }}
+                >
+                  <button
+                    onClick={() => startFromTemplate(tmpl)}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, textAlign: 'left', color: 'inherit', width: '100%' }}
+                  >
+                    <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 4, paddingRight: 20 }}>{tmpl.name}</div>
+                    <div style={{ fontSize: 12, color: 'var(--label2)' }}>
+                      {tmpl.exercises.length} exercises
+                    </div>
+                    <div style={{ fontSize: 11, color: 'var(--label3)', marginTop: 2 }}>
+                      {tmpl.exercises.slice(0, 2).map(e => e.name).join(', ')}{tmpl.exercises.length > 2 ? '...' : ''}
+                    </div>
+                  </button>
+                  <button
+                    onClick={() => deleteTemplate(tmpl.id)}
+                    aria-label="Remove template"
+                    style={{
+                      position: 'absolute', top: 8, right: 8,
+                      background: 'none', border: 'none', color: 'var(--label3)',
+                      cursor: 'pointer', fontSize: 16, padding: '2px 4px',
+                    }}
+                  >x</button>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
 
         {/* Next up — big card */}
         <div className="section-label" style={{ marginTop: 0 }}>Next up</div>

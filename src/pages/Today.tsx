@@ -70,6 +70,21 @@ const Icon = {
   ),
 }
 
+/** SVG circular progress ring. Fills clockwise from 12 o'clock. */
+function ProgressRing({ progress, size = 80, stroke = 6, color = 'var(--c-accent)' }: { progress: number; size?: number; stroke?: number; color?: string }) {
+  const r = (size - stroke) / 2
+  const c = 2 * Math.PI * r
+  const offset = c * (1 - Math.min(progress, 1))
+  return (
+    <svg width={size} height={size} style={{ transform: 'rotate(-90deg)' }}>
+      <circle cx={size/2} cy={size/2} r={r} fill="none" stroke="var(--c-border)" strokeWidth={stroke} />
+      <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={color} strokeWidth={stroke}
+        strokeDasharray={c} strokeDashoffset={offset} strokeLinecap="round"
+        style={{ transition: 'stroke-dashoffset 0.6s ease' }} />
+    </svg>
+  )
+}
+
 function StatBadge({ delta, kind }: { delta: string; kind: 'up' | 'down' | 'neutral' }) {
   const palette = kind === 'up'
     ? 'bg-[#10B98115] text-[#10B981] border-[#10B98130]'
@@ -545,11 +560,55 @@ function WaterTracker() {
   )
 }
 
-type Tab = 'today' | 'nutrition' | 'fridge' | 'workout' | 'goals' | 'skincare' | 'lists' | 'agenda' | 'routines'
+type Tab = 'today' | 'nutrition' | 'fridge' | 'workout' | 'goals' | 'skincare' | 'lists' | 'agenda' | 'routines' | 'metrics' | 'timeline' | 'barcode'
 interface Props {
   onNavigate: (tab: Tab) => void
   onToggleTheme: () => void
   themeIcon: string
+}
+
+/** Streaks section — fetches active routine streaks and shows flame + count. */
+function StreaksSection({ onNavigate }: { onNavigate: (tab: Tab) => void }) {
+  const ROUTINES = ['meditate', 'vitamins', 'journal', 'read', 'stretch', 'morning-skincare', 'evening-skincare']
+  const [streaks, setStreaks] = useState<{ name: string; streak: number; done_today: boolean }[]>([])
+
+  useEffect(() => {
+    Promise.allSettled(ROUTINES.map(r => api.getRoutine(r)))
+      .then(results => {
+        const active: { name: string; streak: number; done_today: boolean }[] = []
+        results.forEach((r, i) => {
+          if (r.status === 'fulfilled' && r.value.streak > 0) {
+            active.push({ name: ROUTINES[i], streak: r.value.streak, done_today: r.value.done_today })
+          }
+        })
+        setStreaks(active)
+      })
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- ROUTINES is stable
+  }, [])
+
+  if (streaks.length === 0) return null
+
+  const displayName = (name: string) => name.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+
+  return (
+    <Card span="full" onClick={() => onNavigate('routines')}>
+      <div className="flex items-center justify-between mb-2">
+        <CardLabel>Streaks</CardLabel>
+        <Icon.Chevron size={16} className="text-[var(--c-label-faint)]" />
+      </div>
+      <div className="flex flex-wrap gap-3">
+        {streaks.map(s => (
+          <div key={s.name} className="flex items-center gap-1.5">
+            <span style={{ fontSize: 16 }}>{s.done_today ? '\uD83D\uDD25' : '\u2B50'}</span>
+            <span className="text-[13px] font-semibold" style={{ fontFamily: "'JetBrains Mono', ui-monospace, monospace", color: s.done_today ? 'var(--c-orange)' : 'var(--c-label-dim)' }}>
+              {s.streak}
+            </span>
+            <span className="text-[12px] text-[var(--c-label-faint)]">{displayName(s.name)}</span>
+          </div>
+        ))}
+      </div>
+    </Card>
+  )
 }
 
 export default function Today({ onNavigate }: Props) {
@@ -832,7 +891,6 @@ export default function Today({ onNavigate }: Props) {
   const goals = data?.goals ?? { calories: 2800, protein: 140, gym_days: 4 }
   const protein = data?.entries.reduce((acc, e) => acc + (e.protein_g ?? 0), 0) ?? 0
   const remaining = goals.calories - total
-  const proteinPct = Math.round(Math.min(protein / goals.protein, 1) * 100)
 
   // Delete-confirm state for the Today's-log rows. First tap on the × shows
   // a 'Sure?' chip on that one row; second tap inside ~3s commits.
@@ -928,14 +986,40 @@ export default function Today({ onNavigate }: Props) {
               kind={remaining > 0 ? 'neutral' : 'down'}
             />
           </div>
-          <div className="flex items-baseline gap-2 mb-4">
-            <BigNumber value={total.toLocaleString()} />
-            <span className="text-[15px] text-[var(--c-label-faint)]" style={{ fontFamily: "'JetBrains Mono', ui-monospace, monospace" }}>
-              / {goals.calories.toLocaleString()}
-            </span>
+          {/* Calorie + Protein progress rings side by side */}
+          <div className="flex items-center gap-6 mb-4">
+            {/* Calorie ring */}
+            <div className="relative flex-shrink-0" style={{ width: 90, height: 90 }}>
+              <ProgressRing progress={total / goals.calories} size={90} stroke={7} color="var(--c-accent)" />
+              <div className="absolute inset-0 flex flex-col items-center justify-center">
+                <span className="text-[18px] font-bold tracking-tight" style={{ fontFamily: "'JetBrains Mono', ui-monospace, monospace", lineHeight: 1.1 }}>
+                  {total.toLocaleString()}
+                </span>
+                <span className="text-[10px] text-[var(--c-label-faint)]">kcal</span>
+              </div>
+            </div>
+            {/* Protein ring */}
+            <div className="relative flex-shrink-0" style={{ width: 72, height: 72 }}>
+              <ProgressRing progress={protein / goals.protein} size={72} stroke={6} color="var(--c-orange)" />
+              <div className="absolute inset-0 flex flex-col items-center justify-center">
+                <span className="text-[15px] font-bold tracking-tight" style={{ fontFamily: "'JetBrains Mono', ui-monospace, monospace", color: 'var(--c-orange)', lineHeight: 1.1 }}>
+                  {protein}g
+                </span>
+                <span className="text-[10px] text-[var(--c-label-faint)]">prot</span>
+              </div>
+            </div>
+            {/* Numeric details */}
+            <div className="flex-1 min-w-0">
+              <div className="text-[13px] text-[var(--c-label-dim)] mb-1" style={{ fontFamily: "'JetBrains Mono', ui-monospace, monospace" }}>
+                {total.toLocaleString()} / {goals.calories.toLocaleString()} kcal
+              </div>
+              <div className="text-[13px] text-[var(--c-label-dim)]" style={{ fontFamily: "'JetBrains Mono', ui-monospace, monospace" }}>
+                {protein}g / {goals.protein}g protein
+              </div>
+            </div>
           </div>
           {/* Progress bar — fills smoothly, pulses on AI-applied actions */}
-          <div className="h-1 bg-[var(--c-border)] rounded-full overflow-hidden mb-5 relative">
+          <div className="h-1 bg-[var(--c-border)] rounded-full overflow-hidden mb-3 relative">
             <div
               key={`bar-${barPulseKey}`}
               className="h-full bg-[var(--c-accent)] rounded-full transition-[width] duration-700"
@@ -944,26 +1028,6 @@ export default function Today({ onNavigate }: Props) {
                 animation: barPulseKey > 0 ? 'barPulse 0.9s ease-out' : undefined,
               }}
             />
-          </div>
-
-          {/* Protein sub-row */}
-          <div className="flex items-center justify-between mb-1">
-            <CardLabel>Protein</CardLabel>
-            <span className="text-[11px] font-medium text-[var(--c-label-dim)]" style={{ fontFamily: "'JetBrains Mono', ui-monospace, monospace" }}>
-              {proteinPct}%
-            </span>
-          </div>
-          <div className="flex items-baseline gap-2 mb-3">
-            <div className="text-[20px] font-semibold tracking-tight" style={{ fontFamily: "'JetBrains Mono', ui-monospace, monospace", color: 'var(--c-orange)' }}>
-              {protein}g
-            </div>
-            <span className="text-[13px] text-[var(--c-label-faint)]" style={{ fontFamily: "'JetBrains Mono', ui-monospace, monospace" }}>
-              / {goals.protein}g
-            </span>
-          </div>
-          <div className="h-1 bg-[var(--c-border)] rounded-full overflow-hidden">
-            <div className="h-full bg-[var(--c-orange)] rounded-full transition-[width] duration-700"
-                 style={{ width: `${proteinPct}%` }} />
           </div>
 
           {/* Quick-add food — one-line inline logger */}
@@ -1299,6 +1363,44 @@ export default function Today({ onNavigate }: Props) {
               </div>
               <Icon.Chevron size={16} className="text-[var(--c-label-faint)]" />
             </div>
+          </Card>
+
+          {/* Streaks — active routine streaks with flame icon */}
+          <StreaksSection onNavigate={onNavigate} />
+
+          {/* Body — metrics page tile */}
+          <Card onClick={() => onNavigate('metrics')}>
+            <div className="flex items-center justify-between mb-2">
+              <CardLabel>Body</CardLabel>
+              <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" className="text-[var(--c-label-faint)]">
+                <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
+              </svg>
+            </div>
+            <div className="text-[13px] text-[var(--c-label-dim)]">Weight trends</div>
+            <div className="text-[12px] text-[var(--c-label-faint)] mt-0.5">TDEE · Sleep stats</div>
+          </Card>
+
+          {/* Timeline tile */}
+          <Card onClick={() => onNavigate('timeline')}>
+            <div className="flex items-center justify-between mb-2">
+              <CardLabel>Timeline</CardLabel>
+              <Icon.Calendar size={16} className="text-[var(--c-label-faint)]" />
+            </div>
+            <div className="text-[13px] text-[var(--c-label-dim)]">7-day log</div>
+            <div className="text-[12px] text-[var(--c-label-faint)] mt-0.5">Unified activity</div>
+          </Card>
+
+          {/* Scan tile — barcode lookup */}
+          <Card onClick={() => onNavigate('barcode')}>
+            <div className="flex items-center justify-between mb-2">
+              <CardLabel>Scan</CardLabel>
+              <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" className="text-[var(--c-label-faint)]">
+                <path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/>
+                <line x1="7" y1="8" x2="7" y2="16"/><line x1="11" y1="8" x2="11" y2="16"/><line x1="15" y1="8" x2="15" y2="16"/>
+              </svg>
+            </div>
+            <div className="text-[13px] text-[var(--c-label-dim)]">Barcode lookup</div>
+            <div className="text-[12px] text-[var(--c-label-faint)] mt-0.5">Food nutrition</div>
           </Card>
 
           {/* Body weight — half-tile, taps through to Goals where you log
