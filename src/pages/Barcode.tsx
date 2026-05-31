@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react'
 import { api } from '../api/client'
-import type { BarcodeResult } from '../api/client'
+import type { BarcodeLookupResult as BarcodeResult } from '../api/client'
 
 export default function Barcode({ onAddFood }: { onAddFood?: (name: string, kcal: number, protein: number) => void }) {
   const [code, setCode] = useState('')
