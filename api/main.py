@@ -723,11 +723,34 @@ def suggest_meals(key=Depends(require_key)):
     all_items = [i["name"] for sec in fridge.values() for i in sec]
     if not all_items:
         return {"meals": [{"name": "Fridge is empty", "ingredients": [], "kcal_estimate": 0}]}
+
+    # Calculate today's remaining budget for smarter suggestions
+    today_content = read_food_file()
+    today_entries = parse_entries(today_content)
+    eaten_kcal = sum(e["kcal"] for e in today_entries)
+    eaten_protein = sum(e.get("protein_g", 0) for e in today_entries)
+    remaining_kcal = max(0, goals.get("calories", 2200) - eaten_kcal)
+    remaining_protein = max(0, goals.get("protein", 160) - eaten_protein)
+
+    # Time-of-day context
+    hour = datetime.now().hour
+    if hour < 11:
+        time_context = "It's morning — suggest breakfast/brunch options."
+    elif hour < 15:
+        time_context = "It's lunchtime — suggest lunch options."
+    elif hour < 18:
+        time_context = "It's afternoon — suggest a snack or early dinner."
+    else:
+        time_context = "It's evening — suggest dinner options."
+
     prompt = (
         f"Fridge contents: {', '.join(all_items)}. "
         f"Daily calorie goal: ~{goals.get('calories', 2200)} kcal, protein: ~{goals.get('protein', 160)}g. "
-        "Suggest exactly 3 practical meals using these ingredients. "
-        'Return ONLY this JSON (no markdown): {"meals":[{"name":"Meal Name","ingredients":["item1"],"kcal_estimate":600}]}'
+        f"User has eaten {eaten_kcal} kcal today, needs ~{remaining_kcal} more kcal, "
+        f"with ~{remaining_protein}g protein remaining. "
+        f"{time_context} "
+        "Suggest exactly 3 practical meals using these ingredients that fit within the remaining budget. "
+        'Return ONLY this JSON (no markdown): {"meals":[{"name":"Meal Name","ingredients":["item1"],"kcal_estimate":600,"protein_g_estimate":30}]}'
     )
     parsed = gemini_call(prompt, max_tokens=600, temperature=0.6)
     meals = parsed.get("meals") if isinstance(parsed, dict) else parsed
@@ -1276,6 +1299,163 @@ def healthkit_latest(key=Depends(require_key)):
         "weight_count": len(store["weight_log"]),
         "workout_count": len(store["workouts"]),
     }
+
+
+# ── WEEKLY REPORT ────────────────────────────────────────────────────
+@app.get("/report/weekly")
+def weekly_report(key=Depends(require_key)):
+    """Returns a comprehensive summary of the past 7 days across all tracked
+    health metrics: calories, protein, workouts, weight, sleep, routines,
+    top foods, and hydration."""
+    goals = read_goals()
+    cal_goal = goals.get("calories", 2200)
+    protein_goal = goals.get("protein", 160)
+    gym_goal = goals.get("gym_days", 4)
+
+    # ── Food data ────────────────────────────────────────────────────
+    total_kcal = 0
+    total_protein = 0
+    logged_days = 0
+    food_counts: dict[str, int] = {}  # name → count for top-foods
+
+    for i in range(7):
+        d = (date.today() - timedelta(days=i)).isoformat()
+        content = read_food_file(d)
+        entries = parse_entries(content)
+        day_kcal = sum(e["kcal"] for e in entries)
+        day_protein = sum(e.get("protein_g", 0) for e in entries)
+        if entries:
+            logged_days += 1
+            total_kcal += day_kcal
+            total_protein += day_protein
+        # Count food names for top-foods
+        for e in entries:
+            # Strip leading "- " and trailing macro annotations
+            raw = e.get("items", "")
+            for line in raw.split("\n"):
+                line = line.strip().lstrip("- ").strip()
+                name = re.sub(r"\s*\(~\d+.*", "", line).strip()
+                if name:
+                    food_counts[name] = food_counts.get(name, 0) + 1
+
+    weekly_cal_goal = 7 * cal_goal
+    cal_pct = round(total_kcal / max(weekly_cal_goal, 1) * 100)
+    avg_protein = round(total_protein / max(logged_days, 1))
+
+    # Top 3 most logged foods
+    top_foods = sorted(food_counts.items(), key=lambda x: x[1], reverse=True)[:3]
+
+    # ── Workouts ─────────────────────────────────────────────────────
+    workouts = load_workouts()
+    week_start = (date.today() - timedelta(days=6)).isoformat()
+    week_workouts = [w for w in workouts if w.get("start_time", "") >= week_start]
+    workout_count = len(week_workouts)
+
+    # ── Weight trend ─────────────────────────────────────────────────
+    weights = load_weights()
+    week_weights = [w for w in weights if w.get("date", "") >= week_start]
+    weight_start = week_weights[0]["kg"] if week_weights else None
+    weight_end = week_weights[-1]["kg"] if week_weights else None
+    weight_change = round(weight_end - weight_start, 2) if weight_start and weight_end else None
+
+    # ── Sleep ────────────────────────────────────────────────────────
+    sleep_entries = load_sleep()
+    week_sleep = [s for s in sleep_entries if s.get("date", "") >= week_start]
+    avg_sleep_quality = round(sum(s["quality"] for s in week_sleep) / max(len(week_sleep), 1), 1) if week_sleep else None
+    avg_sleep_duration = round(sum(s["duration_hrs"] for s in week_sleep) / max(len(week_sleep), 1), 1) if week_sleep else None
+
+    # ── Routines ─────────────────────────────────────────────────────
+    routines_data = load_routines()
+    routine_streaks = {}
+    for rname, rdata in routines_data.items():
+        log = rdata.get("log", [])
+        streak = 0
+        d = date.today()
+        while True:
+            if any(e["date"] == d.isoformat() for e in log):
+                streak += 1
+                d -= timedelta(days=1)
+            else:
+                break
+        if streak > 0:
+            routine_streaks[rname] = streak
+
+    # ── Hydration (not server-tracked; return null) ──────────────────
+    hydration_avg = None  # localStorage-only on the client side
+
+    # ── Text summary ─────────────────────────────────────────────────
+    weight_str = f", {weight_change:+.1f}kg weight change" if weight_change is not None else ""
+    summary = (
+        f"This week: {cal_pct}% of calorie goal, "
+        f"{workout_count} workout{'s' if workout_count != 1 else ''}"
+        f"{weight_str}"
+    )
+
+    return {
+        "period": {
+            "start": week_start,
+            "end": date.today().isoformat(),
+        },
+        "calories": {
+            "total": total_kcal,
+            "goal": weekly_cal_goal,
+            "pct": cal_pct,
+            "logged_days": logged_days,
+        },
+        "protein": {
+            "avg_daily": avg_protein,
+            "goal": protein_goal,
+        },
+        "workouts": {
+            "count": workout_count,
+            "goal": gym_goal,
+        },
+        "weight": {
+            "start": weight_start,
+            "end": weight_end,
+            "change": weight_change,
+        },
+        "sleep": {
+            "avg_quality": avg_sleep_quality,
+            "avg_duration_hrs": avg_sleep_duration,
+            "entries": len(week_sleep),
+        },
+        "routines": routine_streaks,
+        "top_foods": [{"name": name, "count": count} for name, count in top_foods],
+        "hydration_avg": hydration_avg,
+        "summary": summary,
+    }
+
+
+# ── RECENT FOODS ─────────────────────────────────────────────────────
+@app.get("/food/recent")
+def recent_foods(days: int = 7, key=Depends(require_key)):
+    """Returns deduplicated list of recently logged food items (name, kcal,
+    protein_g) from the past N days. Powers the 'Recent' chips in Nutrition
+    from server data instead of client-side parsing."""
+    days = min(max(days, 1), 30)
+    seen: dict[str, dict] = {}  # lowercase name → record
+
+    for i in range(days):
+        d = (date.today() - timedelta(days=i)).isoformat()
+        content = read_food_file(d)
+        entries = parse_entries(content)
+        for e in entries:
+            raw = e.get("items", "")
+            for line in raw.split("\n"):
+                line = line.strip().lstrip("- ").strip()
+                name = re.sub(r"\s*\(~\d+.*", "", line).strip()
+                if not name:
+                    continue
+                key_lower = name.lower()
+                if key_lower not in seen:
+                    seen[key_lower] = {
+                        "name": name,
+                        "kcal": e.get("kcal", 0),
+                        "protein_g": e.get("protein_g", 0),
+                    }
+
+    return {"items": list(seen.values()), "days": days}
 
 
 # ── HEALTH CHECK ─────────────────────────────────────────────────────

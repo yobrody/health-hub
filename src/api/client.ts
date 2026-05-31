@@ -297,6 +297,12 @@ export const api = {
   // Stats
   getWeekStats: () => request<WeekStats>('/stats/week'),
 
+  // Weekly report
+  getWeeklyReport: () => request<WeeklyReport>('/report/weekly'),
+
+  // Recent foods
+  getRecentFoods: (days = 7) => request<RecentFoodsResponse>(`/food/recent?days=${days}`),
+
   // Lists (groceries, errands, etc.)
   getList: (name: string) => request<ListData>(`/lists/${name}`),
   addListItem: (listName: string, text: string) =>
@@ -583,3 +589,21 @@ export interface TimelineEvent {
   detail?: string | null
   time?: string
 }
+
+// Weekly Report
+export interface WeeklyReport {
+  period: { start: string; end: string }
+  calories: { total: number; goal: number; pct: number; logged_days: number }
+  protein: { avg_daily: number; goal: number }
+  workouts: { count: number; goal: number }
+  weight: { start: number | null; end: number | null; change: number | null }
+  sleep: { avg_quality: number | null; avg_duration_hrs: number | null; entries: number }
+  routines: Record<string, number>
+  top_foods: Array<{ name: string; count: number }>
+  hydration_avg: number | null
+  summary: string
+}
+
+// Recent foods
+export interface RecentFoodItem { name: string; kcal: number; protein_g: number }
+export interface RecentFoodsResponse { items: RecentFoodItem[]; days: number }
