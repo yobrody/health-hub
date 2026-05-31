@@ -1155,6 +1155,9 @@ export default function Today({ onNavigate }: Props) {
               value={aiPrompt}
               onChange={e => setAiPrompt(e.target.value)}
               disabled={aiState === 'parsing' || aiState === 'applying' || aiState === 'success'}
+              autoComplete="on"
+              autoCorrect="on"
+              spellCheck={true}
             />
             <VoiceInput
               compact

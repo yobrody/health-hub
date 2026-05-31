@@ -566,6 +566,9 @@ export default function Chat() {
               value={input}
               onChange={e => setInput(e.target.value)}
               disabled={sending}
+              autoComplete="on"
+              autoCorrect="on"
+              spellCheck={true}
             />
             <VoiceInput
               onTranscript={handleVoiceTranscript}
