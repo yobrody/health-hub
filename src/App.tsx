@@ -19,6 +19,7 @@ import Streaks from './pages/Streaks'
 import CameraSheet from './components/CameraSheet'
 import SmartScanner from './components/SmartScanner'
 import { UpdatePrompt } from './components/UpdatePrompt'
+import ChangelogPopup from './components/ChangelogPopup'
 import Celebrations from './components/Celebrations'
 import { api } from './api/client'
 import type { FridgeData } from './api/client'
@@ -397,6 +398,9 @@ export default function App({ onToggleTheme, theme }: Props) {
 
       {/* PWA update prompt — appears when a newer SW is waiting. */}
       <UpdatePrompt />
+
+      {/* What's new popup — shows once per version after onboarding */}
+      <ChangelogPopup />
 
       {/* Celebration animations (confetti, streak flames) */}
       <Celebrations />
