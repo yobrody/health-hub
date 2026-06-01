@@ -395,6 +395,11 @@ input, textarea, button, select {
   to   { transform: translateY(0); }
 }
 
+@keyframes subtlePulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.75; }
+}
+
 /* ── Button spinner ─────────────────────────────────────────────────── */
 .btn-spinner {
   display: inline-block;

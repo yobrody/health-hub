@@ -82,6 +82,10 @@ export const api = {
   addFood: (entry: FoodEntryInput) => request('/food', { method: 'POST', body: JSON.stringify(entry) }),
   deleteFood: (time: string, meal: string) =>
     request('/food/delete', { method: 'POST', body: JSON.stringify({ time, meal }) }),
+  recalculateFood: (name: string, original_name: string) =>
+    request<{ name: string; kcal: number; protein_g: number; carbs_g: number; fat_g: number; grams?: number | null; confidence: string; note: string }>(
+      '/food/recalculate', { method: 'POST', body: JSON.stringify({ name, original_name }) }
+    ),
   getFoodHistory: (days = 7) =>
     request<HistoryDay[] | { value: HistoryDay[] }>(`/food/history?days=${days}`).then(unwrap),
 
@@ -139,6 +143,14 @@ export const api = {
   // so we don't pay the recipe-generation token cost for ideas the user ignores.
   getMealDetail: (name: string, ingredients: string[]) =>
     request<MealDetail>('/ai/meal-detail', { method: 'POST', body: JSON.stringify({ name, ingredients }) }),
+
+  // Meal planning — full day plan for tomorrow
+  generateMealPlan: (opts?: { target_kcal?: number; target_protein?: number; swap?: string; existing_plan?: PlannedMeal[] }) =>
+    request<MealPlanResponse | { meal: PlannedMeal }>('/ai/meal-plan', { method: 'POST', body: JSON.stringify(opts ?? {}) }),
+  getMealPlan: (planDate: string) =>
+    request<MealPlanResponse>(`/ai/meal-plan/${planDate}`),
+  useMealPlan: (planDate: string, meals: PlannedMeal[]) =>
+    request<{ ok: boolean; date: string; meals_added: number }>('/ai/meal-plan/use', { method: 'POST', body: JSON.stringify({ date: planDate, meals }) }),
 
   // Multi-item food photo analysis. Mode = "home" cross-references the user's
   // fridge inventory and returns per-item grams_used for depletion. Mode = "out"
@@ -636,3 +648,21 @@ export interface WeeklyReport {
 // Recent foods
 export interface RecentFoodItem { name: string; kcal: number; protein_g: number }
 export interface RecentFoodsResponse { items: RecentFoodItem[]; days: number }
+
+// Meal Planning
+export interface PlannedMeal {
+  slot: string
+  name: string
+  ingredients: string[]
+  kcal: number
+  protein_g: number
+  carbs_g?: number
+  fat_g?: number
+  prep_minutes?: number
+}
+export interface MealPlanResponse {
+  date: string
+  meals: PlannedMeal[]
+  totals: { kcal: number; protein_g: number }
+  targets?: { kcal: number; protein_g: number }
+}

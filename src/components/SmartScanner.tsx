@@ -67,6 +67,14 @@ export default function SmartScanner({ open, onClose, onFridgeUpdated }: Props) 
   const [foodResult, setFoodResult] = useState<SmartScanResult & { type: 'food' } | null>(null)
   const [thumbnail, setThumbnail] = useState('')
 
+  // Editable food item state
+  const [editingIndex, setEditingIndex] = useState<number | null>(null)
+  const [editName, setEditName] = useState('')
+  const [recalculating, setRecalculating] = useState(false)
+  const [itemNotes, setItemNotes] = useState<Record<number, string>>({})
+  const [updatedIndices, setUpdatedIndices] = useState<Set<number>>(new Set())
+  const [addingItem, setAddingItem] = useState(false)
+  const [newItemName, setNewItemName] = useState('')
 
   function reset() {
     setStage('idle')
@@ -77,6 +85,74 @@ export default function SmartScanner({ open, onClose, onFridgeUpdated }: Props) 
     setReceiptItems([])
     setFoodResult(null)
     setThumbnail('')
+    setEditingIndex(null)
+    setEditName('')
+    setRecalculating(false)
+    setItemNotes({})
+    setUpdatedIndices(new Set())
+    setAddingItem(false)
+    setNewItemName('')
+  }
+
+  async function handleRecalculate(index: number, newName: string, originalName: string) {
+    if (!foodResult || !newName.trim()) return
+    setRecalculating(true)
+    try {
+      const result = await api.recalculateFood(newName.trim(), originalName)
+      const newFoods = [...foodResult.foods]
+      newFoods[index] = {
+        name: result.name,
+        kcal: result.kcal,
+        protein_g: result.protein_g,
+        carbs_g: result.carbs_g,
+        fat_g: result.fat_g,
+        grams: result.grams,
+      }
+      setFoodResult({ ...foodResult, foods: newFoods })
+      if (result.note) {
+        setItemNotes(prev => ({ ...prev, [index]: result.note }))
+      }
+      setUpdatedIndices(prev => new Set(prev).add(index))
+      // Update diary entry with corrected data
+      saveDiaryEntry(new Date().toISOString(), thumbnail, newFoods)
+      setEditingIndex(null)
+      setEditName('')
+      showToast(`Updated: ${result.name}`)
+    } catch {
+      showToast('Recalculation failed -- try again', 'err')
+    } finally {
+      setRecalculating(false)
+    }
+  }
+
+  async function handleAddItem() {
+    if (!foodResult || !newItemName.trim()) return
+    setRecalculating(true)
+    try {
+      const result = await api.recalculateFood(newItemName.trim(), '')
+      const newFoods = [...foodResult.foods, {
+        name: result.name,
+        kcal: result.kcal,
+        protein_g: result.protein_g,
+        carbs_g: result.carbs_g,
+        fat_g: result.fat_g,
+        grams: result.grams,
+      }]
+      const newIndex = newFoods.length - 1
+      setFoodResult({ ...foodResult, foods: newFoods })
+      if (result.note) {
+        setItemNotes(prev => ({ ...prev, [newIndex]: result.note }))
+      }
+      setUpdatedIndices(prev => new Set(prev).add(newIndex))
+      saveDiaryEntry(new Date().toISOString(), thumbnail, newFoods)
+      setAddingItem(false)
+      setNewItemName('')
+      showToast(`Added: ${result.name}`)
+    } catch {
+      showToast('Failed to add item -- try again', 'err')
+    } finally {
+      setRecalculating(false)
+    }
   }
 
   function handleClose() {
@@ -451,17 +527,146 @@ export default function SmartScanner({ open, onClose, onFridgeUpdated }: Props) 
 
             <div className="card" style={{ padding: '0 16px', marginBottom: 16 }}>
               {foodResult.foods.map((f, i) => (
-                <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 0', borderBottom: i < foodResult.foods.length - 1 ? '0.5px solid var(--separator)' : 'none' }}>
-                  <div style={{ fontSize: 15, fontWeight: 600 }}>{f.name}</div>
-                  <div style={{ textAlign: 'right' }}>
-                    <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--blue)' }}>{f.kcal} kcal</div>
-                    <div style={{ fontSize: 12, color: 'var(--label2)' }}>{f.protein_g}g P / {f.carbs_g}g C / {f.fat_g}g F</div>
-                  </div>
+                <div key={i} style={{
+                  padding: '12px 0',
+                  borderBottom: i < foodResult.foods.length - 1 ? '0.5px solid var(--separator)' : 'none',
+                  borderLeft: editingIndex === i ? '3px solid var(--blue)' : '3px solid transparent',
+                  paddingLeft: editingIndex === i ? 8 : 0,
+                  transition: 'all 0.2s ease',
+                }}>
+                  {editingIndex === i ? (
+                    /* Editing mode */
+                    <div>
+                      <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 }}>
+                        <input
+                          type="text"
+                          value={editName}
+                          onChange={e => setEditName(e.target.value)}
+                          autoCorrect="on"
+                          spellCheck={true}
+                          autoFocus
+                          onKeyDown={e => { if (e.key === 'Enter') handleRecalculate(i, editName, f.name) }}
+                          style={{
+                            flex: 1, fontSize: 15, fontWeight: 600, padding: '8px 10px',
+                            border: '2px solid var(--blue)', borderRadius: 10,
+                            background: 'var(--gray6)', color: 'var(--label)',
+                            outline: 'none',
+                          }}
+                        />
+                      </div>
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        <button
+                          onClick={() => handleRecalculate(i, editName, f.name)}
+                          disabled={recalculating || !editName.trim()}
+                          style={{
+                            flex: 1, background: 'var(--blue)', color: '#fff', border: 'none',
+                            borderRadius: 10, padding: '8px 14px', fontSize: 14, fontWeight: 600,
+                            cursor: 'pointer', opacity: recalculating || !editName.trim() ? 0.5 : 1,
+                            animation: !recalculating && editName.trim() ? 'subtlePulse 2s ease-in-out infinite' : 'none',
+                          }}
+                        >
+                          {recalculating ? 'Recalculating...' : 'Recalculate'}
+                        </button>
+                        <button
+                          onClick={() => { setEditingIndex(null); setEditName('') }}
+                          style={{
+                            background: 'var(--gray5)', color: 'var(--label2)', border: 'none',
+                            borderRadius: 10, padding: '8px 14px', fontSize: 14, fontWeight: 500, cursor: 'pointer',
+                          }}
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    /* Display mode - tappable */
+                    <div
+                      onClick={() => { setEditingIndex(i); setEditName(f.name) }}
+                      style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}
+                    >
+                      <div>
+                        <div style={{ fontSize: 15, fontWeight: 600 }}>{f.name}</div>
+                        {itemNotes[i] && (
+                          <div style={{ fontSize: 11, color: 'var(--label3)', marginTop: 2, fontStyle: 'italic' }}>{itemNotes[i]}</div>
+                        )}
+                      </div>
+                      <div style={{ textAlign: 'right' }}>
+                        <div style={{
+                          fontSize: 15, fontWeight: 700, color: 'var(--blue)',
+                          transition: 'transform 0.3s ease',
+                          transform: updatedIndices.has(i) ? 'scale(1)' : 'scale(1)',
+                        }}>{f.kcal} kcal</div>
+                        <div style={{ fontSize: 12, color: 'var(--label2)' }}>{f.protein_g}g P / {f.carbs_g}g C / {f.fat_g}g F</div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               ))}
+
+              {/* Add item section */}
+              {addingItem ? (
+                <div style={{ padding: '12px 0', borderTop: '0.5px solid var(--separator)' }}>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 }}>
+                    <input
+                      type="text"
+                      value={newItemName}
+                      onChange={e => setNewItemName(e.target.value)}
+                      placeholder="e.g. glass of orange juice"
+                      autoCorrect="on"
+                      spellCheck={true}
+                      autoFocus
+                      onKeyDown={e => { if (e.key === 'Enter') handleAddItem() }}
+                      style={{
+                        flex: 1, fontSize: 15, fontWeight: 600, padding: '8px 10px',
+                        border: '2px solid var(--green)', borderRadius: 10,
+                        background: 'var(--gray6)', color: 'var(--label)',
+                        outline: 'none',
+                      }}
+                    />
+                  </div>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button
+                      onClick={handleAddItem}
+                      disabled={recalculating || !newItemName.trim()}
+                      style={{
+                        flex: 1, background: 'var(--green)', color: '#fff', border: 'none',
+                        borderRadius: 10, padding: '8px 14px', fontSize: 14, fontWeight: 600,
+                        cursor: 'pointer', opacity: recalculating || !newItemName.trim() ? 0.5 : 1,
+                      }}
+                    >
+                      {recalculating ? 'Adding...' : 'Add item'}
+                    </button>
+                    <button
+                      onClick={() => { setAddingItem(false); setNewItemName('') }}
+                      style={{
+                        background: 'var(--gray5)', color: 'var(--label2)', border: 'none',
+                        borderRadius: 10, padding: '8px 14px', fontSize: 14, fontWeight: 500, cursor: 'pointer',
+                      }}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setAddingItem(true)}
+                  style={{
+                    width: '100%', padding: '10px 0', border: 'none', background: 'none',
+                    color: 'var(--blue)', fontSize: 14, fontWeight: 600, cursor: 'pointer',
+                    borderTop: '0.5px solid var(--separator)', display: 'flex', alignItems: 'center',
+                    justifyContent: 'center', gap: 6,
+                  }}
+                >
+                  <span style={{ fontSize: 18, lineHeight: 1 }}>+</span> Add missing item
+                </button>
+              )}
+
               <div style={{ display: 'flex', justifyContent: 'space-between', padding: '10px 0', borderTop: '0.5px solid var(--separator)' }}>
                 <div style={{ fontSize: 14, fontWeight: 700 }}>Total</div>
                 <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--blue)' }}>{totalKcal} kcal / {totalProtein}g protein</div>
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--label3)', textAlign: 'center', padding: '0 0 4px' }}>
+                Tap any item to edit
               </div>
             </div>
 

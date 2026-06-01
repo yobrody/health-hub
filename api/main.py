@@ -711,7 +711,15 @@ async def smart_scan(input: ScanInput, key=Depends(require_key)):
         'For food: {"type": "food", "foods": [\n'
         '  {"name": "item name", "kcal": 300, "protein_g": 20, "carbs_g": 40, "fat_g": 10, "grams": 200}\n'
         "], \"confidence\": \"high\"}\n"
-        "  Estimate calories and macros for each distinct food item visible.\n"
+        "  Rules for food identification:\n"
+        "  - Count items separately. If there are 2 pies, list as '2x chicken pot pie' with nutrition for BOTH combined.\n"
+        "  - Be specific with UK products — use brand names when recognizable from packaging or appearance (e.g. 'Aldi Brooklea Greek Yogurt' not just 'yogurt').\n"
+        "  - Estimate portion sizes carefully based on plate/bowl size, depth, and visual density:\n"
+        "    * A full bowl of yogurt with toppings is typically 200-350g (250-400 kcal), NOT 60 kcal.\n"
+        "    * A standard dinner plate filled = 400-600g of food.\n"
+        "    * A sandwich = typically 250-400 kcal depending on filling.\n"
+        "  - For each item, the 'grams' field should reflect the actual visible portion weight.\n"
+        "  - If multiple units of the same food are visible, combine them into one entry with total nutrition.\n"
         '  confidence: "high" if clearly identifiable, "medium" if somewhat ambiguous, "low" if very uncertain\n'
     )
     parsed = gemini_call(prompt, image_b64=input.image, mime_type=media_type, max_tokens=2000, temperature=0.2)
@@ -770,6 +778,50 @@ async def smart_scan(input: ScanInput, key=Depends(require_key)):
     if confidence not in ("high", "medium", "low"):
         confidence = "medium"
     return {"type": "food", "foods": foods, "confidence": confidence}
+
+# ── FOOD RECALCULATE ─────────────────────────────────────────────────
+@app.post("/food/recalculate")
+async def recalculate_food(body: dict = Body(...), key=Depends(require_key)):
+    """Recalculate nutrition for a corrected food item name."""
+    name = body.get("name", "").strip()
+    original_name = body.get("original_name", "")
+    if not name:
+        raise HTTPException(400, "name required")
+
+    # Check fridge for brand context
+    fridge_context = ""
+    try:
+        fridge = read_fridge()
+        all_items = []
+        for section in fridge.values():
+            if isinstance(section, list):
+                all_items.extend([i.get("name", "") for i in section])
+        matching = [i for i in all_items if name.lower().split()[0] in i.lower() or i.lower() in name.lower()]
+        if matching:
+            fridge_context = f"\nThe user has these in their fridge that might match: {', '.join(matching)}. Use the specific product nutrition if it matches."
+    except Exception:
+        pass
+
+    prompt = f"""Estimate nutrition for this specific food item:
+"{name}"
+{fridge_context}
+
+Respond as JSON: {{"name": "corrected display name", "kcal": N, "protein_g": N, "carbs_g": N, "fat_g": N, "grams": N, "confidence": "high|medium|low", "note": "brief explanation of estimate"}}
+
+Be precise. If a count is specified (e.g. "2 chicken pot pies"), calculate for the total quantity. Use UK supermarket products where relevant."""
+
+    result = gemini_call(prompt)
+    # Normalise fields
+    return {
+        "name": (result.get("name") or name).strip(),
+        "kcal": int(result.get("kcal") or 0),
+        "protein_g": round(float(result.get("protein_g") or 0)),
+        "carbs_g": round(float(result.get("carbs_g") or 0)),
+        "fat_g": round(float(result.get("fat_g") or 0)),
+        "grams": int(result.get("grams") or 0) if result.get("grams") else None,
+        "confidence": result.get("confidence", "medium"),
+        "note": result.get("note", ""),
+    }
 
 # ── MEALS AI ──────────────────────────────────────────────────────────
 @app.post("/ai/meals")
@@ -835,6 +887,159 @@ def meal_detail(input: MealDetailInput, key=Depends(require_key)):
         "- Be realistic about portions (one serving for an active adult)"
     )
     return gemini_call(prompt, max_tokens=800, temperature=0.5)
+
+# ── MEAL PLANNING ────────────────────────────────────────────────────
+MEAL_PLAN_FILE = DATA_DIR / "meal_plans.json"
+
+def load_meal_plans() -> dict:
+    if MEAL_PLAN_FILE.exists():
+        try:
+            return json.loads(MEAL_PLAN_FILE.read_text())
+        except (json.JSONDecodeError, OSError):
+            pass
+    return {}
+
+def save_meal_plans(plans: dict):
+    MEAL_PLAN_FILE.write_text(json.dumps(plans, indent=2))
+
+@app.post("/ai/meal-plan")
+async def meal_plan(body: dict = Body(...), key=Depends(require_key)):
+    """Generate a meal plan for tomorrow based on goals, fridge, and today's intake."""
+    goals = read_goals()
+    target_kcal = body.get("target_kcal", goals.get("calories", 2200))
+    target_protein = body.get("target_protein", goals.get("protein", 160))
+
+    # Today's intake for context
+    today_content = read_food_file()
+    today_entries = parse_entries(today_content)
+    eaten_kcal = sum(e["kcal"] for e in today_entries)
+    eaten_protein = sum(e.get("protein_g", 0) for e in today_entries)
+
+    # Fridge contents
+    fridge = read_fridge()
+    all_items = [i["name"] for sec in fridge.values() for i in sec]
+    fridge_str = ", ".join(all_items) if all_items else "(fridge is empty)"
+
+    # Optional swap: regenerate just one meal slot
+    swap_slot = body.get("swap")  # e.g. "lunch"
+    existing_plan = body.get("existing_plan")  # list of 4 meals to keep context
+
+    if swap_slot and existing_plan:
+        keep = [m for m in existing_plan if m.get("slot") != swap_slot]
+        keep_str = "; ".join(f'{m["slot"]}: {m["name"]} ({m["kcal"]} kcal, {m["protein_g"]}g protein)' for m in keep)
+        budget_kcal = target_kcal - sum(m.get("kcal", 0) for m in keep)
+        budget_protein = target_protein - sum(m.get("protein_g", 0) for m in keep)
+        prompt = (
+            f"I need a replacement {swap_slot} meal for tomorrow.\n"
+            f"Fridge: {fridge_str}\n"
+            f"The other meals are: {keep_str}\n"
+            f"This meal must fit ~{budget_kcal} kcal and ~{budget_protein}g protein.\n"
+            f"Must be a realistic UK meal. Use fridge items where possible.\n\n"
+            'Return ONLY this JSON:\n'
+            '{"slot":"' + swap_slot + '","name":"Meal Name","ingredients":["item1","item2"],"kcal":500,"protein_g":35,"carbs_g":50,"fat_g":15,"prep_minutes":10}'
+        )
+        result = gemini_call(prompt, max_tokens=400, temperature=0.7)
+        if isinstance(result, dict) and "slot" not in result:
+            result["slot"] = swap_slot
+        return {"meal": result}
+
+    prompt = (
+        f"Create a full meal plan for tomorrow with exactly 4 meals: breakfast, lunch, dinner, snack.\n"
+        f"Daily targets: ~{target_kcal} kcal total, ~{target_protein}g protein total.\n"
+        f"Fridge/pantry contents: {fridge_str}\n"
+        f"Today's intake so far: {eaten_kcal} kcal, {eaten_protein}g protein "
+        f"(context only — plan is for TOMORROW, a fresh day).\n\n"
+        "Rules:\n"
+        "- Use items from the fridge/pantry where possible\n"
+        "- All meals should be realistic UK meals (practical, not fancy)\n"
+        "- The 4 meals together must roughly hit the calorie and protein targets\n"
+        "- Include prep time estimate for each meal\n\n"
+        'Return ONLY this JSON (no markdown):\n'
+        '{"meals":[\n'
+        '  {"slot":"breakfast","name":"Meal Name","ingredients":["item1","item2"],"kcal":500,"protein_g":35,"carbs_g":50,"fat_g":15,"prep_minutes":10},\n'
+        '  {"slot":"lunch","name":"...","ingredients":["..."],"kcal":600,"protein_g":40,"carbs_g":60,"fat_g":20,"prep_minutes":15},\n'
+        '  {"slot":"dinner","name":"...","ingredients":["..."],"kcal":700,"protein_g":50,"carbs_g":70,"fat_g":25,"prep_minutes":25},\n'
+        '  {"slot":"snack","name":"...","ingredients":["..."],"kcal":300,"protein_g":20,"carbs_g":30,"fat_g":10,"prep_minutes":5}\n'
+        ']}'
+    )
+    parsed = gemini_call(prompt, max_tokens=1200, temperature=0.6)
+    meals = parsed.get("meals") if isinstance(parsed, dict) else parsed
+    if not isinstance(meals, list):
+        meals = []
+
+    # Calculate totals
+    total_kcal = sum(m.get("kcal", 0) for m in meals)
+    total_protein = sum(m.get("protein_g", 0) for m in meals)
+
+    # Save plan for tomorrow
+    tomorrow = (date.today() + timedelta(days=1)).isoformat()
+    plans = load_meal_plans()
+    plans[tomorrow] = {"meals": meals, "generated_at": datetime.now().isoformat()}
+    save_meal_plans(plans)
+
+    return {
+        "date": tomorrow,
+        "meals": meals,
+        "totals": {"kcal": total_kcal, "protein_g": total_protein},
+        "targets": {"kcal": target_kcal, "protein_g": target_protein},
+    }
+
+@app.get("/ai/meal-plan/{plan_date}")
+def get_meal_plan(plan_date: str, key=Depends(require_key)):
+    """Retrieve a previously generated meal plan by date."""
+    plans = load_meal_plans()
+    plan = plans.get(plan_date)
+    if not plan:
+        raise HTTPException(status_code=404, detail="No meal plan for that date")
+    meals = plan.get("meals", [])
+    return {
+        "date": plan_date,
+        "meals": meals,
+        "totals": {
+            "kcal": sum(m.get("kcal", 0) for m in meals),
+            "protein_g": sum(m.get("protein_g", 0) for m in meals),
+        },
+    }
+
+@app.post("/ai/meal-plan/use")
+async def use_meal_plan(body: dict = Body(...), key=Depends(require_key)):
+    """Pre-fill tomorrow's food log slots from a meal plan."""
+    meals = body.get("meals", [])
+    plan_date = body.get("date")
+    if not plan_date or not meals:
+        raise HTTPException(status_code=400, detail="date and meals required")
+
+    # Build markdown entries for each meal
+    slot_times = {"breakfast": "08:00", "lunch": "12:30", "dinner": "18:30", "snack": "15:00"}
+    p = food_file(plan_date)
+    lines = []
+    if p.exists():
+        lines = [p.read_text()]
+    for meal in meals:
+        slot = meal.get("slot", "meal")
+        t = slot_times.get(slot, "12:00")
+        name = meal.get("name", slot.title())
+        kcal = meal.get("kcal", 0)
+        protein = meal.get("protein_g", 0)
+        ingredients = ", ".join(meal.get("ingredients", []))
+        lines.append(f"\n### {t} — {name}")
+        lines.append(f"- {ingredients}")
+        lines.append(f"- ~{kcal} kcal | ~{protein} g protein")
+        # Extended macros comment
+        carbs = meal.get("carbs_g")
+        fat = meal.get("fat_g")
+        if carbs is not None or fat is not None:
+            meta_parts = []
+            if carbs is not None:
+                meta_parts.append(f"carbs={carbs}g")
+            if fat is not None:
+                meta_parts.append(f"fat={fat}g")
+            meta_parts.append("confidence=planned")
+            lines.append(f"<!-- {' '.join(meta_parts)} -->")
+
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text("\n".join(lines))
+    return {"ok": True, "date": plan_date, "meals_added": len(meals)}
 
 # ── WORKOUTS ──────────────────────────────────────────────────────────
 WORKOUTS_FILE = DATA_DIR / "workouts.json"
@@ -2171,3 +2376,55 @@ def withings_auth_url(key=Depends(require_key)):
         except Exception:
             pass
     return {"url": None, "message": "Configure Withings client_id first. Purchase scale + register at developer.withings.com."}
+
+
+# ── DATA EXPORT ──────────────────────────────────────────────────────
+@app.get("/export")
+def export_all_data(key=Depends(require_key)):
+    """Export all health data as JSON for backup/portability."""
+    # Food logs — last 90 days
+    food_logs = {}
+    for i in range(90):
+        d = (date.today() - timedelta(days=i)).isoformat()
+        content = read_food_file(d)
+        if content.strip():
+            food_logs[d] = parse_entries(content)
+
+    # Workouts
+    workouts = load_workouts()
+
+    # Weight / metrics
+    weights = load_weights()
+    metrics = load_metrics()
+
+    # Sleep
+    sleep = load_sleep()
+
+    # Routines
+    routines = load_routines()
+
+    # Fridge
+    fridge = read_fridge()
+
+    # Goals
+    goals = read_goals()
+
+    # Agenda
+    agenda = load_agenda()
+
+    # Lists
+    lists = load_lists()
+
+    return {
+        "exported_at": datetime.now().isoformat(),
+        "food_logs": food_logs,
+        "workouts": workouts,
+        "weights": weights,
+        "metrics": metrics,
+        "sleep": sleep,
+        "routines": routines,
+        "fridge": fridge,
+        "goals": goals,
+        "agenda": agenda,
+        "lists": lists,
+    }
