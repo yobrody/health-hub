@@ -5,6 +5,7 @@ import type { TodayData, WeekStats, FridgeData, AiAction, AiActResponse } from '
 import { PROGRAM, getNextDay } from '../program'
 import type { DayName } from '../program'
 import { loadProducts, lowStockProducts } from '../lib/skincare-products'
+import { requestPermission, scheduleReminders } from '../lib/notifications'
 import { computeWeightTrend } from '../lib/weight-trend'
 import { celebrate } from '../lib/celebrations'
 import { useAnimatedNumber } from '../lib/useAnimatedNumber'
@@ -509,7 +510,7 @@ function WaterTracker() {
   )
 }
 
-type Tab = 'today' | 'nutrition' | 'fridge' | 'workout' | 'chat' | 'goals' | 'skincare' | 'lists' | 'agenda' | 'routines' | 'metrics' | 'timeline' | 'barcode' | 'weekly-report' | 'insights'
+type Tab = 'today' | 'nutrition' | 'fridge' | 'workout' | 'chat' | 'goals' | 'skincare' | 'lists' | 'agenda' | 'routines' | 'metrics' | 'timeline' | 'barcode' | 'weekly-report' | 'insights' | 'meal-plan' | 'streaks'
 interface Props {
   onNavigate: (tab: Tab) => void
   onToggleTheme: () => void
@@ -613,7 +614,12 @@ export default function Today({ onNavigate }: Props) {
   const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening'
 
   useEffect(() => {
-    api.getToday().then(d => setData(d)).catch(() => {}).finally(() => setLoading(false))
+    api.getToday().then(d => {
+      setData(d)
+      // Cache entries for notification reminder checks (no API call needed
+      // from the notification layer).
+      try { localStorage.setItem('today_food_entries', JSON.stringify(d.entries)) } catch { /* quota */ }
+    }).catch(() => {}).finally(() => setLoading(false))
     api.getWeekStats().then(setWeekStats).catch(() => {})
     api.getFridge().then(setFridgeData).catch(() => {})
     api.getAgendaToday().then(d => setAgendaCount({ open: d.items.filter(i => !i.done).length, total: d.items.length })).catch(() => {})
@@ -637,6 +643,13 @@ export default function Today({ onNavigate }: Props) {
       api.getToday().then(setData).catch(() => {})
     }
     window.addEventListener('food-logged', onFoodLogged)
+
+    // Notification reminders — request permission once (after onboarding),
+    // then check/fire reminders on every Today page load.
+    if (localStorage.getItem('onboarding_done') === '1') {
+      requestPermission().then(() => scheduleReminders())
+    }
+
     return () => window.removeEventListener('food-logged', onFoodLogged)
   }, [])
 
@@ -1450,6 +1463,16 @@ export default function Today({ onNavigate }: Props) {
           {/* Streaks — active routine streaks with flame icon */}
           <StreaksSection onNavigate={onNavigate} />
 
+          {/* Streaks heatmap page tile */}
+          <Card onClick={() => onNavigate('streaks')}>
+            <div className="flex items-center justify-between mb-2">
+              <CardLabel>Streaks</CardLabel>
+              <span style={{ fontSize: 14 }}>{'\uD83D\uDD25'}</span>
+            </div>
+            <div className="text-[13px] text-[var(--c-label-dim)]">Heatmap</div>
+            <div className="text-[12px] text-[var(--c-label-faint)] mt-0.5">Badges + records</div>
+          </Card>
+
           {/* Insights tile */}
           <Card onClick={() => onNavigate('insights')}>
             <div className="flex items-center justify-between mb-2">
@@ -1460,6 +1483,18 @@ export default function Today({ onNavigate }: Props) {
             </div>
             <div className="text-[13px] text-[var(--c-label-dim)]">Correlations</div>
             <div className="text-[12px] text-[var(--c-label-faint)] mt-0.5">Sleep + fitness + nutrition</div>
+          </Card>
+
+          {/* Meal Plan tile */}
+          <Card onClick={() => onNavigate('meal-plan')}>
+            <div className="flex items-center justify-between mb-2">
+              <CardLabel>Meal Plan</CardLabel>
+              <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" className="text-[var(--c-label-faint)]">
+                <path d="M3 2v7c0 1.1.9 2 2 2h4a2 2 0 0 0 2-2V2"/><path d="M7 2v20"/><path d="M21 15V2v0a5 5 0 0 0-5 5v6c0 1.1.9 2 2 2h3Zm0 0v7"/>
+              </svg>
+            </div>
+            <div className="text-[13px] text-[var(--c-label-dim)]">Tomorrow</div>
+            <div className="text-[12px] text-[var(--c-label-faint)] mt-0.5">AI meals from fridge</div>
           </Card>
 
           {/* Body — metrics page tile */}

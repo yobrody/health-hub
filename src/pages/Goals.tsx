@@ -464,6 +464,52 @@ export default function GoalsPage() {
         {/* Build info + force-refresh — escape hatch when an iOS PWA gets
             stuck on stale assets. Tap "Force refresh" to nuke the SW cache
             + reload, no need to uninstall the home-screen app. */}
+        {/* Export Data */}
+        <button onClick={async () => {
+          try {
+            const BASE = import.meta.env.VITE_API_BASE || '/api'
+            const KEY_VAL: string | undefined = import.meta.env.VITE_API_KEY || undefined
+            const headers: Record<string, string> = {}
+            if (KEY_VAL) headers['X-Health-Key'] = KEY_VAL
+            const res = await fetch(`${BASE}/export`, { headers })
+            if (!res.ok) throw new Error(`Export failed: ${res.status}`)
+            const data = await res.json()
+            const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+            const url = URL.createObjectURL(blob)
+            const a = document.createElement('a')
+            a.href = url
+            a.download = `health-hub-export-${new Date().toISOString().slice(0, 10)}.json`
+            document.body.appendChild(a)
+            a.click()
+            document.body.removeChild(a)
+            URL.revokeObjectURL(url)
+            showToast('Data exported')
+          } catch (err) {
+            showToast(`Export failed: ${String(err).slice(0, 60)}`, 'err')
+          }
+        }} style={{
+          width: '100%',
+          marginTop: 20,
+          background: 'var(--card)',
+          border: '1px solid var(--separator)',
+          borderRadius: 12,
+          padding: '14px 16px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          cursor: 'pointer',
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <svg width={18} height={18} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" style={{ color: 'var(--label2)' }}>
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+              <polyline points="7 10 12 15 17 10"/>
+              <line x1="12" y1="15" x2="12" y2="3"/>
+            </svg>
+            <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--label)' }}>Export Data</span>
+          </div>
+          <span style={{ fontSize: 12, color: 'var(--label3)' }}>JSON backup</span>
+        </button>
+
         <div style={{
           marginTop: 28, paddingTop: 18,
           borderTop: '0.5px solid var(--separator)',
