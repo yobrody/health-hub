@@ -1041,6 +1041,73 @@ async def use_meal_plan(body: dict = Body(...), key=Depends(require_key)):
     p.write_text("\n".join(lines))
     return {"ok": True, "date": plan_date, "meals_added": len(meals)}
 
+# ── RECIPE CALCULATOR ─────────────────────────────────────────────────
+@app.post("/recipes/calculate")
+async def calculate_recipe(body: dict = Body(...), key=Depends(require_key)):
+    """Calculate per-serving macros from a list of ingredients."""
+    ingredients = body.get("ingredients", [])
+    servings = body.get("servings", 1)
+    if not ingredients:
+        raise HTTPException(status_code=400, detail="ingredients list required")
+
+    prompt = f"""Calculate total and per-serving nutrition for this recipe:
+Ingredients: {json.dumps(ingredients)}
+Servings: {servings}
+
+Respond as JSON:
+{{"recipe_total": {{"kcal": N, "protein_g": N, "carbs_g": N, "fat_g": N, "fiber_g": N}},
+ "per_serving": {{"kcal": N, "protein_g": N, "carbs_g": N, "fat_g": N, "fiber_g": N}},
+ "ingredients": [{{"name": "...", "amount": "...", "kcal": N, "protein_g": N}}],
+ "confidence": "high|medium|low"}}"""
+
+    result = gemini_call(prompt, max_tokens=1200)
+    result["servings"] = servings
+    return result
+
+# ── WATER TRACKING ────────────────────────────────────────────────────
+WATER_DIR = DATA_DIR / "water"
+WATER_DIR.mkdir(parents=True, exist_ok=True)
+
+def _water_file(d: str = None) -> Path:
+    d = d or today()
+    return WATER_DIR / f"{d}.json"
+
+def _read_water(d: str = None) -> dict:
+    p = _water_file(d)
+    if p.exists():
+        try:
+            return json.loads(p.read_text())
+        except (json.JSONDecodeError, OSError):
+            pass
+    return {"date": d or today(), "entries": [], "total_ml": 0, "goal_ml": 2000}
+
+def _write_water(data: dict):
+    p = _water_file(data.get("date"))
+    p.write_text(json.dumps(data, indent=2))
+
+@app.get("/water")
+def get_water(d: str = None, key=Depends(require_key)):
+    """Get water intake for a date (defaults to today)."""
+    return _read_water(d)
+
+@app.post("/water")
+def log_water(body: dict = Body(...), key=Depends(require_key)):
+    """Log water intake. Body: {ml: 250, label?: "Glass", date?: "2026-05-28"}"""
+    ml = body.get("ml", 250)
+    label = body.get("label", "Water")
+    d = body.get("date") or today()
+    data = _read_water(d)
+    entry = {
+        "time": datetime.now().strftime("%H:%M"),
+        "ml": ml,
+        "label": label,
+    }
+    data["entries"].append(entry)
+    data["total_ml"] = sum(e["ml"] for e in data["entries"])
+    data["date"] = d
+    _write_water(data)
+    return {"ok": True, "total_ml": data["total_ml"], "entry": entry}
+
 # ── WORKOUTS ──────────────────────────────────────────────────────────
 WORKOUTS_FILE = DATA_DIR / "workouts.json"
 
@@ -2287,6 +2354,13 @@ def get_timeline(days: int = 7, key=Depends(require_key)):
                 if entry.get("date") == d:
                     events.append({"date": d, "type": "routine", "summary": rname.replace("-", " ").title()})
 
+        # Water intake
+        water = _read_water(d)
+        if water.get("total_ml", 0) > 0:
+            goal = water.get("goal_ml", 2000)
+            pct = round(water["total_ml"] / goal * 100)
+            events.append({"date": d, "type": "water", "summary": f"{water['total_ml']}ml water ({pct}% of goal)", "detail": f"{len(water.get('entries', []))} drinks"})
+
     events.sort(key=lambda e: e["date"], reverse=True)
     return {"events": events, "days": days}
 
@@ -2589,6 +2663,14 @@ def export_all_data(key=Depends(require_key)):
     # Lists
     lists = load_lists()
 
+    # Water
+    water_logs = {}
+    for i in range(90):
+        d = (date.today() - timedelta(days=i)).isoformat()
+        w = _read_water(d)
+        if w.get("total_ml", 0) > 0:
+            water_logs[d] = w
+
     return {
         "exported_at": datetime.now().isoformat(),
         "food_logs": food_logs,
@@ -2601,4 +2683,5 @@ def export_all_data(key=Depends(require_key)):
         "goals": goals,
         "agenda": agenda,
         "lists": lists,
+        "water": water_logs,
     }

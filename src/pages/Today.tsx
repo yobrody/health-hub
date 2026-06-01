@@ -447,37 +447,62 @@ function WeightTile({ onNavigate }: { onNavigate: (tab: Tab) => void }) {
   )
 }
 
+const WATER_PRESETS = [
+  { label: 'Glass', ml: 250 },
+  { label: 'Bottle', ml: 500 },
+  { label: 'Large', ml: 750 },
+  { label: 'Pint', ml: 568 },
+]
+const WATER_GOAL_ML = 2000
+
 function WaterTracker() {
-  const GOAL = 8
-  const todayKey = new Date().toDateString()
-  function readCount(): number {
-    try {
-      const s = localStorage.getItem('water_intake')
-      if (s) { const p = JSON.parse(s); if (p.date === todayKey) return p.count }
-    } catch { /* localStorage unavailable / corrupted JSON — fall through to 0 */ }
-    return 0
-  }
-  const [count, setCount] = useState(readCount)
+  const [totalMl, setTotalMl] = useState(0)
+  const [loading, setLoading] = useState(true)
+
+  // Load from API on mount + keep localStorage in sync for AI actions
+  useEffect(() => {
+    api.getWater().then(data => {
+      setTotalMl(data.total_ml || 0)
+      // Sync localStorage for backward compat with AI log_water
+      const glassCount = Math.round((data.total_ml || 0) / 250)
+      try { localStorage.setItem('water_intake', JSON.stringify({ date: new Date().toDateString(), count: glassCount })) } catch { /* ignore */ }
+      setLoading(false)
+    }).catch(() => setLoading(false))
+  }, [])
 
   // Subscribe to storage updates so the AI's log_water action visibly fills
-  // the dots without a reload. Browsers only fire 'storage' cross-tab by
-  // default, so applyAiActions also dispatches a synthetic event in-tab.
   useEffect(() => {
     const handler = (e: StorageEvent) => {
       if (e.key && e.key !== 'water_intake') return
-      setCount(readCount())
+      // AI logged water via localStorage, sync ml
+      try {
+        const raw = localStorage.getItem('water_intake')
+        if (raw) {
+          const p = JSON.parse(raw)
+          if (p.date === new Date().toDateString()) {
+            setTotalMl(p.count * 250)
+          }
+        }
+      } catch { /* ignore */ }
     }
     window.addEventListener('storage', handler)
     return () => window.removeEventListener('storage', handler)
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- readCount uses todayKey from closure; reading is fine
   }, [])
 
-  function set(n: number) {
-    const next = Math.max(0, Math.min(12, n))
-    setCount(next)
-    try { localStorage.setItem('water_intake', JSON.stringify({ date: todayKey, count: next })) } catch { /* quota exceeded — non-fatal */ }
+  async function addWater(ml: number, label: string) {
+    const optimistic = totalMl + ml
+    setTotalMl(optimistic)
     if (navigator.vibrate) navigator.vibrate(8)
+    // Sync localStorage for AI compat
+    try { localStorage.setItem('water_intake', JSON.stringify({ date: new Date().toDateString(), count: Math.round(optimistic / 250) })) } catch { /* ignore */ }
+    try {
+      const res = await api.logWater(ml, label)
+      setTotalMl(res.total_ml)
+    } catch { /* keep optimistic */ }
   }
+
+  const progress = Math.min(totalMl / WATER_GOAL_ML, 1)
+  const pct = Math.round(progress * 100)
 
   return (
     <Card span="full">
@@ -487,25 +512,48 @@ function WaterTracker() {
           <CardLabel>Hydration</CardLabel>
         </div>
         <span className="text-[13px] text-[var(--c-label-dim)]" style={{ fontFamily: "'JetBrains Mono', ui-monospace, monospace" }}>
-          {count}/{GOAL}
+          {loading ? '...' : `${totalMl}ml / ${WATER_GOAL_ML}ml`}
         </span>
       </div>
-      <div className="grid grid-cols-8 gap-1.5">
-        {Array.from({ length: GOAL }).map((_, i) => (
+
+      {/* Progress bar */}
+      <div style={{ height: 8, background: 'var(--c-border)', borderRadius: 4, overflow: 'hidden', marginBottom: 12 }}>
+        <div style={{
+          height: '100%',
+          width: `${pct}%`,
+          background: progress >= 1 ? 'var(--c-green, #34C759)' : 'var(--c-accent)',
+          borderRadius: 4,
+          transition: 'width 0.3s ease',
+        }} />
+      </div>
+
+      {/* Preset buttons */}
+      <div className="grid grid-cols-4 gap-2">
+        {WATER_PRESETS.map(preset => (
           <button
-            key={i}
-            onClick={() => set(i < count ? i : i + 1)}
-            aria-label={i < count ? `Glass ${i + 1} (drunk) — tap to undo` : `Mark glass ${i + 1} drunk`}
-            aria-pressed={i < count}
-            className={`h-8 rounded-md border transition-colors ${
-              i < count
-                ? 'bg-[var(--c-accent)] border-[var(--c-accent)]'
-                : 'bg-transparent border-[var(--c-border)] hover:border-[#3F3F46]'
-            }`}
-            style={{ WebkitTapHighlightColor: 'transparent' }}
-          />
+            key={preset.label}
+            onClick={() => addWater(preset.ml, preset.label)}
+            className="rounded-lg border border-[var(--c-border)] hover:border-[#3F3F46] active:bg-[#1F1F23] transition-colors"
+            style={{
+              background: 'var(--c-bg)',
+              padding: '8px 4px',
+              cursor: 'pointer',
+              WebkitTapHighlightColor: 'transparent',
+              textAlign: 'center',
+            }}
+          >
+            <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--c-label)' }}>{preset.label}</div>
+            <div style={{ fontSize: 10, color: 'var(--c-label-faint)', fontFamily: "'JetBrains Mono', ui-monospace, monospace" }}>{preset.ml}ml</div>
+          </button>
         ))}
       </div>
+
+      {/* Completion badge */}
+      {progress >= 1 && (
+        <div style={{ marginTop: 8, fontSize: 12, fontWeight: 600, color: 'var(--c-green, #34C759)', textAlign: 'center' }}>
+          Goal reached!
+        </div>
+      )}
     </Card>
   )
 }

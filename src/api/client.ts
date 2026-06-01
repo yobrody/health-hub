@@ -357,6 +357,22 @@ export const api = {
       body: JSON.stringify({ kg, date }),
     }),
 
+  // Recipe calculator
+  calculateRecipe: (ingredients: string[], servings: number) =>
+    request<RecipeResult>('/recipes/calculate', {
+      method: 'POST',
+      body: JSON.stringify({ ingredients, servings }),
+    }),
+
+  // Water tracking
+  getWater: (date?: string) =>
+    request<WaterData>(date ? `/water?d=${date}` : '/water'),
+  logWater: (ml: number, label?: string, date?: string) =>
+    request<{ ok: boolean; total_ml: number; entry: WaterEntry }>('/water', {
+      method: 'POST',
+      body: JSON.stringify({ ml, label, date }),
+    }),
+
   // Routines (skincare, vitamins, etc — single-tap daily check-ins with streak)
   getRoutine: (name: string) => request<RoutineData>(`/routines/${encodeURIComponent(name)}`),
   logRoutine: (name: string) =>
@@ -654,6 +670,21 @@ export interface WeeklyReport {
 // Recent foods
 export interface RecentFoodItem { name: string; kcal: number; protein_g: number }
 export interface RecentFoodsResponse { items: RecentFoodItem[]; days: number }
+
+// Recipe calculator
+export interface RecipeIngredient { name: string; amount: string; kcal: number; protein_g: number }
+export interface RecipeMacros { kcal: number; protein_g: number; carbs_g: number; fat_g: number; fiber_g: number }
+export interface RecipeResult {
+  recipe_total: RecipeMacros
+  per_serving: RecipeMacros
+  ingredients: RecipeIngredient[]
+  confidence: 'high' | 'medium' | 'low'
+  servings: number
+}
+
+// Water tracking
+export interface WaterEntry { time: string; ml: number; label: string }
+export interface WaterData { date: string; entries: WaterEntry[]; total_ml: number; goal_ml: number }
 
 // Meal Planning
 export interface PlannedMeal {

@@ -15,7 +15,7 @@ import {
   describeNext,
   findNextIncompleteSet,
 } from '../lib/workout-flow'
-import { searchExerciseDB, getExercisesByGroup } from '../lib/exercises'
+import { searchExerciseDB, getExercisesByGroup, findExercise } from '../lib/exercises'
 import type { MuscleGroup } from '../lib/exercises'
 
 interface LiveSet extends ExerciseSet { done: boolean }
@@ -908,6 +908,28 @@ export default function Workout() {
                   onSwipe={handleSwipe}
                   repsInputRef={repsInputRef}
                 />
+                {/* Exercise form description + muscle tags from the DB */}
+                {(() => {
+                  const dbEx = findExercise(focusEx.name)
+                  if (!dbEx) return null
+                  return (
+                    <div style={{ marginTop: 10 }}>
+                      {dbEx.description && (
+                        <div style={{ fontSize: 13, color: 'var(--label2)', lineHeight: 1.45, marginBottom: 8 }}>
+                          {dbEx.description}
+                        </div>
+                      )}
+                      <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                        {dbEx.primaryMuscles.map(m => (
+                          <span key={m} style={{ fontSize: 10, fontWeight: 600, background: 'rgba(59,130,246,0.15)', color: 'var(--blue)', borderRadius: 6, padding: '2px 7px' }}>{m}</span>
+                        ))}
+                        {dbEx.secondaryMuscles.map(m => (
+                          <span key={m} style={{ fontSize: 10, fontWeight: 600, background: 'var(--gray5)', color: 'var(--label2)', borderRadius: 6, padding: '2px 7px' }}>{m}</span>
+                        ))}
+                      </div>
+                    </div>
+                  )
+                })()}
                 {/* Programme guidance — moved out of the active card so the card
                     stays focused on the inputs. Only shown when the program
                     actually carries guidance for this exercise. */}

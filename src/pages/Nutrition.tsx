@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef } from 'react'
 import { api } from '../api/client'
 import { showToast } from '../toast'
-import type { FoodEntry, TodayData, HistoryDay, FoodAnalysis, BarcodeLookupResult, FoodSearchProduct } from '../api/client'
+import type { FoodEntry, TodayData, HistoryDay, FoodAnalysis, BarcodeLookupResult, FoodSearchProduct, RecipeResult } from '../api/client'
 
 const MEALS = ['Breakfast', 'Lunch', 'Dinner', 'Snack']
 
@@ -118,6 +118,12 @@ export default function Nutrition() {
     }
   }, [showDiary])
   const [selectedPhoto, setSelectedPhoto] = useState<string | null>(null)
+  // Recipe calculator
+  const [showRecipe, setShowRecipe] = useState(false)
+  const [recipeIngredients, setRecipeIngredients] = useState('')
+  const [recipeServings, setRecipeServings] = useState('1')
+  const [recipeResult, setRecipeResult] = useState<RecipeResult | null>(null)
+  const [recipeLoading, setRecipeLoading] = useState(false)
 
   useEffect(() => {
     const hour = new Date().getHours()
@@ -757,6 +763,10 @@ export default function Nutrition() {
                 <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--c-label)' }}>Log Food</div>
               </div>
               <div style={{ display: 'flex', gap: 8 }}>
+                <button className="tap-lift" onClick={() => { resetSheet(); setShowRecipe(true) }}
+                  style={{ background: 'var(--c-bg)', border: '1px solid var(--c-border)', borderRadius: 14, padding: '7px 12px', fontSize: 13, fontWeight: 600, color: 'var(--c-label)', cursor: 'pointer' }}>
+                  Recipe
+                </button>
                 {hasBarcodeSupport && (
                 <button className="tap-lift" onClick={() => fileInputRef.current?.click()} disabled={scanning || analyzing}
                     style={{ background: 'var(--c-bg)', border: '1px solid var(--c-border)', borderRadius: 14, padding: '7px 12px', fontSize: 13, fontWeight: 600, color: 'var(--c-label)', cursor: 'pointer', opacity: (scanning || analyzing) ? 0.5 : 1 }}>
@@ -927,6 +937,151 @@ export default function Nutrition() {
                 showToast(`Removed ${label}`)
               }}>Delete</button>
             <button onClick={() => setDeleteConfirm(null)} style={{ width: '100%', background: 'none', border: 'none', color: 'var(--c-accent)', fontSize: 17, fontWeight: 600, cursor: 'pointer', padding: 12 }}>Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {/* ── Recipe calculator sheet ─────────────────────────────────────────── */}
+      {showRecipe && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 200, display: 'flex', alignItems: 'flex-end' }}
+          onClick={e => { if (e.target === e.currentTarget) { setShowRecipe(false); setRecipeResult(null) } }}>
+          <div style={{ background: 'var(--c-card)', borderRadius: '20px 20px 0 0', padding: '8px 20px calc(40px + var(--safe-bottom))', width: '100%', animation: 'slideUp 0.28s cubic-bezier(0.32,0.72,0,1)', maxHeight: '92vh', overflowY: 'auto' }}>
+            <div style={{ width: 36, height: 5, background: 'var(--c-border)', borderRadius: 3, margin: '8px auto 16px' }} />
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <button className="sheet-close" onClick={() => { setShowRecipe(false); setRecipeResult(null) }}>✕</button>
+                <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--c-label)' }}>Recipe Calculator</div>
+              </div>
+            </div>
+
+            <div style={{ fontSize: 12, color: 'var(--c-label-faint)', marginBottom: 10 }}>
+              One ingredient per line (e.g. "200g chicken breast", "1 cup rice")
+            </div>
+            <textarea
+              value={recipeIngredients}
+              onChange={e => setRecipeIngredients(e.target.value)}
+              placeholder={"200g chicken breast\n1 cup rice\n1 tbsp olive oil\n100g broccoli"}
+              rows={6}
+              style={{ width: '100%', background: 'var(--c-bg)', border: '1px solid var(--c-border)', borderRadius: 12, padding: '12px 14px', fontSize: 14, color: 'var(--c-label)', resize: 'vertical', fontFamily: 'inherit', lineHeight: 1.6, outline: 'none', boxSizing: 'border-box' }}
+              autoComplete="on" autoCorrect="on" spellCheck={true}
+            />
+            <div style={{ display: 'flex', gap: 8, marginTop: 10, marginBottom: 14, alignItems: 'center' }}>
+              <label style={{ fontSize: 13, fontWeight: 600, color: 'var(--c-label)' }}>Servings</label>
+              <input
+                type="number" inputMode="numeric" min="1" max="20"
+                value={recipeServings}
+                onChange={e => setRecipeServings(e.target.value)}
+                style={{ width: 60, background: 'var(--c-bg)', border: '1px solid var(--c-border)', borderRadius: 10, padding: '8px 12px', fontSize: 14, color: 'var(--c-label)', textAlign: 'center', outline: 'none' }}
+              />
+            </div>
+            <button
+              onClick={async () => {
+                const lines = recipeIngredients.split('\n').map(l => l.trim()).filter(Boolean)
+                if (!lines.length) return
+                setRecipeLoading(true)
+                try {
+                  const result = await api.calculateRecipe(lines, parseInt(recipeServings) || 1)
+                  setRecipeResult(result)
+                } catch {
+                  showToast('Recipe calculation failed', 'err')
+                } finally {
+                  setRecipeLoading(false)
+                }
+              }}
+              disabled={recipeLoading || !recipeIngredients.trim()}
+              className="btn-primary"
+              style={{ width: '100%', opacity: (!recipeIngredients.trim() || recipeLoading) ? 0.45 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, marginBottom: 14 }}>
+              {recipeLoading ? (
+                <>
+                  <span style={{ display: 'inline-block', width: 16, height: 16, border: '2px solid rgba(255,255,255,0.4)', borderTopColor: '#fff', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} />
+                  Calculating...
+                </>
+              ) : 'Calculate'}
+            </button>
+
+            {recipeResult && (
+              <div>
+                {/* Per serving macros */}
+                <Card style={{ marginBottom: 10 }}>
+                  <CardLabel>Per serving ({recipeResult.servings} serving{recipeResult.servings > 1 ? 's' : ''})</CardLabel>
+                  <div style={{ display: 'flex', gap: 14, fontSize: 13, ...mono }}>
+                    <span><strong style={{ color: 'var(--c-label)', fontSize: 18 }}>{recipeResult.per_serving.kcal}</strong> kcal</span>
+                    <span><strong style={{ color: 'var(--c-accent)' }}>{recipeResult.per_serving.protein_g}g</strong> pro</span>
+                    <span><strong style={{ color: 'var(--c-green)' }}>{recipeResult.per_serving.carbs_g}g</strong> carb</span>
+                    <span><strong style={{ color: 'var(--c-orange)' }}>{recipeResult.per_serving.fat_g}g</strong> fat</span>
+                  </div>
+                  {recipeResult.per_serving.fiber_g > 0 && (
+                    <div style={{ fontSize: 11, color: 'var(--c-label-dim)', marginTop: 4 }}>Fiber: {recipeResult.per_serving.fiber_g}g</div>
+                  )}
+                </Card>
+
+                {/* Total macros */}
+                <Card style={{ marginBottom: 10 }}>
+                  <CardLabel>Recipe total</CardLabel>
+                  <div style={{ display: 'flex', gap: 14, fontSize: 12, color: 'var(--c-label-dim)', ...mono }}>
+                    <span>{recipeResult.recipe_total.kcal} kcal</span>
+                    <span>{recipeResult.recipe_total.protein_g}g pro</span>
+                    <span>{recipeResult.recipe_total.carbs_g}g carb</span>
+                    <span>{recipeResult.recipe_total.fat_g}g fat</span>
+                  </div>
+                </Card>
+
+                {/* Ingredient breakdown */}
+                {recipeResult.ingredients && recipeResult.ingredients.length > 0 && (
+                  <Card style={{ marginBottom: 10 }}>
+                    <CardLabel>Ingredients breakdown</CardLabel>
+                    {recipeResult.ingredients.map((ing, i) => (
+                      <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '4px 0', borderBottom: i < recipeResult.ingredients.length - 1 ? '1px solid var(--c-border)' : 'none' }}>
+                        <span style={{ fontSize: 13, color: 'var(--c-label)' }}>{ing.name} <span style={{ color: 'var(--c-label-faint)', fontSize: 11 }}>{ing.amount}</span></span>
+                        <span style={{ fontSize: 12, color: 'var(--c-label-dim)', ...mono }}>{ing.kcal} kcal · {ing.protein_g}g pro</span>
+                      </div>
+                    ))}
+                  </Card>
+                )}
+
+                {/* Confidence */}
+                {recipeResult.confidence && (
+                  <div style={{ textAlign: 'center', marginBottom: 10 }}>
+                    <ConfidenceBadge confidence={recipeResult.confidence} />
+                  </div>
+                )}
+
+                {/* Log one serving */}
+                <button
+                  className="btn-primary"
+                  style={{ width: '100%' }}
+                  onClick={async () => {
+                    const ps = recipeResult.per_serving
+                    const hour = new Date().getHours()
+                    const m = hour < 11 ? 'Breakfast' : hour < 15 ? 'Lunch' : hour < 18 ? 'Snack' : 'Dinner'
+                    const ingredientLines = recipeIngredients.split('\n').filter(l => l.trim()).slice(0, 3).join(', ')
+                    try {
+                      await api.addFood({
+                        meal: m,
+                        description: `Recipe (1/${recipeResult.servings}): ${ingredientLines}`,
+                        kcal: ps.kcal,
+                        protein_g: ps.protein_g,
+                        carbs_g: ps.carbs_g,
+                        fat_g: ps.fat_g,
+                        fiber_g: ps.fiber_g,
+                        confidence: recipeResult.confidence,
+                      })
+                      const updated = await api.getToday()
+                      setData(updated)
+                      setShowRecipe(false)
+                      setRecipeResult(null)
+                      setRecipeIngredients('')
+                      setRecipeServings('1')
+                      showToast(`Logged 1 serving (${ps.kcal} kcal)`)
+                      window.dispatchEvent(new Event('food-logged'))
+                    } catch {
+                      showToast('Failed to log serving', 'err')
+                    }
+                  }}>
+                  Log one serving ({recipeResult.per_serving.kcal} kcal)
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
