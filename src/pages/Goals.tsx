@@ -2,7 +2,7 @@ import { useEffect, useState, useRef } from 'react'
 import { api } from '../api/client'
 import { showToast } from '../toast'
 import { celebrate } from '../lib/celebrations'
-import type { WeekStats, Goals, GoalsUpdateInput } from '../api/client'
+import type { WeekStats, Goals, GoalsUpdateInput, AdaptiveTDEEData } from '../api/client'
 import { MEAL_PLAN, DEFAULT_SCHEDULE, PROGRAM } from '../program'
 import { BUILD_SHA, BUILD_DATE } from '../build-info'
 import {
@@ -130,10 +130,12 @@ export default function GoalsPage() {
   const [weightInput, setWeightInput] = useState('')
   const [showWeightInput, setShowWeightInput] = useState(false)
   const [direction, setDirection] = useState<Direction>(() => loadDirection(localStorage))
+  const [adaptiveTDEE, setAdaptiveTDEE] = useState<AdaptiveTDEEData | null>(null)
 
   useEffect(() => {
     api.getWeekStats().then(s => setStats(s)).catch(() => setStats(null))
     api.getGoals().then(g => setGoals(g.parsed)).catch(() => {})
+    api.getAdaptiveTDEE().then(setAdaptiveTDEE).catch(() => {})
     // Pull authoritative weight log from VPS, refresh local cache.
     api.getWeightLog(60).then(r => {
       const fresh = r.entries.map(e => ({ date: e.date, kg: e.kg }))
@@ -304,6 +306,59 @@ export default function GoalsPage() {
                 Apply
               </button>
             </div>
+          </div>
+        )}
+
+        {/* Adaptive TDEE card */}
+        {adaptiveTDEE && (
+          <div className="card" style={{ padding: 16, marginBottom: 12, border: adaptiveTDEE.source === 'adaptive' ? '1.5px solid var(--green)' : '1px solid var(--gray4)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+              <div style={{ fontSize: 13, color: 'var(--label2)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                Your TDEE
+              </div>
+              <span style={{
+                fontSize: 11, fontWeight: 600, borderRadius: 8, padding: '2px 8px',
+                ...(adaptiveTDEE.source === 'adaptive'
+                  ? { color: 'var(--green)', background: '#10B98120' }
+                  : { color: 'var(--orange)', background: '#F59E0B20' }),
+              }}>
+                {adaptiveTDEE.source === 'adaptive' ? 'Adaptive — based on your real data' : 'Estimated — log more to improve'}
+              </span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 8 }}>
+              <span style={{ fontSize: 32, fontWeight: 700, color: 'var(--label)', fontFamily: "'JetBrains Mono', monospace" }}>
+                {(adaptiveTDEE.adaptive_tdee ?? adaptiveTDEE.estimated_tdee).toLocaleString()}
+              </span>
+              <span style={{ fontSize: 14, color: 'var(--label2)' }}>kcal/day</span>
+            </div>
+            {adaptiveTDEE.source === 'adaptive' && adaptiveTDEE.avg_daily_intake != null && (
+              <div style={{ display: 'flex', gap: 16, fontSize: 12, color: 'var(--label2)', marginBottom: 8, fontFamily: "'JetBrains Mono', monospace" }}>
+                <span>Avg intake: {adaptiveTDEE.avg_daily_intake.toLocaleString()} kcal</span>
+                <span>Weight: {adaptiveTDEE.weekly_change_kg != null && adaptiveTDEE.weekly_change_kg >= 0 ? '+' : ''}{adaptiveTDEE.weekly_change_kg?.toFixed(2)} kg/wk</span>
+              </div>
+            )}
+            <div style={{ fontSize: 13, color: 'var(--label2)', lineHeight: 1.5 }}>
+              {adaptiveTDEE.recommendation}
+            </div>
+            {adaptiveTDEE.targets && (
+              <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+                {(['target', 'maintain', 'aggressive'] as const).map(level => (
+                  <div key={level} style={{ flex: 1, background: 'var(--gray6)', borderRadius: 10, padding: '8px 6px', textAlign: 'center' }}>
+                    <div style={{ fontSize: 15, fontWeight: 700, color: level === 'target' ? 'var(--blue)' : 'var(--label)', fontFamily: "'JetBrains Mono', monospace" }}>
+                      {adaptiveTDEE.targets![level].toLocaleString()}
+                    </div>
+                    <div style={{ fontSize: 10, color: 'var(--label3)', marginTop: 2, textTransform: 'capitalize' }}>
+                      {level === 'target' ? adaptiveTDEE.targets!.direction : level}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            {!adaptiveTDEE.data_status.sufficient && (
+              <div style={{ marginTop: 10, fontSize: 12, color: 'var(--label3)', fontStyle: 'italic' }}>
+                {adaptiveTDEE.data_status.message}
+              </div>
+            )}
           </div>
         )}
 

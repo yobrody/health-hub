@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef } from 'react'
 import { api } from '../api/client'
 import { showToast } from '../toast'
-import type { FoodEntry, TodayData, HistoryDay, FoodAnalysis, BarcodeLookupResult } from '../api/client'
+import type { FoodEntry, TodayData, HistoryDay, FoodAnalysis, BarcodeLookupResult, FoodSearchProduct } from '../api/client'
 
 const MEALS = ['Breakfast', 'Lunch', 'Dinner', 'Snack']
 
@@ -99,6 +99,10 @@ export default function Nutrition() {
   const [sugarG, setSugarG] = useState<number | undefined>()
   const [sodiumMg, setSodiumMg] = useState<number | undefined>()
   const [confidence, setConfidence] = useState<string | undefined>()
+  // Food database search
+  const [searchResults, setSearchResults] = useState<FoodSearchProduct[]>([])
+  const [searching, setSearching] = useState(false)
+  const [searchSource, setSearchSource] = useState<'verified' | 'ai' | null>(null)
   // Expandable food detail
   const [expandedEntry, setExpandedEntry] = useState<string | null>(null) // "meal-index" key
   // Delete
@@ -143,6 +147,8 @@ export default function Nutrition() {
     setSugarG(undefined)
     setSodiumMg(undefined)
     setConfidence(undefined)
+    setSearchResults([])
+    setSearchSource(null)
   }
 
   function saveRecent(entry: { desc: string; kcal: number; protein_g: number }) {
@@ -204,6 +210,35 @@ export default function Nutrition() {
     } finally {
       setSubmitting(false)
     }
+  }
+
+  async function handleFoodSearch() {
+    if (!desc.trim()) return
+    setSearching(true)
+    setSearchResults([])
+    try {
+      const res = await api.searchFood(desc.trim())
+      setSearchResults(res.results)
+    } catch {
+      showToast('Search failed — try again', 'err')
+    } finally {
+      setSearching(false)
+    }
+  }
+
+  function applySearchResult(product: FoodSearchProduct) {
+    const n = product.per_100g
+    setDesc(product.brand ? `${product.name} (${product.brand})` : product.name)
+    setKcal(String(n.kcal))
+    setProteinG(String(n.protein_g))
+    setCarbsG(n.carbs_g)
+    setFatG(n.fat_g)
+    setFiberG(n.fiber_g)
+    setSugarG(n.sugar_g)
+    setSodiumMg(n.sodium_mg)
+    setConfidence('high')
+    setSearchSource('verified')
+    setSearchResults([])
   }
 
   async function handleBarcodeFile(e: React.ChangeEvent<HTMLInputElement>) {
@@ -795,8 +830,53 @@ export default function Nutrition() {
 
               <input className="input-field" style={{ marginBottom: 10 }}
                 placeholder="What did you eat? e.g. Chicken and rice"
-                value={desc} onChange={e => setDesc(e.target.value)} autoFocus={!scanning && !analyzing}
+                value={desc} onChange={e => { setDesc(e.target.value); setSearchSource(null) }} autoFocus={!scanning && !analyzing}
                 autoComplete="on" autoCorrect="on" spellCheck={true} />
+
+              {/* Search database button + source badge */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                <button type="button" onClick={handleFoodSearch} disabled={searching || !desc.trim()}
+                  style={{ background: 'var(--c-bg)', border: '1px solid var(--c-border)', borderRadius: 10, padding: '7px 14px', fontSize: 12, fontWeight: 600, color: 'var(--c-label)', cursor: 'pointer', opacity: (!desc.trim() || searching) ? 0.5 : 1 }}>
+                  {searching ? 'Searching...' : 'Search Database'}
+                </button>
+                {searchSource === 'verified' && (
+                  <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--c-green)', background: '#10B98120', borderRadius: 8, padding: '2px 8px' }}>Verified</span>
+                )}
+                {(confidence && searchSource !== 'verified') && (
+                  <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--c-orange)', background: '#F59E0B20', borderRadius: 8, padding: '2px 8px' }}>AI estimate</span>
+                )}
+              </div>
+
+              {/* Search results */}
+              {searchResults.length > 0 && (
+                <div style={{ marginBottom: 12, maxHeight: 260, overflowY: 'auto', borderRadius: 12, border: '1px solid var(--c-border)' }}>
+                  {searchResults.map((product, i) => (
+                    <div key={i} onClick={() => applySearchResult(product)}
+                      style={{ display: 'flex', gap: 10, padding: '10px 12px', cursor: 'pointer', borderBottom: i < searchResults.length - 1 ? '1px solid var(--c-border)' : 'none', background: 'var(--c-bg)' }}>
+                      {product.image_url && (
+                        <img src={product.image_url} alt="" style={{ width: 44, height: 44, borderRadius: 8, objectFit: 'cover', flexShrink: 0 }} />
+                      )}
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--c-label)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {product.name}
+                        </div>
+                        {product.brand && (
+                          <div style={{ fontSize: 11, color: 'var(--c-label-dim)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{product.brand}</div>
+                        )}
+                        <div style={{ display: 'flex', gap: 8, marginTop: 3, fontSize: 10, color: 'var(--c-label-faint)' }}>
+                          <span style={{ fontWeight: 600, color: 'var(--c-label)' }}>{product.per_100g.kcal} kcal</span>
+                          <span>P {product.per_100g.protein_g}g</span>
+                          <span>C {product.per_100g.carbs_g}g</span>
+                          <span>F {product.per_100g.fat_g}g</span>
+                          <span style={{ color: 'var(--c-green)', fontWeight: 600 }}>per 100g</span>
+                        </div>
+                      </div>
+                      <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--c-green)', background: '#10B98118', borderRadius: 6, padding: '2px 6px', alignSelf: 'center', flexShrink: 0 }}>Verified</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
               <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
                 <input className="input-field" style={{ flex: 1 }}
                   placeholder="Calories" type="number" inputMode="numeric"

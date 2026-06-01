@@ -280,6 +280,12 @@ export const api = {
     return res.json()
   },
 
+  // Food database search (Open Food Facts)
+  searchFood: (q: string) => request<FoodSearchResponse>(`/food/search?q=${encodeURIComponent(q)}`),
+
+  // Adaptive TDEE (MacroFactor-style)
+  getAdaptiveTDEE: () => request<AdaptiveTDEEData>('/tdee/adaptive'),
+
   // Body metrics
   getTDEE: () => request<TDEEData>('/tdee'),
   getLatestMetric: () => request<{ metric: BodyMetric | null }>('/metrics/latest'),
@@ -665,4 +671,57 @@ export interface MealPlanResponse {
   meals: PlannedMeal[]
   totals: { kcal: number; protein_g: number }
   targets?: { kcal: number; protein_g: number }
+}
+
+// Food database search (Open Food Facts)
+export interface FoodSearchProduct {
+  name: string
+  brand: string
+  serving_size: string
+  quantity: string
+  image_url: string
+  per_100g: {
+    kcal: number
+    protein_g: number
+    carbs_g: number
+    fat_g: number
+    fiber_g: number
+    sugar_g: number
+    sodium_mg: number
+    salt_g: number
+  }
+  source: 'open_food_facts'
+}
+export interface FoodSearchResponse {
+  query: string
+  results: FoodSearchProduct[]
+  count: number
+  error?: string
+}
+
+// Adaptive TDEE (MacroFactor-style)
+export interface AdaptiveTDEEData {
+  estimated_tdee: number
+  bmr: number
+  activity_level: string
+  weight_kg: number
+  adaptive_tdee: number | null
+  source: 'adaptive' | 'estimated'
+  avg_daily_intake?: number
+  weight_change_kg?: number
+  weekly_change_kg?: number
+  days_span?: number
+  recommendation: string
+  data_status: {
+    food_days_logged: number
+    weight_entries: number
+    sufficient: boolean
+    message: string | null
+  }
+  targets?: {
+    maintain: number
+    target: number
+    aggressive: number
+    direction: 'lose' | 'gain' | 'maintain'
+  }
 }

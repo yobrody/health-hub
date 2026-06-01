@@ -2004,6 +2004,180 @@ def update_tdee_profile(key=Depends(require_key),
     return {"ok": True, "profile": existing}
 
 
+# ── FOOD DATABASE SEARCH (Open Food Facts) ───────────────────────────
+@app.get("/food/search")
+def food_search(q: str, key=Depends(require_key)):
+    """Search verified food database (Open Food Facts). Returns matching products with nutrition."""
+    import urllib.request, urllib.parse
+    url = (
+        f"https://world.openfoodfacts.org/cgi/search.pl?"
+        f"search_terms={urllib.parse.quote(q)}&search_simple=1&action=process&json=1"
+        f"&page_size=10&fields=product_name,brands,nutriments,image_front_small_url,quantity,serving_size"
+    )
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "HealthHub/2.0 (brody@healthhub.app)"})
+        with urllib.request.urlopen(req, timeout=8) as r:
+            data = json.loads(r.read().decode())
+        results = []
+        for p in (data.get("products") or []):
+            n = p.get("nutriments", {})
+            results.append({
+                "name": p.get("product_name", "Unknown"),
+                "brand": p.get("brands", ""),
+                "serving_size": p.get("serving_size", ""),
+                "quantity": p.get("quantity", ""),
+                "image_url": p.get("image_front_small_url", ""),
+                "per_100g": {
+                    "kcal": round(n.get("energy-kcal_100g", 0)),
+                    "protein_g": round(n.get("proteins_100g", 0), 1),
+                    "carbs_g": round(n.get("carbohydrates_100g", 0), 1),
+                    "fat_g": round(n.get("fat_100g", 0), 1),
+                    "fiber_g": round(n.get("fiber_100g", 0), 1),
+                    "sugar_g": round(n.get("sugars_100g", 0), 1),
+                    "sodium_mg": round(n.get("sodium_100g", 0) * 1000, 0),
+                    "salt_g": round(n.get("salt_100g", 0), 1),
+                },
+                "source": "open_food_facts",
+            })
+        return {"query": q, "results": results, "count": len(results)}
+    except Exception as e:
+        return {"query": q, "results": [], "count": 0, "error": str(e)}
+
+
+# ── ADAPTIVE TDEE (MacroFactor-style) ────────────────────────────────
+@app.get("/tdee/adaptive")
+def adaptive_tdee(key=Depends(require_key)):
+    """Adaptive TDEE — adjusts weekly based on actual weight trend vs calorie intake.
+    Uses the same principle as MacroFactor: if you're eating X calories and gaining Y weight,
+    your true TDEE is calculable from the energy balance equation."""
+
+    # --- Gather profile for estimated TDEE baseline ---
+    profile_data = {}
+    if PROFILE_FILE.exists():
+        try:
+            profile_data = json.loads(PROFILE_FILE.read_text())
+        except Exception:
+            pass
+
+    weight_kg = profile_data.get("weight_kg", 80.0)
+    height_cm = profile_data.get("height_cm", 180.0)
+    age = profile_data.get("age", 25)
+    sex = profile_data.get("sex", "male")
+    activity_level = profile_data.get("activity_level", "moderate")
+
+    # Latest weight from body metrics
+    metrics = load_metrics()
+    for m in reversed(metrics):
+        if "weight_kg" in m:
+            weight_kg = m["weight_kg"]
+            break
+
+    # Mifflin-St Jeor BMR
+    if sex == "female":
+        bmr = 10 * weight_kg + 6.25 * height_cm - 5 * age - 161
+    else:
+        bmr = 10 * weight_kg + 6.25 * height_cm - 5 * age + 5
+    multipliers = {"sedentary": 1.2, "light": 1.375, "moderate": 1.55, "active": 1.725, "very_active": 1.9}
+    estimated_tdee = round(bmr * multipliers.get(activity_level, 1.55))
+
+    # --- Pull last 14 days of food logs (total calories per day) ---
+    daily_intake: list[tuple[str, int]] = []  # (date_str, kcal)
+    for i in range(14):
+        d = (date.today() - timedelta(days=i)).isoformat()
+        content = read_food_file(d)
+        day_kcal = sum(int(m) for m in re.findall(r"~(\d+) kcal\)", content))
+        if day_kcal > 0:
+            daily_intake.append((d, day_kcal))
+
+    # --- Pull last 14 days of weight data ---
+    weights = load_weights()
+    cutoff_14d = (date.today() - timedelta(days=14)).isoformat()
+    recent_weights = [(w["date"], w["kg"]) for w in weights if w.get("date", "") >= cutoff_14d]
+    recent_weights.sort(key=lambda x: x[0])
+
+    food_days = len(daily_intake)
+    weight_entries = len(recent_weights)
+    sufficient_data = food_days >= 7 and weight_entries >= 3
+
+    result: dict = {
+        "estimated_tdee": estimated_tdee,
+        "bmr": round(bmr),
+        "activity_level": activity_level,
+        "weight_kg": weight_kg,
+        "data_status": {
+            "food_days_logged": food_days,
+            "weight_entries": weight_entries,
+            "sufficient": sufficient_data,
+            "message": None,
+        },
+    }
+
+    if not sufficient_data:
+        missing = []
+        if food_days < 7:
+            missing.append(f"need {7 - food_days} more days of food logging")
+        if weight_entries < 3:
+            missing.append(f"need {3 - weight_entries} more weight entries")
+        result["data_status"]["message"] = "Insufficient data: " + "; ".join(missing)
+        result["adaptive_tdee"] = None
+        result["source"] = "estimated"
+        result["recommendation"] = _adaptive_recommendation(estimated_tdee, None, profile_data)
+        return result
+
+    # --- Calculate adaptive TDEE ---
+    avg_daily_intake = round(sum(kcal for _, kcal in daily_intake) / food_days)
+
+    # Weight change: earliest vs latest in the 14-day window
+    first_weight = recent_weights[0][1]
+    last_weight = recent_weights[-1][1]
+    weight_change_kg = last_weight - first_weight
+    days_span = max((date.fromisoformat(recent_weights[-1][0]) - date.fromisoformat(recent_weights[0][0])).days, 1)
+
+    # 1 kg body weight change ~ 7700 kcal surplus/deficit
+    # True TDEE = avg_daily_intake - (weight_change_kg * 7700 / days)
+    adaptive_tdee = round(avg_daily_intake - (weight_change_kg * 7700 / days_span))
+
+    # Sanity clamp: adaptive TDEE shouldn't be absurdly far from estimated
+    adaptive_tdee = max(min(adaptive_tdee, estimated_tdee + 1200), estimated_tdee - 1200)
+
+    weekly_change_kg = round(weight_change_kg / days_span * 7, 2)
+
+    # Goal-based calorie recommendation
+    goal_direction = profile_data.get("goal_direction", "maintain")
+
+    result.update({
+        "adaptive_tdee": adaptive_tdee,
+        "source": "adaptive",
+        "avg_daily_intake": avg_daily_intake,
+        "weight_change_kg": round(weight_change_kg, 2),
+        "weekly_change_kg": weekly_change_kg,
+        "days_span": days_span,
+        "recommendation": _adaptive_recommendation(adaptive_tdee, goal_direction, profile_data),
+        "targets": _goal_targets(adaptive_tdee, goal_direction),
+    })
+    return result
+
+
+def _adaptive_recommendation(tdee: int, goal_direction: str | None, profile: dict) -> str:
+    if tdee is None:
+        return "Log food and weight consistently to unlock adaptive TDEE."
+    if goal_direction == "lose":
+        target = tdee - 500
+        return f"To lose ~0.5 kg/wk, aim for {target} kcal/day (adaptive TDEE {tdee} minus 500)."
+    elif goal_direction == "gain":
+        target = tdee + 300
+        return f"To gain ~0.3 kg/wk, aim for {target} kcal/day (adaptive TDEE {tdee} plus 300)."
+    return f"To maintain, aim for {tdee} kcal/day. Your adaptive TDEE is {tdee}."
+
+
+def _goal_targets(tdee: int, direction: str) -> dict:
+    if direction == "lose":
+        return {"maintain": tdee, "target": tdee - 500, "aggressive": tdee - 750, "direction": "lose"}
+    elif direction == "gain":
+        return {"maintain": tdee, "target": tdee + 300, "aggressive": tdee + 500, "direction": "gain"}
+    return {"maintain": tdee, "target": tdee, "aggressive": tdee, "direction": "maintain"}
+
+
 # ── HRV + SLEEP TRACKING ────────────────────────────────────────────
 SLEEP_FILE = DATA_DIR / "sleep.json"
 
