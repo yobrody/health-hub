@@ -674,7 +674,17 @@ async def smart_scan(input: ScanInput, key=Depends(require_key)):
     scan_type = parsed.get("type", "food")
 
     if scan_type == "barcode":
-        return {"type": "barcode", "code": parsed.get("code")}
+        code = parsed.get("code")
+        if code:
+            return {"type": "barcode", "code": code}
+        # Barcode not readable — re-classify as food product from the packaging
+        food_prompt = (
+            "This is a photo of a food product. Identify it from the packaging and estimate nutrition.\n"
+            'Respond as JSON: {"type": "food", "foods": [{"name": "product name", "kcal": N, "protein_g": N, "carbs_g": N, "fat_g": N, "grams": N}], "confidence": "medium"}\n'
+            "Be specific — include the brand name if visible."
+        )
+        parsed = gemini_call(food_prompt, image_b64=input.image, mime_type=media_type, max_tokens=1000, temperature=0.2)
+        scan_type = "food"
 
     if scan_type == "receipt":
         raw_items = parsed.get("items") or []
