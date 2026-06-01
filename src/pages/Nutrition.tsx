@@ -92,6 +92,15 @@ export default function Nutrition() {
   const [analyzing, setAnalyzing] = useState(false)
   const [photoAnalysis, setPhotoAnalysis] = useState<FoodAnalysis | null>(null)
   const photoInputRef = useRef<HTMLInputElement>(null)
+  // Extended macros (from AI analysis)
+  const [carbsG, setCarbsG] = useState<number | undefined>()
+  const [fatG, setFatG] = useState<number | undefined>()
+  const [fiberG, setFiberG] = useState<number | undefined>()
+  const [sugarG, setSugarG] = useState<number | undefined>()
+  const [sodiumMg, setSodiumMg] = useState<number | undefined>()
+  const [confidence, setConfidence] = useState<string | undefined>()
+  // Expandable food detail
+  const [expandedEntry, setExpandedEntry] = useState<string | null>(null) // "meal-index" key
   // Delete
   const [deleteConfirm, setDeleteConfirm] = useState<FoodEntry | null>(null)
   // Photo diary
@@ -128,6 +137,12 @@ export default function Nutrition() {
     setDesc('')
     setKcal('')
     setProteinG('')
+    setCarbsG(undefined)
+    setFatG(undefined)
+    setFiberG(undefined)
+    setSugarG(undefined)
+    setSodiumMg(undefined)
+    setConfidence(undefined)
   }
 
   function saveRecent(entry: { desc: string; kcal: number; protein_g: number }) {
@@ -177,7 +192,7 @@ export default function Nutrition() {
     const kcalNum = parseInt(kcal)
     const proteinNum = proteinG ? parseInt(proteinG) : undefined
     try {
-      await api.addFood({ meal, description: desc, kcal: kcalNum, protein_g: proteinNum })
+      await api.addFood({ meal, description: desc, kcal: kcalNum, protein_g: proteinNum, carbs_g: carbsG, fat_g: fatG, fiber_g: fiberG, sugar_g: sugarG, sodium_mg: sodiumMg, confidence })
       saveRecent({ desc, kcal: kcalNum, protein_g: proteinNum ?? 0 })
       const updated = await api.getToday()
       setData(updated)
@@ -231,6 +246,9 @@ export default function Nutrition() {
       if (result.name) setDesc(result.name)
       if (result.kcal > 0) setKcal(String(result.kcal))
       if (result.protein_g > 0) setProteinG(String(result.protein_g))
+      if (result.carbs_g > 0) setCarbsG(result.carbs_g)
+      if (result.fat_g > 0) setFatG(result.fat_g)
+      setConfidence(result.confidence)
     } catch {
       setScanMsg('AI analysis failed \u2014 enter details manually')
       setTimeout(() => setScanMsg(null), 4000)
@@ -505,19 +523,90 @@ export default function Nutrition() {
                       {/* Entries */}
                       {hasEntries ? (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                          {entries.map((e, i) => (
-                            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                              <div style={{ flex: 1, fontSize: 13, color: 'var(--c-label-dim)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                {e.items.split('\n')[0].replace(/^- /, '').replace(/ \(~\d+ kcal\)/, '')}
+                          {entries.map((e, i) => {
+                            const entryKey = `${mealName}-${i}`
+                            const isExpanded = expandedEntry === entryKey
+                            const label = e.items.split('\n')[0].replace(/^- /, '').replace(/ \(~\d+ kcal(, ~\d+ g protein)?\)/, '')
+                            const hasCarbs = e.carbs_g != null && e.carbs_g > 0
+                            const hasFat = e.fat_g != null && e.fat_g > 0
+                            const hasProtein = e.protein_g != null && e.protein_g > 0
+                            const totalMacroG = (e.protein_g ?? 0) + (e.carbs_g ?? 0) + (e.fat_g ?? 0)
+                            return (
+                              <div key={i}>
+                                <div
+                                  onClick={() => setExpandedEntry(isExpanded ? null : entryKey)}
+                                  style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', padding: '4px 0', WebkitTapHighlightColor: 'transparent' }}
+                                >
+                                  <div style={{ flex: 1, fontSize: 13, color: 'var(--c-label-dim)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                    {label}
+                                  </div>
+                                  <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--c-label-faint)', flexShrink: 0, ...mono }}>
+                                    {e.kcal}
+                                  </div>
+                                  <div style={{ fontSize: 10, color: 'var(--c-label-faint)', flexShrink: 0, transition: 'transform 0.2s', transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)' }}>
+                                    ▾
+                                  </div>
+                                </div>
+                                {/* Expanded detail view */}
+                                <div style={{
+                                  maxHeight: isExpanded ? 300 : 0,
+                                  overflow: 'hidden',
+                                  transition: 'max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.2s ease',
+                                  opacity: isExpanded ? 1 : 0,
+                                }}>
+                                  <div style={{ padding: '8px 0 4px', borderTop: '1px solid var(--c-border)' }}>
+                                    {/* Full description */}
+                                    <div style={{ fontSize: 12, color: 'var(--c-label)', marginBottom: 8 }}>{label}</div>
+
+                                    {/* Macro breakdown bar */}
+                                    {totalMacroG > 0 && (
+                                      <div style={{ marginBottom: 8 }}>
+                                        <div style={{ height: 8, borderRadius: 4, overflow: 'hidden', display: 'flex', background: 'var(--c-border)' }}>
+                                          {hasProtein && (
+                                            <div style={{ width: `${((e.protein_g ?? 0) / totalMacroG) * 100}%`, background: 'var(--c-accent)', minWidth: 2 }} />
+                                          )}
+                                          {hasCarbs && (
+                                            <div style={{ width: `${((e.carbs_g ?? 0) / totalMacroG) * 100}%`, background: 'var(--c-green)', minWidth: 2 }} />
+                                          )}
+                                          {hasFat && (
+                                            <div style={{ width: `${((e.fat_g ?? 0) / totalMacroG) * 100}%`, background: 'var(--c-orange)', minWidth: 2 }} />
+                                          )}
+                                        </div>
+                                      </div>
+                                    )}
+
+                                    {/* Macro values */}
+                                    <div style={{ display: 'flex', gap: 12, fontSize: 11, color: 'var(--c-label-dim)', marginBottom: 6, flexWrap: 'wrap', ...mono }}>
+                                      <span><strong style={{ color: 'var(--c-accent)' }}>{hasProtein ? `${e.protein_g}g` : '--'}</strong> protein</span>
+                                      <span><strong style={{ color: 'var(--c-green)' }}>{hasCarbs ? `${e.carbs_g}g` : '--'}</strong> carbs</span>
+                                      <span><strong style={{ color: 'var(--c-orange)' }}>{hasFat ? `${e.fat_g}g` : '--'}</strong> fat</span>
+                                    </div>
+
+                                    {/* Micros row */}
+                                    <div style={{ display: 'flex', gap: 12, fontSize: 11, color: 'var(--c-label-faint)', marginBottom: 8, flexWrap: 'wrap', ...mono }}>
+                                      <span>Fiber: {e.fiber_g != null ? `${e.fiber_g}g` : '--'}</span>
+                                      <span>Sugar: {e.sugar_g != null ? `${e.sugar_g}g` : '--'}</span>
+                                      <span>Sodium: {e.sodium_mg != null ? `${e.sodium_mg}mg` : '--'}</span>
+                                    </div>
+
+                                    {/* Time + confidence */}
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                                      <span style={{ fontSize: 11, color: 'var(--c-label-faint)', ...mono }}>Logged {e.time}</span>
+                                      {e.confidence && <ConfidenceBadge confidence={e.confidence as 'high' | 'medium' | 'low'} />}
+                                    </div>
+
+                                    {/* Action buttons */}
+                                    <div style={{ display: 'flex', gap: 8 }}>
+                                      <button
+                                        onClick={(ev) => { ev.stopPropagation(); setDeleteConfirm(e) }}
+                                        style={{ flex: 1, padding: '8px 0', borderRadius: 8, border: '1px solid var(--c-red)', background: 'none', color: 'var(--c-red)', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}
+                                      >Delete</button>
+                                    </div>
+                                  </div>
+                                </div>
                               </div>
-                              <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--c-label-faint)', flexShrink: 0, ...mono }}>
-                                {e.kcal}
-                              </div>
-                              <button onClick={() => setDeleteConfirm(e)}
-                                style={{ background: 'none', border: 'none', color: 'var(--c-label-faint)', cursor: 'pointer', padding: '2px 4px', fontSize: 14, borderRadius: 6, flexShrink: 0 }}
-                                title="Delete entry">×</button>
-                            </div>
-                          ))}
+                            )
+                          })}
                         </div>
                       ) : (
                         <div

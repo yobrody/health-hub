@@ -407,8 +407,8 @@ export interface BarcodeLookupResult {
   image_url?: string
 }
 export interface TodayData { date: string; entries: FoodEntry[]; total_kcal: number; goals: Goals }
-export interface FoodEntry { time: string; meal: string; items: string; kcal: number; protein_g?: number }
-export interface FoodEntryInput { meal: string; description: string; kcal: number; protein_g?: number; time?: string; date?: string }
+export interface FoodEntry { time: string; meal: string; items: string; kcal: number; protein_g?: number; carbs_g?: number; fat_g?: number; fiber_g?: number; sugar_g?: number; sodium_mg?: number; confidence?: string }
+export interface FoodEntryInput { meal: string; description: string; kcal: number; protein_g?: number; carbs_g?: number; fat_g?: number; fiber_g?: number; sugar_g?: number; sodium_mg?: number; confidence?: string; time?: string; date?: string }
 export interface HistoryDay { date: string; total_kcal: number; logged: boolean }
 export interface Goals { calories: number; protein: number; gym_days: number }
 export interface GoalsResponse { content: string; parsed: Goals }

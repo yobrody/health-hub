@@ -135,17 +135,38 @@ def read_food_file(d: str = None) -> str:
 
 def parse_entries(content: str) -> list:
     entries = []
-    for block in re.findall(r"### (\d{2}:\d{2}) — (.+?)\n((?:- .+\n)+)", content):
-        time, meal, items = block
+    # Split content into blocks starting with ### HH:MM
+    blocks = re.split(r"(?=### \d{2}:\d{2} — )", content)
+    for block in blocks:
+        m = re.match(r"### (\d{2}:\d{2}) — (.+?)\n((?:- .+(?:\n|$))+)", block)
+        if not m:
+            continue
+        time, meal, items = m.group(1), m.group(2), m.group(3)
         kcal_match = re.search(r"~(\d+) kcal", items)
         protein_match = re.search(r"~(\d+) g protein", items)
-        entries.append({
+        entry: dict = {
             "time": time,
             "meal": meal,
             "items": items.strip(),
             "kcal": int(kcal_match.group(1)) if kcal_match else 0,
-            "protein_g": int(protein_match.group(1)) if protein_match else 0
-        })
+            "protein_g": int(protein_match.group(1)) if protein_match else 0,
+        }
+        # Extract extended macros from <!-- ... --> comment in the block
+        comment = re.search(r"<!--\s*(.+?)\s*-->", block)
+        if comment:
+            meta = comment.group(1)
+            for key, field in [("carbs", "carbs_g"), ("fat", "fat_g"),
+                               ("fiber", "fiber_g"), ("sugar", "sugar_g")]:
+                vm = re.search(rf"{key}=(\d+)g", meta)
+                if vm:
+                    entry[field] = int(vm.group(1))
+            sm = re.search(r"sodium=(\d+)mg", meta)
+            if sm:
+                entry["sodium_mg"] = int(sm.group(1))
+            cm = re.search(r"confidence=(\w+)", meta)
+            if cm:
+                entry["confidence"] = cm.group(1)
+        entries.append(entry)
     return entries
 
 def read_goals() -> dict:
@@ -259,6 +280,12 @@ class FoodEntry(BaseModel):
     kcal: int
     time: Optional[str] = None
     protein_g: Optional[int] = None
+    carbs_g: Optional[int] = None
+    fat_g: Optional[int] = None
+    fiber_g: Optional[int] = None
+    sugar_g: Optional[int] = None
+    sodium_mg: Optional[int] = None
+    confidence: Optional[str] = None
     # ISO date YYYY-MM-DD. Defaults to today; let callers (e.g. the AI
     # assistant translating "yesterday I ate…") log to a different day.
     # Server clamps to a sensible window so the UI can never time-travel.
@@ -291,7 +318,22 @@ def add_food(entry: FoodEntry, key=Depends(require_key)):
         p.write_text(f"# Food Log — {target_date}\n\n")
     content = p.read_text()
     protein_str = f", ~{entry.protein_g} g protein" if entry.protein_g else ""
-    block = "\n### " + t + " — " + entry.meal + "\n- " + entry.description + " (~" + str(entry.kcal) + " kcal" + protein_str + ")\n**Subtotal: ~" + str(entry.kcal) + " kcal**\n"
+    # Extended macros stored as metadata comment for richer detail views
+    macro_parts = []
+    if entry.carbs_g is not None:
+        macro_parts.append(f"carbs={entry.carbs_g}g")
+    if entry.fat_g is not None:
+        macro_parts.append(f"fat={entry.fat_g}g")
+    if entry.fiber_g is not None:
+        macro_parts.append(f"fiber={entry.fiber_g}g")
+    if entry.sugar_g is not None:
+        macro_parts.append(f"sugar={entry.sugar_g}g")
+    if entry.sodium_mg is not None:
+        macro_parts.append(f"sodium={entry.sodium_mg}mg")
+    if entry.confidence:
+        macro_parts.append(f"confidence={entry.confidence}")
+    macro_comment = f"\n<!-- {' '.join(macro_parts)} -->" if macro_parts else ""
+    block = "\n### " + t + " — " + entry.meal + "\n- " + entry.description + " (~" + str(entry.kcal) + " kcal" + protein_str + ")" + macro_comment + "\n**Subtotal: ~" + str(entry.kcal) + " kcal**\n"
     content = re.sub(r"\n---\n\*\*Daily Total.*", "", content)
     content += block
     total = sum(e["kcal"] for e in parse_entries(content))
@@ -648,6 +690,8 @@ async def smart_scan(input: ScanInput, key=Depends(require_key)):
     media_type = input.mimeType or "image/jpeg"
     prompt = (
         "Look at this image and classify it as exactly ONE of these three categories:\n\n"
+        "IMPORTANT: If the image appears to be upside-down, mirrored, or rotated, still identify its contents. "
+        "Read text in any orientation. If you see product packaging, read the brand name even if the text is flipped or rotated.\n\n"
         '1. "barcode" — you see a barcode, QR code, or product packaging with a visible barcode/EAN number\n'
         '2. "receipt" — you see a grocery store receipt, shopping bill, or till printout\n'
         '3. "food" — you see actual food, a meal, a drink, ingredients, or a plate of food\n\n'
@@ -680,6 +724,8 @@ async def smart_scan(input: ScanInput, key=Depends(require_key)):
         # Barcode not readable — re-classify as food product from the packaging
         food_prompt = (
             "This is a photo of a food product. Identify it from the packaging and estimate nutrition.\n"
+            "IMPORTANT: If the image appears to be upside-down, mirrored, or rotated, still identify its contents. "
+            "Read text in any orientation. If you see product packaging, read the brand name even if the text is flipped or rotated.\n"
             'Respond as JSON: {"type": "food", "foods": [{"name": "product name", "kcal": N, "protein_g": N, "carbs_g": N, "fat_g": N, "grams": N}], "confidence": "medium"}\n'
             "Be specific — include the brand name if visible."
         )
