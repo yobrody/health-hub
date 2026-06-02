@@ -1544,7 +1544,7 @@ export default function Fridge() {
       setData(d)
       // Cache expiring items for notification system
       try {
-        const expiring = (d as Record<string, unknown>).expiring_soon
+        const expiring = (d as unknown as Record<string, unknown>).expiring_soon
         if (Array.isArray(expiring)) {
           localStorage.setItem('fridge_expiring_items', JSON.stringify(expiring))
         }
