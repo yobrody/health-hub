@@ -1236,7 +1236,11 @@ def week_stats(key=Depends(require_key)):
         food_data.append({"date": d, "total_kcal": total, "logged": bool(content.strip())})
     workouts = load_workouts()
     week_start = (date.today() - timedelta(days=6)).isoformat()
-    week_workouts = [w for w in workouts if w.get("start_time", "") >= week_start]
+    def _wd(w):
+        if "date" in w: return w["date"][:10]
+        wid = w.get("id", "")
+        return wid[:10] if len(wid) >= 10 and wid[4] == "-" and wid[7] == "-" else w.get("start_time", "")[:10]
+    week_workouts = [w for w in workouts if _wd(w) >= week_start]
     logged_days = sum(1 for d in food_data if d["logged"])
     avg_kcal = sum(d["total_kcal"] for d in food_data if d["logged"]) // max(logged_days, 1)
     return {
@@ -1676,7 +1680,14 @@ def weekly_report(key=Depends(require_key)):
     # ── Workouts ─────────────────────────────────────────────────────
     workouts = load_workouts()
     week_start = (date.today() - timedelta(days=6)).isoformat()
-    week_workouts = [w for w in workouts if w.get("start_time", "") >= week_start]
+
+    def _wk_date(w):
+        if "date" in w: return w["date"][:10]
+        wid = w.get("id", "")
+        if len(wid) >= 10 and wid[4] == "-" and wid[7] == "-": return wid[:10]
+        return w.get("start_time", "")[:10]
+
+    week_workouts = [w for w in workouts if _wk_date(w) >= week_start]
     workout_count = len(week_workouts)
 
     # ── Weight trend ─────────────────────────────────────────────────
@@ -1752,6 +1763,7 @@ def weekly_report(key=Depends(require_key)):
         "top_foods": [{"name": name, "count": count} for name, count in top_foods],
         "hydration_avg": hydration_avg,
         "summary": summary,
+        "text_summary": summary,
     }
 
 
@@ -2077,7 +2089,7 @@ def food_search(q: str, key=Depends(require_key)):
     """Search verified food database (Open Food Facts). Returns matching products with nutrition."""
     import urllib.request, urllib.parse
     url = (
-        f"https://world.openfoodfacts.org/cgi/search.pl?"
+        f"https://uk.openfoodfacts.net/cgi/search.pl?"
         f"search_terms={urllib.parse.quote(q)}&search_simple=1&action=process&json=1"
         f"&page_size=10&fields=product_name,brands,nutriments,image_front_small_url,quantity,serving_size"
     )
@@ -2165,6 +2177,7 @@ def adaptive_tdee(key=Depends(require_key)):
     food_days = len(daily_intake)
     weight_entries = len(recent_weights)
     sufficient_data = food_days >= 7 and weight_entries >= 3
+    tentative_data = food_days >= 3 and weight_entries >= 2
 
     result: dict = {
         "estimated_tdee": estimated_tdee,
@@ -2175,16 +2188,17 @@ def adaptive_tdee(key=Depends(require_key)):
             "food_days_logged": food_days,
             "weight_entries": weight_entries,
             "sufficient": sufficient_data,
+            "tentative": tentative_data and not sufficient_data,
             "message": None,
         },
     }
 
-    if not sufficient_data:
+    if not sufficient_data and not tentative_data:
         missing = []
-        if food_days < 7:
-            missing.append(f"need {7 - food_days} more days of food logging")
-        if weight_entries < 3:
-            missing.append(f"need {3 - weight_entries} more weight entries")
+        if food_days < 3:
+            missing.append(f"need {3 - food_days} more days of food logging")
+        if weight_entries < 2:
+            missing.append(f"need {2 - weight_entries} more weight entries")
         result["data_status"]["message"] = "Insufficient data: " + "; ".join(missing)
         result["adaptive_tdee"] = None
         result["source"] = "estimated"
@@ -2212,16 +2226,21 @@ def adaptive_tdee(key=Depends(require_key)):
     # Goal-based calorie recommendation
     goal_direction = profile_data.get("goal_direction", "maintain")
 
+    source = "adaptive" if sufficient_data else "tentative"
+    caveat = "" if sufficient_data else " (tentative — based on limited data, log more for accuracy)"
+
     result.update({
         "adaptive_tdee": adaptive_tdee,
-        "source": "adaptive",
+        "source": source,
         "avg_daily_intake": avg_daily_intake,
         "weight_change_kg": round(weight_change_kg, 2),
         "weekly_change_kg": weekly_change_kg,
         "days_span": days_span,
-        "recommendation": _adaptive_recommendation(adaptive_tdee, goal_direction, profile_data),
+        "recommendation": _adaptive_recommendation(adaptive_tdee, goal_direction, profile_data) + caveat,
         "targets": _goal_targets(adaptive_tdee, goal_direction),
     })
+    if not sufficient_data:
+        result["data_status"]["message"] = f"Tentative estimate from {food_days} food days + {weight_entries} weight entries. Log more for full accuracy."
     return result
 
 
@@ -2467,8 +2486,19 @@ def health_insights(key=Depends(require_key)):
     # Workouts (last 30 days)
     workouts = load_workouts()
     cutoff_30 = (today_d - timedelta(days=30)).isoformat()
-    recent_workouts = [w for w in workouts if w.get("start_time", "")[:10] >= cutoff_30]
-    workout_dates = set(w.get("start_time", "")[:10] for w in recent_workouts)
+
+    def _workout_date(w: dict) -> str:
+        """Extract date from workout — try 'date' field, then 'id' prefix, then 'start_time'."""
+        if "date" in w:
+            return w["date"][:10]
+        wid = w.get("id", "")
+        # id format: YYYY-MM-DD-N
+        if len(wid) >= 10 and wid[4] == "-" and wid[7] == "-":
+            return wid[:10]
+        return w.get("start_time", "")[:10]
+
+    recent_workouts = [w for w in workouts if _workout_date(w) >= cutoff_30]
+    workout_dates = set(_workout_date(w) for w in recent_workouts)
 
     # Sleep data (last 30 days)
     sleep_entries = load_sleep()
@@ -2486,7 +2516,7 @@ def health_insights(key=Depends(require_key)):
     if recent_sleep and workout_dates:
         sleep_workout = [s for s in recent_sleep if s["date"] in workout_dates]
         sleep_rest = [s for s in recent_sleep if s["date"] not in workout_dates]
-        if len(sleep_workout) >= 3 and len(sleep_rest) >= 3:
+        if len(sleep_workout) >= 1 and len(sleep_rest) >= 1:
             avg_workout = sum(s["duration_hrs"] for s in sleep_workout) / len(sleep_workout)
             avg_rest = sum(s["duration_hrs"] for s in sleep_rest) / len(sleep_rest)
             diff_mins = round((avg_workout - avg_rest) * 60)
@@ -2504,7 +2534,7 @@ def health_insights(key=Depends(require_key)):
     if recent_sleep and workout_dates:
         qual_workout = [s["quality"] for s in recent_sleep if s["date"] in workout_dates]
         qual_rest = [s["quality"] for s in recent_sleep if s["date"] not in workout_dates]
-        if len(qual_workout) >= 3 and len(qual_rest) >= 3:
+        if len(qual_workout) >= 1 and len(qual_rest) >= 1:
             avg_q_gym = round(sum(qual_workout) / len(qual_workout), 1)
             avg_q_rest = round(sum(qual_rest) / len(qual_rest), 1)
             if abs(avg_q_gym - avg_q_rest) >= 0.4:
@@ -2519,7 +2549,7 @@ def health_insights(key=Depends(require_key)):
     # ── Insight: Protein weekday vs weekend ─────────────────────────────
     weekday_food = [d for d in food_days if not d["is_weekend"] and d["logged"]]
     weekend_food = [d for d in food_days if d["is_weekend"] and d["logged"]]
-    if len(weekday_food) >= 5 and len(weekend_food) >= 2:
+    if len(weekday_food) >= 1 and len(weekend_food) >= 1:
         avg_protein_wd = sum(d["protein"] for d in weekday_food) / len(weekday_food)
         avg_protein_we = sum(d["protein"] for d in weekend_food) / len(weekend_food)
         if avg_protein_wd > 0:
@@ -2540,7 +2570,7 @@ def health_insights(key=Depends(require_key)):
         goal_cal = goals.get("calories", 2200)
         # Within 10% of goal counts as "hit"
         hits = sum(1 for d in this_week if abs(d["kcal"] - goal_cal) <= goal_cal * 0.10)
-        if len(this_week) >= 4:
+        if len(this_week) >= 1:
             insights.append({
                 "text": f"You've hit your calorie goal {hits} out of {len(this_week)} days this week",
                 "type": "positive" if hits >= len(this_week) * 0.7 else "negative" if hits <= 2 else "neutral",
@@ -2550,7 +2580,7 @@ def health_insights(key=Depends(require_key)):
             })
 
     # ── Insight: Weight trend over 2 weeks ───���──────────────────────────
-    if len(recent_weights) >= 4:
+    if len(recent_weights) >= 2:
         two_weeks_ago = (today_d - timedelta(days=14)).isoformat()
         first_half = [w for w in recent_weights if w["date"] <= two_weeks_ago]
         second_half = [w for w in recent_weights if w["date"] > two_weeks_ago]
@@ -2573,7 +2603,7 @@ def health_insights(key=Depends(require_key)):
     weekends_total = sum(1 for d in food_days if d["is_weekend"])
     weekdays_logged = sum(1 for d in food_days if not d["is_weekend"] and d["logged"])
     weekends_logged = sum(1 for d in food_days if d["is_weekend"] and d["logged"])
-    if weekdays_total >= 10 and weekends_total >= 4:
+    if weekdays_total >= 1 and weekends_total >= 1:
         wd_pct = round(weekdays_logged / weekdays_total * 100)
         we_pct = round(weekends_logged / weekends_total * 100)
         if abs(wd_pct - we_pct) >= 20:
@@ -2601,6 +2631,14 @@ def health_insights(key=Depends(require_key)):
             insights.append({
                 "text": f"Only {workouts_per_week:.1f} workouts/week vs your {goal_gym}x goal",
                 "type": "negative",
+                "icon": "\U0001F3CB\uFE0F",
+                "category": "fitness",
+                "data": {"avg_per_week": round(workouts_per_week, 1), "goal": goal_gym},
+            })
+        else:
+            insights.append({
+                "text": f"Averaging {workouts_per_week:.1f} workouts/week — close to your {goal_gym}x goal",
+                "type": "neutral",
                 "icon": "\U0001F3CB\uFE0F",
                 "category": "fitness",
                 "data": {"avg_per_week": round(workouts_per_week, 1), "goal": goal_gym},
