@@ -205,6 +205,37 @@ def _write_fridge_meta(meta: dict):
 def _meta_key(name: str) -> str:
     return name.strip().lower()
 
+def _parse_added_date(added: str | None) -> date | None:
+    """Parse the 'added' field (e.g. '28 May') into a date object.
+    Assumes current year; if the resulting date is in the future, use last year."""
+    if not added:
+        return None
+    try:
+        parsed = datetime.strptime(added, "%d %b").replace(year=date.today().year).date()
+        if parsed > date.today():
+            parsed = parsed.replace(year=date.today().year - 1)
+        return parsed
+    except ValueError:
+        return None
+
+# Expiry thresholds per zone (in days)
+_EXPIRY_THRESHOLDS = {
+    "fridge": 7,
+    "pantry": 14,
+    "freezer": 30,
+    "condiments": 30,
+}
+
+def _compute_freshness(days_since_added: int, zone: str) -> str:
+    """Return freshness label based on days since added and storage zone."""
+    threshold = _EXPIRY_THRESHOLDS.get(zone, 7)
+    if days_since_added <= 3:
+        return "fresh"
+    elif days_since_added < threshold:
+        return "use_soon"
+    else:
+        return "expired"
+
 def read_fridge() -> dict:
     p = WORKSPACE / "fridge.md"
     if not p.exists():
@@ -214,6 +245,7 @@ def read_fridge() -> dict:
     section_map = {"Fridge": "fridge", "Pantry": "pantry", "Condiments": "condiments", "Freezer": "freezer"}
     current = None
     meta = _read_fridge_meta()
+    today_date = date.today()
     for line in content.splitlines():
         for sec, key in section_map.items():
             if line.startswith(f"## {sec}"):
@@ -230,6 +262,15 @@ def read_fridge() -> dict:
                 for field in ("unit_size_g", "quantity_g", "unit_count", "quantity_count"):
                     if field in extra and extra[field] is not None:
                         entry[field] = extra[field]
+            # Compute freshness
+            added_date = _parse_added_date(added)
+            if added_date:
+                days = (today_date - added_date).days
+                entry["days_since_added"] = days
+                entry["freshness"] = _compute_freshness(days, current)
+            else:
+                entry["days_since_added"] = None
+                entry["freshness"] = "unknown"
             result[current].append(entry)
     return result
 
@@ -429,7 +470,49 @@ def drop_slot_for(name: str):
 
 @app.get("/fridge")
 def get_fridge(key=Depends(require_key)):
-    return read_fridge()
+    data = read_fridge()
+    # Collect items expiring within the next 2 days (use_soon or close to threshold)
+    expiring_soon = []
+    today_date = date.today()
+    for zone in ("fridge", "pantry", "condiments", "freezer"):
+        threshold = _EXPIRY_THRESHOLDS.get(zone, 7)
+        for item in data.get(zone, []):
+            days = item.get("days_since_added")
+            if days is not None and days >= (threshold - 2):
+                expiring_soon.append({
+                    "name": item["name"],
+                    "zone": zone,
+                    "days_since_added": days,
+                    "freshness": item["freshness"],
+                    "suggested_use_by": (today_date + timedelta(days=max(0, threshold - days))).isoformat(),
+                })
+    data["expiring_soon"] = sorted(expiring_soon, key=lambda x: x.get("days_since_added", 0), reverse=True)
+    return data
+
+@app.get("/fridge/expiring")
+def fridge_expiring(key=Depends(require_key)):
+    """Items that need to be used soon, sorted by urgency with suggested use-by dates."""
+    data = read_fridge()
+    today_date = date.today()
+    items = []
+    for zone in ("fridge", "pantry", "condiments", "freezer"):
+        threshold = _EXPIRY_THRESHOLDS.get(zone, 7)
+        for item in data.get(zone, []):
+            days = item.get("days_since_added")
+            if days is None:
+                continue
+            if item.get("freshness") in ("use_soon", "expired"):
+                use_by_delta = max(0, threshold - days)
+                items.append({
+                    "name": item["name"],
+                    "zone": zone,
+                    "days_since_added": days,
+                    "freshness": item["freshness"],
+                    "suggested_use_by": (today_date + timedelta(days=use_by_delta)).isoformat(),
+                    "urgency": days - threshold,  # positive = overdue, negative = days left
+                })
+    items.sort(key=lambda x: x["urgency"], reverse=True)
+    return {"expiring": items, "count": len(items)}
 
 @app.get("/fridge/slots")
 def get_slots(key=Depends(require_key)):

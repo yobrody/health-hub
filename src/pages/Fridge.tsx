@@ -1542,6 +1542,13 @@ export default function Fridge() {
   useEffect(() => {
     api.getFridge().then(d => {
       setData(d)
+      // Cache expiring items for notification system
+      try {
+        const expiring = (d as Record<string, unknown>).expiring_soon
+        if (Array.isArray(expiring)) {
+          localStorage.setItem('fridge_expiring_items', JSON.stringify(expiring))
+        }
+      } catch { /* ignore */ }
       const names = (['fridge','freezer','pantry','condiments'] as Zone[])
         .flatMap(z => d[z].map((it: FridgeItem) => it.name))
       if (names.length) api.getShelfLife(names).then(setLearnedShelfLife).catch(() => {})

@@ -93,6 +93,27 @@ function fireNotification(title: string, body: string, tag: string): void {
   } catch { /* SW-only environments may throw */ }
 }
 
+/** Check for fridge items expiring soon (cached from last /fridge fetch). */
+function checkFridgeExpiring(): void {
+  try {
+    const raw = localStorage.getItem('fridge_expiring_items')
+    if (!raw) return
+    const items = JSON.parse(raw) as Array<{ name: string; freshness: string }>
+    const expiring = items.filter(i => i.freshness === 'use_soon' || i.freshness === 'expired')
+    if (expiring.length === 0) return
+
+    // Fire one notification per item (max 3 to avoid spam)
+    for (const item of expiring.slice(0, 3)) {
+      const label = item.freshness === 'expired' ? 'has expired' : 'needs using soon'
+      fireNotification(
+        `Use your ${item.name} before it goes off`,
+        `${item.name} ${label}. Check your fridge.`,
+        `fridge_expiry_${item.name.toLowerCase().replace(/\s+/g, '_')}`
+      )
+    }
+  } catch { /* ignore */ }
+}
+
 /**
  * Check all reminder conditions and fire notifications as needed.
  * Call this on every Today page load. Idempotent per day per reminder type.
@@ -137,5 +158,10 @@ export function scheduleReminders(): void {
       'Your evening skincare routine isn\'t done yet.',
       'skincare_evening'
     )
+  }
+
+  // Morning (8am-12pm): fridge expiry check
+  if (hour >= 8 && hour < 12) {
+    checkFridgeExpiring()
   }
 }
