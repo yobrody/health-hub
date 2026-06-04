@@ -6,6 +6,16 @@
  * Request notification permission from the user. Safe to call multiple
  * times — browsers remember the choice after the first prompt.
  */
+const NOTIF_PREF = 'hh_notifications_enabled'
+/** Whether the user has reminders enabled (default on). */
+export function notificationsEnabled(): boolean {
+  try { return localStorage.getItem(NOTIF_PREF) !== 'off' } catch { return true }
+}
+/** Turn reminders on/off (persisted locally). */
+export function setNotificationsEnabled(on: boolean): void {
+  try { localStorage.setItem(NOTIF_PREF, on ? 'on' : 'off') } catch { /* quota */ }
+}
+
 export async function requestPermission(): Promise<boolean> {
   if (!('Notification' in window)) return false
   if (Notification.permission === 'granted') return true
@@ -80,6 +90,7 @@ function routineDoneToday(name: string): boolean {
 }
 
 function fireNotification(title: string, body: string, tag: string): void {
+  if (!notificationsEnabled()) return
   if (!('Notification' in window) || Notification.permission !== 'granted') return
   if (alreadyFired(tag)) return
 
@@ -119,6 +130,7 @@ function checkFridgeExpiring(): void {
  * Call this on every Today page load. Idempotent per day per reminder type.
  */
 export function scheduleReminders(): void {
+  if (!notificationsEnabled()) return
   if (!('Notification' in window) || Notification.permission !== 'granted') return
 
   const now = new Date()

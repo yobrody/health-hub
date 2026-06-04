@@ -5,7 +5,7 @@ import type { TodayData, WeekStats, FridgeData, AiAction, AiActResponse } from '
 import { PROGRAM, getNextDay } from '../program'
 import type { DayName } from '../program'
 import { loadProducts, lowStockProducts } from '../lib/skincare-products'
-import { requestPermission, scheduleReminders } from '../lib/notifications'
+import { requestPermission, scheduleReminders, notificationsEnabled, setNotificationsEnabled } from '../lib/notifications'
 import { computeWeightTrend } from '../lib/weight-trend'
 import { celebrate } from '../lib/celebrations'
 import { useAnimatedNumber } from '../lib/useAnimatedNumber'
@@ -565,6 +565,25 @@ interface Props {
   themeIcon: string
 }
 
+function NotifToggle() {
+  const [on, setOn] = useState(notificationsEnabled())
+  return (
+    <button
+      onClick={() => { const next = !on; setNotificationsEnabled(next); setOn(next); if (next) requestPermission() }}
+      aria-label="Toggle reminders"
+      title={on ? 'Reminders on' : 'Reminders off'}
+      className="flex items-center justify-center w-9 h-9 rounded-full text-[var(--c-label-dim)] hover:text-[var(--c-label)] hover:bg-[var(--c-card)] transition-colors"
+      style={{ WebkitTapHighlightColor: 'transparent' }}
+    >
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" />
+        <path d="M13.73 21a2 2 0 0 1-3.46 0" />
+        {!on && <line x1="3" y1="3" x2="21" y2="21" />}
+      </svg>
+    </button>
+  )
+}
+
 /** Streaks section — fetches active routine streaks and shows flame + count. */
 function StreaksSection({ onNavigate }: { onNavigate: (tab: Tab) => void }) {
   const ROUTINES = ['meditate', 'vitamins', 'journal', 'read', 'stretch', 'morning-skincare', 'evening-skincare']
@@ -1086,6 +1105,7 @@ export default function Today({ onNavigate }: Props) {
               {greeting}, <span className="text-[var(--c-label-dim)]">{displayName}</span>
             </div>
           </div>
+          <NotifToggle />
           {/* Settings cog — only entry point to Goals page (calorie/protein
               targets, weight log, meal plan). Without this the Goals page
               is implemented but unreachable. */}
