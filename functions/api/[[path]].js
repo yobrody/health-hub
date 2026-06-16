@@ -8,7 +8,7 @@
  * Direct IP blocked from Cloudflare Workers (error 1003).
  * nip.io resolves 128-140-33-150.nip.io → 128.140.33.150
  */
-const VPS_BASE = 'http://128-140-33-150.nip.io:8080'
+const VPS_BASE = 'https://hh-api.pestdispatch.co.uk'
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
