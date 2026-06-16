@@ -155,6 +155,28 @@ function NotoIcon({ name, size = 48 }: { name: string; size?: number }) {
   )
 }
 
+// Photo-first item visual: show the real product photo when we have one (from a
+// barcode/receipt scan via Open Food Facts, or the user's own snap), otherwise
+// fall back to the Noto food icon. Makes cards reflect the ACTUAL product —
+// e.g. a bag of shredded cheddar, not a generic block.
+function ItemVisual({ name, photoUrl, size = 44 }: { name: string; photoUrl?: string | null; size?: number }) {
+  const [broken, setBroken] = useState(false)
+  if (photoUrl && !broken) {
+    return (
+      <img
+        src={photoUrl}
+        alt=""
+        width={size}
+        height={size}
+        loading="lazy"
+        style={{ width: size, height: size, objectFit: 'cover', borderRadius: 10, display: 'block', background: 'var(--gray5)' }}
+        onError={() => setBroken(true)}
+      />
+    )
+  }
+  return <NotoIcon name={name} size={Math.round(size * 0.82)} />
+}
+
 // getFoodTint, freshnessColor, quantityBarColor removed alongside ItemCard
 // — only the cartoon-SVG Appliance render path remains, which doesn't use
 // these per-item color helpers. SOON/OLD freshness signals are inline in
@@ -1817,6 +1839,26 @@ export default function Fridge() {
           }}>{scanStatus}</div>
         )}
 
+        {/* ── Capture bar — fast ways to add/update stock (keeping a fridge
+            accurate is the hard part). Surfaces the receipt + barcode scanners
+            that were previously only reachable from the empty state. */}
+        {totalItems > 0 && (
+          <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+            <button onClick={() => fileInputRef.current?.click()}
+              style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, background: 'var(--card)', border: '1px solid var(--separator)', borderRadius: 12, padding: '10px 8px', fontSize: 13, fontWeight: 600, color: 'var(--label)', cursor: 'pointer' }}>
+              <span style={{ fontSize: 15 }}>🧾</span> Receipt
+            </button>
+            <button onClick={() => barcodeInputRef.current?.click()}
+              style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, background: 'var(--card)', border: '1px solid var(--separator)', borderRadius: 12, padding: '10px 8px', fontSize: 13, fontWeight: 600, color: 'var(--label)', cursor: 'pointer' }}>
+              <span style={{ fontSize: 15 }}>📷</span> Barcode
+            </button>
+            <button onClick={() => setShowAdd(true)}
+              style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, background: 'var(--blue)', border: 'none', borderRadius: 12, padding: '10px 8px', fontSize: 13, fontWeight: 600, color: '#fff', cursor: 'pointer' }}>
+              <span style={{ fontSize: 15 }}>＋</span> Add
+            </button>
+          </div>
+        )}
+
         {/* ── Expiry alert strip ── */}
         {alertItems.length > 0 && (
           <div style={{
@@ -1953,9 +1995,9 @@ export default function Fridge() {
                         }}
                       >
                         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                          {/* Icon */}
-                          <div style={{ width: 40, height: 40, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                            <NotoIcon name={item.name} size={36} />
+                          {/* Item visual — real product photo when we have one, else food icon */}
+                          <div style={{ width: 44, height: 44, flexShrink: 0, borderRadius: 12, overflow: 'hidden', background: 'var(--gray5)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                            <ItemVisual name={item.name} photoUrl={(item as { photo_url?: string | null }).photo_url} size={44} />
                           </div>
                           {/* Name + meta */}
                           <div style={{ flex: 1, minWidth: 0 }}>
