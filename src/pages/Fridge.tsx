@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, useRef } from 'react'
 import { api } from '../api/client'
-import type { FridgeData, FridgeItem, Meal, MealDetail, ScanResult, ScannedItem, ShelfLifeMap, SlotMap, SlotPos, FridgeItemDetail } from '../api/client'
+import type { FridgeData, FridgeItem, Meal, MealDetail, ScanResult, ScannedItem, ShelfLifeMap, SlotMap, SlotPos, FridgeItemDetail, ListItemData } from '../api/client'
 import { showToast } from '../toast'
 import { celebrate } from '../lib/celebrations'
 import { computeAteMacros } from '../lib/ate-macros'
@@ -1409,6 +1409,26 @@ export default function Fridge() {
   })
   const [collapsedZones, setCollapsedZones] = useState<Set<Zone>>(new Set())
   const [storeMode, setStoreMode] = useState(false)
+  const [shopItems, setShopItems] = useState<ListItemData[]>([])
+  const [shopInput, setShopInput] = useState('')
+  useEffect(() => {
+    if (storeMode) api.getList('shopping').then(d => setShopItems(d.items)).catch(() => {})
+  }, [storeMode])
+  async function addShopItem() {
+    const text = shopInput.trim()
+    if (!text) return
+    setShopInput('')
+    try { const { item } = await api.addListItem('shopping', text); setShopItems(p => [...p, item]); if (navigator.vibrate) navigator.vibrate(8) }
+    catch { showToast('Failed to add', 'err') }
+  }
+  async function toggleShopItem(id: string) {
+    try { const { item } = await api.toggleListItem('shopping', id); setShopItems(p => p.map(i => i.id === id ? item : i)) }
+    catch { showToast('Failed to update', 'err') }
+  }
+  async function removeShopItem(id: string) {
+    setShopItems(p => p.filter(i => i.id !== id))
+    try { await api.deleteListItem('shopping', id) } catch { /* best effort */ }
+  }
   const fileInputRef = useRef<HTMLInputElement>(null)
   const barcodeInputRef = useRef<HTMLInputElement>(null)
 
@@ -2261,11 +2281,36 @@ export default function Fridge() {
             <button onClick={() => setStoreMode(false)} style={{ background: 'var(--blue)', border: 'none', color: '#fff', borderRadius: 20, padding: '9px 18px', fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>Done</button>
           </div>
 
+          {/* Your live shopping list — add + tick off in the aisle (replaces the Notes app) */}
+          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--label2)', marginBottom: 8 }}>🧾 Your shopping list{shopItems.filter(i => !i.checked).length > 0 ? ` · ${shopItems.filter(i => !i.checked).length}` : ''}</div>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 10 }}>
+            <input className="input-field" placeholder="Add to list…" value={shopInput}
+              onChange={e => setShopInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') addShopItem() }}
+              autoComplete="on" autoCorrect="on" spellCheck={true} style={{ flex: 1 }} />
+            <button onClick={addShopItem} disabled={!shopInput.trim()} className="btn-primary" style={{ width: 48, padding: 0, fontSize: 22, flexShrink: 0, opacity: shopInput.trim() ? 1 : 0.5 }}>+</button>
+          </div>
+          {shopItems.length === 0 ? (
+            <div style={{ fontSize: 13, color: 'var(--label3)', marginBottom: 18 }}>List's empty — add items above, or tap a suggestion below.</div>
+          ) : (
+            <div style={{ marginBottom: 18 }}>
+              {[...shopItems].sort((a, b) => Number(a.checked) - Number(b.checked)).map(it => (
+                <div key={it.id} style={{ display: 'flex', alignItems: 'center', gap: 10, background: 'var(--card)', border: '1px solid var(--separator)', borderRadius: 12, padding: '6px 12px', marginBottom: 8 }}>
+                  <button onClick={() => toggleShopItem(it.id)} aria-label="toggle"
+                    style={{ background: it.checked ? 'var(--green)' : 'none', border: `2px solid ${it.checked ? 'var(--green)' : 'var(--blue)'}`, borderRadius: '50%', width: 24, height: 24, minWidth: 44, minHeight: 44, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}>
+                    {it.checked && <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M2 6l3 3 5-5" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+                  </button>
+                  <span style={{ flex: 1, fontSize: 15, textDecoration: it.checked ? 'line-through' : 'none', color: it.checked ? 'var(--label3)' : 'var(--label)' }}>{it.text}</span>
+                  <button onClick={() => removeShopItem(it.id)} aria-label="remove" style={{ background: 'none', border: 'none', color: 'var(--label3)', fontSize: 18, cursor: 'pointer', minWidth: 44, minHeight: 44, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>×</button>
+                </div>
+              ))}
+            </div>
+          )}
+
           <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--label2)', marginBottom: 8 }}>🛍️ Buy — staples you're out of</div>
           {smartGrocery.length === 0 ? (
             <div style={{ fontSize: 13, color: 'var(--label3)', marginBottom: 18 }}>You've got the basics covered.</div>
           ) : smartGrocery.map(name => (
-            <button key={name} onClick={async () => { try { await api.addListItem('shopping', name); showToast(`Added ${name} to shopping list`) } catch { showToast('Failed to add', 'err') } }}
+            <button key={name} onClick={async () => { try { const { item } = await api.addListItem('shopping', name); setShopItems(p => p.some(i => i.text.toLowerCase() === name.toLowerCase()) ? p : [...p, item]); showToast(`Added ${name} to shopping list`) } catch { showToast('Failed to add', 'err') } }}
               style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', background: 'var(--card)', border: '1px solid var(--separator)', borderRadius: 12, padding: '12px', marginBottom: 8, cursor: 'pointer', textAlign: 'left' }}>
               <span style={{ fontSize: 20 }}>🛒</span>
               <span style={{ flex: 1, fontSize: 15, fontWeight: 600, color: 'var(--label)' }}>{name}</span>
