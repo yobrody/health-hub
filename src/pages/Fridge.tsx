@@ -1408,6 +1408,7 @@ export default function Fridge() {
     try { return (localStorage.getItem('fridge_view') as 'cards' | 'appliance') || 'cards' } catch { return 'cards' }
   })
   const [collapsedZones, setCollapsedZones] = useState<Set<Zone>>(new Set())
+  const [storeMode, setStoreMode] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const barcodeInputRef = useRef<HTMLInputElement>(null)
 
@@ -1819,6 +1820,8 @@ export default function Fridge() {
               style={{ background: 'var(--card)', border: '1px solid var(--separator)', borderRadius: 20, padding: '8px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer', color: 'var(--label2)' }}>
               {viewMode === 'cards' ? '🧊' : '📋'}
             </button>
+            <button onClick={() => setStoreMode(true)} title="Store mode"
+              style={{ background: 'var(--card)', border: '1px solid var(--separator)', borderRadius: 20, padding: '8px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer', color: 'var(--label2)' }}>🛒</button>
             <button onClick={() => setShowAdd(true)}
               style={{ background: 'var(--blue)', color: '#fff', border: 'none', borderRadius: 20, padding: '8px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
               + Add
@@ -1856,6 +1859,26 @@ export default function Fridge() {
               style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, background: 'var(--blue)', border: 'none', borderRadius: 12, padding: '10px 8px', fontSize: 13, fontWeight: 600, color: '#fff', cursor: 'pointer' }}>
               <span style={{ fontSize: 15 }}>＋</span> Add
             </button>
+          </div>
+        )}
+
+        {/* ── Zone tiles — scan-at-a-glance; tap to focus a section ── */}
+        {totalItems > 0 && (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: 12 }}>
+            {(['fridge','freezer','pantry','condiments'] as Zone[]).map(z => {
+              const focused = !collapsedZones.has(z) && collapsedZones.size === 3
+              return (
+                <button key={z} onClick={() => setCollapsedZones(prev => {
+                  const allOthers = (['fridge','freezer','pantry','condiments'] as Zone[]).filter(x => x !== z)
+                  return (prev.size === 3 && !prev.has(z)) ? new Set() : new Set(allOthers)
+                })}
+                  style={{ background: focused ? ZONE_CONFIG[z].accent + '22' : 'var(--card)', border: `1px solid ${focused ? ZONE_CONFIG[z].accent : 'var(--separator)'}`, borderRadius: 14, padding: '10px 4px', cursor: 'pointer', textAlign: 'center', color: 'var(--label)' }}>
+                  <div style={{ fontSize: 18 }}>{ZONE_CONFIG[z].icon}</div>
+                  <div style={{ fontSize: 11, fontWeight: 700, marginTop: 2 }}>{ZONE_CONFIG[z].label}</div>
+                  <div style={{ fontSize: 11, color: 'var(--label2)' }}>{data[z].length}</div>
+                </button>
+              )
+            })}
           </div>
         )}
 
@@ -1995,8 +2018,8 @@ export default function Fridge() {
                         }}
                       >
                         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                          {/* Item visual — real product photo when we have one, else food icon */}
-                          <div style={{ width: 44, height: 44, flexShrink: 0, borderRadius: 12, overflow: 'hidden', background: 'var(--gray5)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                          {/* Item visual — unified tile: real product photo when we have one, else food icon */}
+                          <div style={{ width: 44, height: 44, flexShrink: 0, borderRadius: 12, overflow: 'hidden', background: 'var(--gray5)', border: '1px solid var(--separator)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                             <ItemVisual name={item.name} photoUrl={(item as { photo_url?: string | null }).photo_url} size={44} />
                           </div>
                           {/* Name + meta */}
@@ -2228,6 +2251,53 @@ export default function Fridge() {
           onClose={() => setDetailModal(null)}
           onRemove={() => removeByName(detailModal.name)}
         />
+      )}
+
+      {/* ── Store mode overlay — glanceable aisle view: what to buy, what to use up ── */}
+      {storeMode && (
+        <div style={{ position: 'fixed', inset: 0, background: 'var(--bg, #09090b)', zIndex: 210, overflowY: 'auto', padding: '18px 16px 48px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+            <div>
+              <div style={{ fontSize: 21, fontWeight: 800 }}>🛒 Store mode</div>
+              <div style={{ fontSize: 12, color: 'var(--label2)' }}>What to buy · what to use up</div>
+            </div>
+            <button onClick={() => setStoreMode(false)} style={{ background: 'var(--blue)', border: 'none', color: '#fff', borderRadius: 20, padding: '9px 18px', fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>Done</button>
+          </div>
+
+          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--label2)', marginBottom: 8 }}>🛍️ Buy — staples you're out of</div>
+          {smartGrocery.length === 0 ? (
+            <div style={{ fontSize: 13, color: 'var(--label3)', marginBottom: 18 }}>You've got the basics covered.</div>
+          ) : smartGrocery.map(name => (
+            <button key={name} onClick={async () => { try { await api.addListItem('shopping', name); showToast(`Added ${name} to shopping list`) } catch { showToast('Failed to add', 'err') } }}
+              style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', background: 'var(--card)', border: '1px solid var(--separator)', borderRadius: 12, padding: '12px', marginBottom: 8, cursor: 'pointer', textAlign: 'left' }}>
+              <span style={{ fontSize: 20 }}>🛒</span>
+              <span style={{ flex: 1, fontSize: 15, fontWeight: 600, color: 'var(--label)' }}>{name}</span>
+              <span style={{ fontSize: 12, color: 'var(--blue)', fontWeight: 700 }}>+ list</span>
+            </button>
+          ))}
+
+          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--label2)', margin: '18px 0 8px' }}>🍽️ Use up before shopping{alertItems.length > 0 ? ` · ${alertItems.length}` : ''}</div>
+          {alertItems.length === 0 ? (
+            <div style={{ fontSize: 13, color: 'var(--label3)' }}>Nothing about to expire — nice.</div>
+          ) : alertItems.map(it => {
+            const isOld = daysOld(it.added) > 5
+            return (
+              <div key={it.name} style={{ display: 'flex', alignItems: 'center', gap: 10, background: 'var(--card)', border: '1px solid var(--separator)', borderRadius: 12, padding: '10px 12px', marginBottom: 8 }}>
+                <div style={{ width: 36, height: 36, borderRadius: 9, overflow: 'hidden', background: 'var(--gray5)', border: '1px solid var(--separator)', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <ItemVisual name={it.name} photoUrl={(it as { photo_url?: string | null }).photo_url} size={36} />
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 15, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{it.name}</div>
+                  <div style={{ fontSize: 12, color: isOld ? 'var(--red)' : 'var(--orange)', fontWeight: 700 }}>{isOld ? 'Past best' : 'Eat soon'}</div>
+                </div>
+                <button onClick={() => removeByName(it.name)} title="Clear out — binned or used" style={{ background: 'var(--gray5)', border: 'none', color: 'var(--label)', borderRadius: 9, width: 34, height: 34, fontSize: 15, cursor: 'pointer', flexShrink: 0 }}>🗑️</button>
+              </div>
+            )
+          })}
+          {alertItems.length > 0 && (
+            <div style={{ fontSize: 11, color: 'var(--label3)', marginTop: 10, textAlign: 'center' }}>Tap 🗑️ to clear out anything you've binned or used.</div>
+          )}
+        </div>
       )}
 
       {/* ── Add item sheet ── */}
