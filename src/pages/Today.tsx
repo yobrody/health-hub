@@ -925,25 +925,40 @@ export default function Today({ onNavigate }: Props) {
     api.getToday().then(setData).catch(() => {})
     api.getFridge().then(setFridgeData).catch(() => {})
 
-    if (failed.length === 0) {
-      // Full success — celebrate (sparkles, "done" pill, calorie-bar pulse).
+    // Classify failures. A food/weight/water log failing means the user's data
+    // didn't get recorded — a real failure worth surfacing. But a fridge STOCK
+    // update failing (consume_fridge / add_fridge — e.g. an item that isn't
+    // stocked, or a re-bought duplicate) must NOT make the whole thing look like
+    // it "didn't go through" when the calories logged fine.
+    const STOCK_TYPES = new Set<AiAction['type']>(['consume_fridge', 'add_fridge'])
+    const criticalFailed = failed.filter(f => !STOCK_TYPES.has(f.action.type))
+    const stockFailed = failed.filter(f => STOCK_TYPES.has(f.action.type))
+
+    if (criticalFailed.length === 0) {
+      // Everything the user actually wanted logged went through — celebrate,
+      // even if a fridge stock-update couldn't apply.
       setAiState('success')
       setTimeout(() => {
         setAiPrompt('')
         setAiPreview(null)
         setAiState('idle')
       }, 1400)
-      showToast(aiPreview.summary || 'Done')
+      showToast(
+        stockFailed.length > 0
+          ? `${aiPreview.summary || 'Logged'} · couldn't update fridge stock`
+          : (aiPreview.summary || 'Done'),
+        stockFailed.length > 0 ? 'info' : undefined
+      )
       setAiFailed([])
     } else {
-      // Partial failure — DON'T fire the success animation (would mislead
-      // when half the batch didn't go through). Skip straight to idle and
-      // surface the retry chip with what failed.
+      // A real log failed — surface only the genuine failures for retry (soft
+      // fridge-stock misses are not shown as red "didn't go through" chips).
       setAiPrompt('')
       setAiPreview(null)
       setAiState('idle')
-      setAiFailed(failed)
-      showToast(`${aiPreview.actions.length - failed.length} done, ${failed.length} failed`, 'err')
+      setAiFailed(criticalFailed)
+      const okCount = aiPreview.actions.length - criticalFailed.length
+      showToast(`${okCount} done, ${criticalFailed.length} didn't log`, 'err')
     }
   }
 

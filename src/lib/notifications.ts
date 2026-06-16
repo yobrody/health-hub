@@ -92,6 +92,11 @@ function routineDoneToday(name: string): boolean {
 function fireNotification(title: string, body: string, tag: string): void {
   if (!notificationsEnabled()) return
   if (!('Notification' in window) || Notification.permission !== 'granted') return
+  // Never fire while the app is in the foreground. A reminder to do something
+  // in the app, shown while you're actively looking at the app, is just spam —
+  // this was the cause of "notifications every time I open the app". Reminders
+  // only make sense when the app is backgrounded.
+  if (typeof document !== 'undefined' && document.visibilityState === 'visible') return
   if (alreadyFired(tag)) return
 
   try {

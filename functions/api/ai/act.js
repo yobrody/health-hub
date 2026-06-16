@@ -117,6 +117,20 @@ Available action types:
    If the user says "3 eggs", emit ONE entry with count=3 and kcal/protein per egg
    (the app multiplies). If meal isn't stated, pick by time of day — current
    default is "${defaultMeal}".
+   CRITICAL — explicit quantities / multi-ingredient meals: when the user lists
+   several ingredients with weights (e.g. "75g oats, 46g peanut butter, 75g
+   banana, 39g honey"), emit a SEPARATE log_food for EVERY ingredient with kcal
+   and protein computed from the stated grams (count=1, gram-accurate values).
+   NEVER drop ingredients and NEVER collapse the meal into one low estimate.
+   Per-100g anchors (kcal / protein_g): dried/rolled oats 379/13, peanut butter
+   597/22, chia seeds 486/17, banana 89/1.1, honey 304/0.3, cinnamon 247/4,
+   whey protein 400/80, cooked white rice 130/2.7, chicken breast 165/31,
+   chicken thigh 209/18, egg(1)≈72/6, whole milk 64/3.3, greek yogurt 97/9,
+   olive oil 884/0, bread(1 slice)≈80/3, cheddar 402/25. Unknown item → best
+   per-100g guess. Compute kcal = anchor_kcal * grams / 100 (round). A bowl of
+   oats with peanut butter, banana and honey is ~700–800 kcal, never ~250.
+   For explicit raw-ingredient meals like this, DO NOT emit consume_fridge —
+   just log the food accurately.
    IMPORTANT: If a brand/shop is mentioned (Its Bagels, Greggs, Aldi, Tesco, Pret, etc.),
    set matched_product to the exact product name from that shop, brand_or_shop to the brand,
    and confidence to "high" if you know the actual nutrition, "medium" if estimating.
@@ -227,13 +241,22 @@ User: "remind me to call mum and add tomatoes to groceries"
   {"type":"add_list_item","list":"groceries","text":"tomatoes"}
 ],"summary":"Added 'call mum' to today's plan and tomatoes to your groceries list."}
 
+User: "75g of dried oats, 46g of smooth peanut butter, 7g of chia seeds, 75g of banana, 1g of cinnamon, 39g of honey"
+{"actions":[
+  {"type":"log_food","name":"75g oats","count":1,"kcal":284,"protein_g":10,"meal":"Breakfast"},
+  {"type":"log_food","name":"46g peanut butter","count":1,"kcal":275,"protein_g":10,"meal":"Breakfast"},
+  {"type":"log_food","name":"7g chia seeds","count":1,"kcal":34,"protein_g":1,"meal":"Breakfast"},
+  {"type":"log_food","name":"75g banana","count":1,"kcal":67,"protein_g":1,"meal":"Breakfast"},
+  {"type":"log_food","name":"39g honey","count":1,"kcal":119,"protein_g":0,"meal":"Breakfast"}
+],"summary":"Logged oats, peanut butter, chia, banana and honey to breakfast (~779 kcal, 22g protein)."}
+
 User: "${prompt.replace(/"/g, '\\"')}"`
 
   const r = await geminiTextJSON({
     apiKey: context.env.GEMINI_API_KEY,
     prompt: sysPrompt,
-    maxTokens: 800,
-    temperature: 0.3,
+    maxTokens: 1536,
+    temperature: 0.2,
   })
   if (!r.ok) {
     return json({ error: `AI error ${r.status}`, detail: r.error.slice(0, 150), actions: [], summary: '' }, r.status === 503 ? 503 : 502)
