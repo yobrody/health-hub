@@ -1822,10 +1822,6 @@ export default function Fridge() {
             </button>
             <button onClick={() => setStoreMode(true)} title="Store mode"
               style={{ background: 'var(--card)', border: '1px solid var(--separator)', borderRadius: 20, padding: '8px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer', color: 'var(--label2)' }}>🛒</button>
-            <button onClick={() => setShowAdd(true)}
-              style={{ background: 'var(--blue)', color: '#fff', border: 'none', borderRadius: 20, padding: '8px 14px', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
-              + Add
-            </button>
           </div>
         </div>
 
@@ -1864,7 +1860,7 @@ export default function Fridge() {
 
         {/* ── Zone tiles — scan-at-a-glance; tap to focus a section ── */}
         {totalItems > 0 && (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8, marginBottom: 12 }}>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 12, overflowX: 'auto', WebkitOverflowScrolling: 'touch' }}>
             {(['fridge','freezer','pantry','condiments'] as Zone[]).map(z => {
               const focused = !collapsedZones.has(z) && collapsedZones.size === 3
               return (
@@ -1872,7 +1868,7 @@ export default function Fridge() {
                   const allOthers = (['fridge','freezer','pantry','condiments'] as Zone[]).filter(x => x !== z)
                   return (prev.size === 3 && !prev.has(z)) ? new Set() : new Set(allOthers)
                 })}
-                  style={{ background: focused ? ZONE_CONFIG[z].accent + '22' : 'var(--card)', border: `1px solid ${focused ? ZONE_CONFIG[z].accent : 'var(--separator)'}`, borderRadius: 14, padding: '10px 4px', cursor: 'pointer', textAlign: 'center', color: 'var(--label)' }}>
+                  style={{ flex: '1 0 auto', minWidth: 78, background: focused ? ZONE_CONFIG[z].accent + '22' : 'var(--card)', border: `1px solid ${focused ? ZONE_CONFIG[z].accent : 'var(--separator)'}`, borderRadius: 14, padding: '10px 6px', cursor: 'pointer', textAlign: 'center', color: 'var(--label)' }}>
                   <div style={{ fontSize: 18 }}>{ZONE_CONFIG[z].icon}</div>
                   <div style={{ fontSize: 11, fontWeight: 700, marginTop: 2 }}>{ZONE_CONFIG[z].label}</div>
                   <div style={{ fontSize: 11, color: 'var(--label2)' }}>{data[z].length}</div>
@@ -1882,31 +1878,30 @@ export default function Fridge() {
           </div>
         )}
 
-        {/* ── Expiry alert strip ── */}
+                {/* Eat-soon hero - compact horizontal strip; expiry surfaced, not buried */}
         {alertItems.length > 0 && (
-          <div style={{
-            background: oldItems.length > 0 ? '#FF3B300E' : '#FF95000E',
-            border: `1px solid ${oldItems.length > 0 ? 'rgba(255,59,48,0.18)' : 'rgba(255,149,0,0.18)'}`,
-            borderRadius: 14, padding: '11px 14px', marginBottom: 12,
-            display: 'flex', alignItems: 'center', gap: 10,
-          }}>
-            <span style={{ fontSize: 18 }}>{oldItems.length > 0 ? '\u{1F6A8}' : '\u26A0\uFE0F'}</span>
-            <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ marginBottom: 14 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
               <div style={{ fontSize: 13, fontWeight: 700, color: oldItems.length > 0 ? 'var(--red)' : 'var(--orange)' }}>
-                {oldItems.length > 0 ? `Past their best \u00B7 ${alertItems.length}` : `Eat soon \u00B7 ${alertItems.length}`}
+                {oldItems.length > 0 ? `🚨 Past their best · ${alertItems.length}` : `🔥 Eat soon · ${alertItems.length}`}
               </div>
-              {/* Show first 3 names then "+N more" \u2014 single source of truth
-                  for the count; was showing 6 in header + 4 names + "+2"
-                  (audit P1-3). */}
-              <div style={{ fontSize: 12, color: 'var(--label2)', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {alertItems.slice(0, 3).map(i => i.name).join(' \u00B7 ')}
-                {alertItems.length > 3 ? ` +${alertItems.length - 3} more` : ''}
-              </div>
+              <button onClick={shareShoppingList} style={{ background: 'none', border: '1.5px solid var(--blue)', color: 'var(--blue)', borderRadius: 12, padding: '7px 12px', fontSize: 12, fontWeight: 700, cursor: 'pointer', flexShrink: 0 }}>📋 List</button>
             </div>
-            <button onClick={shareShoppingList} style={{
-              background: 'none', border: '1.5px solid var(--blue)', color: 'var(--blue)',
-              borderRadius: 12, padding: '5px 10px', fontSize: 12, fontWeight: 700, cursor: 'pointer', flexShrink: 0,
-            }}>📋 List</button>
+            <div style={{ display: 'flex', gap: 8, overflowX: 'auto', WebkitOverflowScrolling: 'touch', paddingBottom: 2 }}>
+              {alertItems.slice(0, 12).map(it => {
+                const isOld = daysOld(it.added) > 5
+                return (
+                  <button key={it.name} onClick={() => setStoreMode(true)} title="Open store mode to clear out"
+                    style={{ flexShrink: 0, width: 104, background: 'var(--card)', border: `1px solid ${isOld ? 'rgba(255,59,48,0.35)' : 'rgba(255,149,0,0.35)'}`, borderRadius: 14, padding: 8, cursor: 'pointer', textAlign: 'left', color: 'var(--label)' }}>
+                    <div style={{ width: 40, height: 40, borderRadius: 10, overflow: 'hidden', background: 'var(--gray5)', border: '1px solid var(--separator)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <ItemVisual name={it.name} photoUrl={(it as { photo_url?: string | null }).photo_url} size={40} />
+                    </div>
+                    <div style={{ fontSize: 12, fontWeight: 600, marginTop: 6, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{it.name}</div>
+                    <div style={{ fontSize: 10.5, fontWeight: 700, color: isOld ? 'var(--red)' : 'var(--orange)', marginTop: 1 }}>{isOld ? 'Past best' : 'Eat soon'}</div>
+                  </button>
+                )
+              })}
+            </div>
           </div>
         )}
 
@@ -2015,6 +2010,8 @@ export default function Fridge() {
                           padding: '12px 14px',
                           border: isOld ? '1px solid rgba(255,59,48,0.3)' : '1px solid var(--separator)',
                           boxShadow: '0 1px 4px rgba(0,0,0,0.04)',
+                          contentVisibility: 'auto',
+                          containIntrinsicSize: '0 92px',
                         }}
                       >
                         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -2037,7 +2034,7 @@ export default function Fridge() {
                             <button
                               onClick={(e) => { e.stopPropagation(); setDetailModal({ name: item.name, zone }) }}
                               title="Used it"
-                              style={{ background: 'var(--green)', color: '#fff', border: 'none', borderRadius: 8, width: 32, height: 32, fontSize: 14, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                              style={{ background: 'var(--green)', color: '#fff', border: 'none', borderRadius: 10, width: 40, height: 40, fontSize: 16, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                             >✓</button>
                             <button
                               onClick={async (e) => {
@@ -2054,7 +2051,7 @@ export default function Fridge() {
                                 } catch { showToast('Failed to add', 'err') }
                               }}
                               title="Reorder"
-                              style={{ background: 'var(--gray5)', color: 'var(--label)', border: 'none', borderRadius: 8, width: 32, height: 32, fontSize: 13, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                              style={{ background: 'var(--gray5)', color: 'var(--label)', border: 'none', borderRadius: 10, width: 40, height: 40, fontSize: 15, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                             >🛒</button>
                           </div>
                         </div>
@@ -2290,7 +2287,7 @@ export default function Fridge() {
                   <div style={{ fontSize: 15, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{it.name}</div>
                   <div style={{ fontSize: 12, color: isOld ? 'var(--red)' : 'var(--orange)', fontWeight: 700 }}>{isOld ? 'Past best' : 'Eat soon'}</div>
                 </div>
-                <button onClick={() => removeByName(it.name)} title="Clear out — binned or used" style={{ background: 'var(--gray5)', border: 'none', color: 'var(--label)', borderRadius: 9, width: 34, height: 34, fontSize: 15, cursor: 'pointer', flexShrink: 0 }}>🗑️</button>
+                <button onClick={() => removeByName(it.name)} title="Clear out — binned or used" style={{ background: 'var(--gray5)', border: 'none', color: 'var(--label)', borderRadius: 10, width: 44, height: 44, fontSize: 17, cursor: 'pointer', flexShrink: 0 }}>🗑️</button>
               </div>
             )
           })}
