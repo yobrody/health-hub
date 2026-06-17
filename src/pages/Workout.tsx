@@ -2,15 +2,16 @@ import { useEffect, useMemo, useState, useRef } from 'react'
 import { api } from '../api/client'
 import type { WorkoutData, ExerciseSet } from '../api/client'
 import { showToast } from '../toast'
-import { MuscleVolumeCard } from '../components/MuscleVolumeCard'
 import { GymChatSheet } from '../components/GymChatSheet'
 import { PROGRAM, ROTATION, getNextDay } from '../program'
 import type { DayName, ProgramDay } from '../program'
 import {
   isProperlyEating,
   predictNextWeight,
+  parseRepRange,
   type DailyTotals,
 } from '../lib/workout-progression'
+import { decideNextSet, type DecisionResult } from '../lib/gym-decision'
 import {
   countCompletedSets,
   countTotalSets,
@@ -407,7 +408,7 @@ function ConsistencyCalendar({ workouts }: { workouts: WorkoutData[] }) {
 }
 
 // Program day card for the idle screen
-function DayCard({ day, isNext, onStart }: { day: ProgramDay; isNext: boolean; onStart: () => void }) {
+function DayCard({ day, isNext, onStart, targets }: { day: ProgramDay; isNext: boolean; onStart: () => void; targets?: DecisionResult[] }) {
   return (
     <div style={{
       background: isNext ? 'var(--blue)' : 'var(--card)',
@@ -417,6 +418,9 @@ function DayCard({ day, isNext, onStart }: { day: ProgramDay; isNext: boolean; o
       <div style={{ marginBottom: 10 }}>
         <div style={{ fontSize: 18, fontWeight: 700, color: isNext ? '#fff' : 'var(--label)' }}>{day.name}</div>
         <div style={{ fontSize: 13, color: isNext ? 'rgba(255,255,255,0.75)' : 'var(--label2)', marginTop: 2 }}>{day.focus}</div>
+        {isNext && targets && targets.some(t => t.weight_kg != null) && (
+          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)', marginTop: 3 }}>↻ Weights &amp; reps tuned to your eating + recent sessions</div>
+        )}
       </div>
       {day.warmup && (
         <div style={{ fontSize: 12, color: isNext ? 'rgba(255,255,255,0.7)' : 'var(--label3)', marginBottom: 6, fontStyle: 'italic' }}>
@@ -424,14 +428,19 @@ function DayCard({ day, isNext, onStart }: { day: ProgramDay; isNext: boolean; o
         </div>
       )}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 3, marginBottom: isNext ? 12 : 0 }}>
-        {day.exercises.slice(0, 4).map((ex, i) => (
-          <div key={i} style={{ fontSize: 13, color: isNext ? 'rgba(255,255,255,0.8)' : 'var(--label2)' }}>
-            {ex.sets}×{ex.repRange} {ex.name}
-            {ex.startingWeight && (
-              <span style={{ color: isNext ? 'rgba(255,255,255,0.55)' : 'var(--label3)', fontSize: 12 }}> · {ex.startingWeight}</span>
-            )}
-          </div>
-        ))}
+        {day.exercises.slice(0, 4).map((ex, i) => {
+          const t = targets?.[i]
+          return (
+            <div key={i} style={{ fontSize: 13, color: isNext ? 'rgba(255,255,255,0.8)' : 'var(--label2)' }}>
+              {ex.sets}×{ex.repRange} {ex.name}
+              {t?.weight_kg != null ? (
+                <span style={{ color: isNext ? 'rgba(255,255,255,0.55)' : 'var(--label3)', fontSize: 12 }}> · {t.weight_kg}kg{t.repsTarget != null ? ` × ${t.repsTarget}` : ''}</span>
+              ) : ex.startingWeight ? (
+                <span style={{ color: isNext ? 'rgba(255,255,255,0.55)' : 'var(--label3)', fontSize: 12 }}> · {ex.startingWeight}</span>
+              ) : null}
+            </div>
+          )
+        })}
         {day.exercises.length > 4 && (
           <div style={{ fontSize: 12, color: isNext ? 'rgba(255,255,255,0.55)' : 'var(--label3)', marginTop: 2 }}>
             +{day.exercises.length - 4} more exercises
@@ -570,24 +579,47 @@ export default function Workout() {
   const nextDay = getNextDay(recentTitles)
   const displayDay = selectedDay ?? nextDay
 
+  // Adaptive target for one exercise. The resurrected decision engine drives
+  // weight + reps from eating (properlyEating) and training history (PRs + last
+  // sets), snapping to real gym-stack increments. Used for BOTH the Next-Up
+  // card and seeding a live workout, so the preview matches what you'll lift.
+  function targetFor(exerciseName: string, repRange: string | null | undefined, restSeconds: number | undefined, positionInSession: number, totalExercises: number, startingWeight?: string): DecisionResult {
+    const pr = prs[exerciseName]
+    const prevSets = lastSetsByExercise[exerciseName]
+    // No PR and no logged sets yet? Seed the engine with the program's starting
+    // weight (at the bottom of the rep range, so it holds rather than bumps) —
+    // this lets the number still adapt to EATING before any history exists.
+    let prevBest = pr ? { weight_kg: pr.weight_kg, reps: pr.reps } : null
+    if (!prevBest && !(prevSets && prevSets.length) && startingWeight) {
+      const m = startingWeight.match(/(\d+(?:\.\d+)?)\s*kg/i)
+      if (m) prevBest = { weight_kg: parseFloat(m[1]), reps: parseRepRange(repRange)?.min ?? 8 }
+    }
+    return decideNextSet({
+      exerciseName,
+      prevBest,
+      prevSets,
+      repRange,
+      programRestSeconds: restSeconds,
+      lastSetRIR: null,
+      sleepHours: null,
+      diet: { properlyEating },
+      session: { positionInSession, totalExercises, sessionVolumeSoFar: 0 },
+      isFirstSet: true,
+    })
+  }
+
   function startWorkout(day?: ProgramDay) {
     const hour = new Date().getHours()
     const timeOfDay = hour < 12 ? 'Morning' : hour < 17 ? 'Afternoon' : 'Evening'
     const title = day?.name ?? `${timeOfDay} Session`
 
     if (day) {
-      const exercises: LiveExercise[] = day.exercises.map(ex => {
+      const exercises: LiveExercise[] = day.exercises.map((ex, i) => {
         const pr = prs[ex.name]
-        const prevSets = lastSetsByExercise[ex.name]
-        const predicted = predictNextWeight({
-          prevBest: pr ? { weight_kg: pr.weight_kg, reps: pr.reps } : null,
-          prevSets,
-          repRange: ex.repRange,
-          properlyEating,
-        })
+        const t = targetFor(ex.name, ex.repRange, ex.restSeconds, i, day.exercises.length, ex.startingWeight)
         const sets: LiveSet[] = Array.from({ length: ex.sets }, () => ({
-          weight_kg: predicted.weight_kg,
-          reps: predicted.reps,
+          weight_kg: t.weight_kg,
+          reps: t.repsTarget,
           done: false,
         }))
         return { name: ex.name, sets, prevBest: pr, repRange: ex.repRange, rir: ex.rir, restSeconds: ex.restSeconds, notes: ex.notes }
@@ -1240,7 +1272,12 @@ export default function Workout() {
 
         {/* Next up — big card */}
         <div className="section-label" style={{ marginTop: 0 }}>Next up</div>
-        <DayCard day={PROGRAM[displayDay]} isNext={true} onStart={() => startWorkout(PROGRAM[displayDay])} />
+        <DayCard
+          day={PROGRAM[displayDay]}
+          isNext={true}
+          onStart={() => startWorkout(PROGRAM[displayDay])}
+          targets={PROGRAM[displayDay].exercises.map((ex, i) => targetFor(ex.name, ex.repRange, ex.restSeconds, i, PROGRAM[displayDay].exercises.length, ex.startingWeight))}
+        />
 
         {/* Day picker */}
         <div style={{ display: 'flex', gap: 8, margin: '12px 0 4px' }}>
@@ -1273,10 +1310,6 @@ export default function Workout() {
             filled if a workout was logged. Reads from the loaded workouts list,
             no extra fetch. Brody asked for "see your consistency". */}
         <ConsistencyCalendar workouts={workouts} />
-
-        {/* Per-muscle weekly volume vs MEV/MAV/MRV — from the gym-live system. */}
-        <div className="section-label">Volume this week</div>
-        <MuscleVolumeCard workouts={workouts} />
 
         {/* In-gym AI coach: ask about a machine, get it slotted into the program. */}
         <button
