@@ -64,9 +64,9 @@
   --label: #FFFFFF;
   --label2: rgba(235,235,245,0.6);
   --label3: rgba(235,235,245,0.3);
-  --bg: #000000;
-  --card: #1C1C1E;
-  --separator: rgba(84,84,88,0.6);
+  --bg: #09090B;
+  --card: #18181B;
+  --separator: #27272A;
 }
 
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }

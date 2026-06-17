@@ -38,7 +38,10 @@ function applyTheme(theme: Theme) {
 }
 
 export function getStoredTheme(): Theme {
-  return (localStorage.getItem('app_theme') as Theme) ?? 'system'
+  // Default to dark: the app's identity is dark, and several core pages are
+  // hard-dark via --c-* tokens. Defaulting to dark keeps every page consistent
+  // (older --bg/--label pages no longer render light while the rest stay dark).
+  return (localStorage.getItem('app_theme') as Theme) ?? 'dark'
 }
 
 export function setStoredTheme(t: Theme) {
