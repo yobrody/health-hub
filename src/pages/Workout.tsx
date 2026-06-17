@@ -18,10 +18,18 @@ import {
   describeNext,
   findNextIncompleteSet,
 } from '../lib/workout-flow'
+import { genericIncrement } from '../lib/gym-equipment'
 import { searchExerciseDB, getExercisesByGroup, findExercise } from '../lib/exercises'
 import type { MuscleGroup } from '../lib/exercises'
 
-interface LiveSet extends ExerciseSet { done: boolean }
+interface LiveSet extends ExerciseSet { done: boolean; rir?: number }
+
+// Effort tiers the user taps during rest → reps-in-reserve. Beginner-friendly:
+// they report how it FELT, not what's "correct".
+const TIER_RIR: Record<'easy' | 'good' | 'hard' | 'fail', number> = { easy: 4, good: 2, hard: 1, fail: 0 }
+const TIER_LABEL: Array<['easy' | 'good' | 'hard' | 'fail', string]> = [
+  ['easy', 'Too easy'], ['good', 'Just right'], ['hard', 'Hard'], ['fail', "Couldn't finish"],
+]
 interface LiveExercise {
   name: string
   sets: LiveSet[]
@@ -703,6 +711,48 @@ export default function Workout() {
     if (navigator.vibrate) navigator.vibrate([10, 10, 30])
   }
 
+  // Adjust the reps recorded on a just-completed set (during rest, ±1).
+  function adjustDoneReps(exIdx: number, setIdx: number, delta: number) {
+    setLive(w => {
+      if (!w) return w
+      const exercises = [...w.exercises]
+      const sets = [...exercises[exIdx].sets]
+      const cur = sets[setIdx]
+      sets[setIdx] = { ...cur, reps: Math.max(0, (cur.reps ?? 0) + delta) }
+      exercises[exIdx] = { ...exercises[exIdx], sets }
+      return { ...w, exercises }
+    })
+  }
+
+  // Record how a set felt, then SELF-CORRECT the remaining sets of this
+  // exercise: too easy → nudge weight up; couldn't finish → ease it down. The
+  // reps you log also feed next session's progression. No expertise needed —
+  // you just say how it felt.
+  function applySetFeedback(exIdx: number, setIdx: number, tier: 'easy' | 'good' | 'hard' | 'fail') {
+    setLive(w => {
+      if (!w) return w
+      const exercises = w.exercises.map((ex, ei) => {
+        if (ei !== exIdx) return ex
+        const sets = ex.sets.map((s, si) => si === setIdx ? { ...s, rir: TIER_RIR[tier] } : s)
+        const doneWeight = sets[setIdx].weight_kg
+        if (doneWeight != null && doneWeight > 0 && (tier === 'easy' || tier === 'fail')) {
+          const inc = genericIncrement(doneWeight)
+          const adj = tier === 'easy'
+            ? Math.round((doneWeight + inc) * 100) / 100
+            : Math.max(0, Math.round((doneWeight - inc) * 100) / 100)
+          for (let si = setIdx + 1; si < sets.length; si++) {
+            if (!sets[si].done) sets[si] = { ...sets[si], weight_kg: adj }
+          }
+        }
+        return { ...ex, sets }
+      })
+      return { ...w, exercises }
+    })
+    if (navigator.vibrate) navigator.vibrate(12)
+    if (tier === 'easy') showToast('Nudged the next sets up a touch 💪')
+    else if (tier === 'fail') showToast('Eased the next sets down — keep good form')
+  }
+
   function addSet(exIdx: number) {
     setLive(w => {
       if (!w) return w
@@ -1080,6 +1130,33 @@ export default function Workout() {
                       <strong style={{ color: 'var(--label)' }}>Workout complete</strong>
                     )}
                   </div>
+                  {(() => {
+                    const doneEx = liveNonNull.exercises[fromExIdx]
+                    const doneSet = doneEx?.sets[fromSetIdx]
+                    if (!doneSet) return null
+                    return (
+                      <div style={{ marginTop: 22, paddingTop: 18, borderTop: '1px solid var(--separator)', textAlign: 'left' }}>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--label)' }}>How did that set feel?</div>
+                        <div style={{ fontSize: 12, color: 'var(--label2)', marginBottom: 12 }}>{doneEx.name} · Set {fromSetIdx + 1}</div>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 18, marginBottom: 14 }}>
+                          <button onClick={() => adjustDoneReps(fromExIdx, fromSetIdx, -1)} style={{ width: 42, height: 42, borderRadius: 12, border: '1px solid var(--separator)', background: 'var(--card)', color: 'var(--label)', fontSize: 22, cursor: 'pointer' }}>−</button>
+                          <div style={{ textAlign: 'center', minWidth: 72 }}>
+                            <div style={{ fontSize: 26, fontWeight: 800, color: 'var(--label)' }}>{doneSet.reps ?? 0}</div>
+                            <div style={{ fontSize: 11, color: 'var(--label2)' }}>reps done</div>
+                          </div>
+                          <button onClick={() => adjustDoneReps(fromExIdx, fromSetIdx, 1)} style={{ width: 42, height: 42, borderRadius: 12, border: '1px solid var(--separator)', background: 'var(--card)', color: 'var(--label)', fontSize: 22, cursor: 'pointer' }}>+</button>
+                        </div>
+                        <div style={{ display: 'flex', gap: 6 }}>
+                          {TIER_LABEL.map(([k, label]) => (
+                            <button key={k} onClick={() => applySetFeedback(fromExIdx, fromSetIdx, k)}
+                              style={{ flex: 1, padding: '10px 2px', borderRadius: 10, border: '1px solid ' + (doneSet.rir === TIER_RIR[k] ? 'var(--blue)' : 'var(--separator)'), background: doneSet.rir === TIER_RIR[k] ? 'var(--blue)' : 'var(--card)', color: doneSet.rir === TIER_RIR[k] ? '#fff' : 'var(--label)', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>{label}</button>
+                          ))}
+                        </div>
+                        <div style={{ fontSize: 10.5, color: 'var(--label3)', marginTop: 8, textAlign: 'center', fontStyle: 'italic' }}>Aim to stop with ~2 good reps left in the tank.</div>
+                      </div>
+                    )
+                  })()}
+
                   <button
                     onClick={endRest}
                     style={{ marginTop: 18, background: 'var(--blue)', color: '#fff', border: 'none', borderRadius: 14, padding: '12px 28px', fontSize: 15, fontWeight: 600, cursor: 'pointer', minWidth: 160 }}
