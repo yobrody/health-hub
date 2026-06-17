@@ -177,6 +177,167 @@ function ItemVisual({ name, photoUrl, size = 44 }: { name: string; photoUrl?: st
   return <NotoIcon name={name} size={Math.round(size * 0.82)} />
 }
 
+// ── Shopping-list notepad ───────────────────────────────────────────────────
+// Opens from the Fridge "Shopping List" button. A focused notepad surface:
+// a draggable "Staples to restock" panel on the left, free typing on the
+// right, and each item enriched with a real product photo (Open Food Facts,
+// cached so we look up once) plus where YOU buy it and what you paid — derived
+// from your own fridge/receipt history, not a generic "sold at" list.
+type ShopIconMeta = { image_url: string | null; stores: string[]; brand: string | null }
+type ShopIconCache = Record<string, ShopIconMeta>
+function loadShopIconCache(): ShopIconCache {
+  try { return JSON.parse(localStorage.getItem('shop_icon_cache') || '{}') } catch { return {} }
+}
+
+// One draggable staple chip (hooks can't run in a .map, so this is its own cmp).
+function StapleChip({ name, onAdd }: { name: string; onAdd: () => void }) {
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: `staple:${name}` })
+  return (
+    <button ref={setNodeRef} {...listeners} {...attributes} onClick={onAdd}
+      style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', background: 'var(--card)', border: '1px solid var(--separator)', borderRadius: 12, padding: '8px 9px', marginBottom: 8, cursor: 'grab', opacity: isDragging ? 0.4 : 1, textAlign: 'left', color: 'var(--label)', touchAction: 'none' }}>
+      <div style={{ width: 28, height: 28, flexShrink: 0 }}><ItemVisual name={name} size={28} /></div>
+      <span style={{ flex: 1, fontSize: 13, fontWeight: 600, textTransform: 'capitalize', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</span>
+      <span style={{ fontSize: 15, color: 'var(--blue)' }}>＋</span>
+    </button>
+  )
+}
+
+function ShoppingNotepad({ open, onClose, staples, fridgeItems }: {
+  open: boolean; onClose: () => void; staples: string[]; fridgeItems: FridgeItem[]
+}) {
+  const [items, setItems] = useState<ListItemData[]>([])
+  const [input, setInput] = useState('')
+  const [iconCache, setIconCache] = useState<ShopIconCache>(() => loadShopIconCache())
+  const [dragName, setDragName] = useState<string | null>(null)
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }))
+  const { setNodeRef: setDropRef, isOver } = useDroppable({ id: 'notepad-dropzone' })
+
+  // "Where you buy it + what you paid", straight from your fridge/receipt data.
+  const priceByItem = useMemo(() => {
+    const m = new Map<string, { store: string | null; cost: number | null }>()
+    for (const it of fridgeItems) {
+      if (it.store || it.cost != null) m.set(it.name.toLowerCase(), { store: it.store ?? null, cost: it.cost ?? null })
+    }
+    return m
+  }, [fridgeItems])
+  const myStore = useMemo(() => {
+    const counts: Record<string, number> = {}
+    for (const it of fridgeItems) if (it.store) counts[it.store] = (counts[it.store] || 0) + 1
+    const top = Object.entries(counts).sort((a, b) => b[1] - a[1])[0]
+    return top ? top[0] : null
+  }, [fridgeItems])
+
+  useEffect(() => {
+    if (!open) return
+    api.getList('shopping').then(d => setItems(d.items)).catch(() => {})
+  }, [open])
+
+  // Enrich any items we haven't looked up yet — OFF product photo + stores,
+  // cached to localStorage so each item is fetched at most once, ever.
+  useEffect(() => {
+    if (!open || !items.length) return
+    const todo = items.filter(i => !(i.text.toLowerCase() in iconCache))
+    if (!todo.length) return
+    let cancelled = false
+    ;(async () => {
+      for (const it of todo) {
+        let meta: ShopIconMeta = { image_url: null, stores: [], brand: null }
+        try {
+          const r = await api.shopLookup(it.text)
+          meta = { image_url: r.product?.image_url ?? null, stores: r.stores ?? [], brand: r.product?.brand ?? null }
+        } catch { /* keep empty meta — falls back to the Noto icon */ }
+        if (cancelled) return
+        setIconCache(prev => {
+          const next = { ...prev, [it.text.toLowerCase()]: meta }
+          try { localStorage.setItem('shop_icon_cache', JSON.stringify(next)) } catch { /* quota */ }
+          return next
+        })
+      }
+    })()
+    return () => { cancelled = true }
+    // iconCache intentionally omitted: we read it once to compute `todo` and
+    // merge via the functional updater; including it would re-run on every fetch.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, items])
+
+  async function add(text: string) {
+    const t = text.trim()
+    if (!t) return
+    setInput('')
+    if (items.some(i => i.text.toLowerCase() === t.toLowerCase())) { showToast('Already on your list', 'info'); return }
+    try { const { item } = await api.addListItem('shopping', t); setItems(p => [...p, item]); if (navigator.vibrate) navigator.vibrate(8) }
+    catch { showToast('Failed to add', 'err') }
+  }
+  async function toggle(id: string) {
+    try { const { item } = await api.toggleListItem('shopping', id); setItems(p => p.map(i => i.id === id ? item : i)) }
+    catch { showToast('Failed to update', 'err') }
+  }
+  async function remove(id: string) {
+    setItems(p => p.filter(i => i.id !== id))
+    try { await api.deleteListItem('shopping', id) } catch { /* best effort */ }
+  }
+  function onDragEnd(e: DragEndEvent) {
+    setDragName(null)
+    const id = String(e.active.id)
+    if (e.over?.id === 'notepad-dropzone' && id.startsWith('staple:')) add(id.slice('staple:'.length))
+  }
+
+  if (!open) return null
+  const sorted = [...items].sort((a, b) => Number(a.checked) - Number(b.checked))
+  const remaining = items.filter(i => !i.checked).length
+  return (
+    <div style={{ position: 'fixed', inset: 0, zIndex: 240, background: 'var(--bg, #09090b)', display: 'flex', flexDirection: 'column', animation: 'hhNotepadIn 0.34s cubic-bezier(0.32,0.72,0,1)' }}>
+      <style>{'@keyframes hhNotepadIn { from { opacity: 0; transform: translateY(28px) scale(0.96) } to { opacity: 1; transform: none } }'}</style>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 16px 10px' }}>
+        <div style={{ minWidth: 0 }}>
+          <div style={{ fontSize: 21, fontWeight: 800 }}>🗒️ Shopping list{remaining > 0 ? ` · ${remaining}` : ''}</div>
+          <div style={{ fontSize: 12, color: 'var(--label2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{myStore ? `Your store · ${myStore}` : 'Drag a staple in, or type below'}</div>
+        </div>
+        <button onClick={onClose} style={{ background: 'var(--blue)', border: 'none', color: '#fff', borderRadius: 20, padding: '9px 18px', fontSize: 14, fontWeight: 700, cursor: 'pointer', flexShrink: 0 }}>Done</button>
+      </div>
+
+      <DndContext sensors={sensors} onDragStart={(e: DragStartEvent) => setDragName(String(e.active.id).replace('staple:', ''))} onDragEnd={onDragEnd}>
+        <div style={{ flex: 1, display: 'flex', gap: 10, padding: '0 12px 16px', overflow: 'hidden' }}>
+          {staples.length > 0 && (
+            <div style={{ width: 130, flexShrink: 0, overflowY: 'auto' }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--label2)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>Restock</div>
+              {staples.map(s => <StapleChip key={s} name={s} onAdd={() => add(s)} />)}
+            </div>
+          )}
+          <div ref={setDropRef} style={{ flex: 1, overflowY: 'auto', borderRadius: 14, outline: isOver ? '2px dashed var(--blue)' : '2px dashed transparent', outlineOffset: 4, transition: 'outline-color 0.15s' }}>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+              <input autoFocus value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') add(input) }}
+                placeholder="Add an item…" autoComplete="on" spellCheck
+                style={{ flex: 1, background: 'var(--card)', border: '1px solid var(--separator)', borderRadius: 12, padding: '11px 14px', fontSize: 15, color: 'var(--label)' }} />
+              <button onClick={() => add(input)} disabled={!input.trim()} style={{ background: 'var(--blue)', border: 'none', color: '#fff', borderRadius: 12, width: 48, fontSize: 22, cursor: 'pointer', opacity: input.trim() ? 1 : 0.5, flexShrink: 0 }}>＋</button>
+            </div>
+            {sorted.length === 0 ? (
+              <div style={{ fontSize: 14, color: 'var(--label3)', textAlign: 'center', marginTop: 48, lineHeight: 1.7 }}>Your list is empty.<br />Drag a staple over, or type above.</div>
+            ) : sorted.map(it => {
+              const meta = iconCache[it.text.toLowerCase()]
+              const hist = priceByItem.get(it.text.toLowerCase())
+              const store = hist?.store || (meta?.stores?.[0] ?? null)
+              const price = hist?.cost != null ? `£${hist.cost.toFixed(2)}` : null
+              return (
+                <div key={it.id} style={{ display: 'flex', alignItems: 'center', gap: 10, background: 'var(--card)', border: '1px solid var(--separator)', borderRadius: 12, padding: '8px 12px', marginBottom: 8, opacity: it.checked ? 0.55 : 1 }}>
+                  <button onClick={() => toggle(it.id)} aria-label="toggle" style={{ background: it.checked ? 'var(--green)' : 'none', border: `2px solid ${it.checked ? 'var(--green)' : 'var(--blue)'}`, borderRadius: '50%', width: 26, height: 26, flexShrink: 0, cursor: 'pointer', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13 }}>{it.checked ? '✓' : ''}</button>
+                  <div style={{ width: 36, height: 36, flexShrink: 0 }}><ItemVisual name={it.text} photoUrl={meta?.image_url} size={36} /></div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 15, fontWeight: 600, textDecoration: it.checked ? 'line-through' : 'none', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{it.text}</div>
+                    {(store || price) && <div style={{ fontSize: 11.5, color: 'var(--label3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{store || ''}{store && price ? ' · ' : ''}{price || ''}</div>}
+                  </div>
+                  <button onClick={() => remove(it.id)} aria-label="remove" style={{ background: 'none', border: 'none', color: 'var(--label3)', fontSize: 18, cursor: 'pointer', flexShrink: 0, lineHeight: 1 }}>×</button>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+        <DragOverlay>{dragName ? <div style={{ background: 'var(--blue)', color: '#fff', borderRadius: 12, padding: '8px 12px', fontWeight: 700, fontSize: 14, textTransform: 'capitalize' }}>{dragName}</div> : null}</DragOverlay>
+      </DndContext>
+    </div>
+  )
+}
+
 // getFoodTint, freshnessColor, quantityBarColor removed alongside ItemCard
 // — only the cartoon-SVG Appliance render path remains, which doesn't use
 // these per-item color helpers. SOON/OLD freshness signals are inline in
@@ -1409,6 +1570,7 @@ export default function Fridge() {
   })
   const [collapsedZones, setCollapsedZones] = useState<Set<Zone>>(new Set())
   const [storeMode, setStoreMode] = useState(false)
+  const [notepadOpen, setNotepadOpen] = useState(false)
   const [shopItems, setShopItems] = useState<ListItemData[]>([])
   const [shopInput, setShopInput] = useState('')
   useEffect(() => {
@@ -1886,7 +2048,7 @@ export default function Fridge() {
             fridge: your shopping list and meal ideas. (+ Add stays for manual.) */}
         {totalItems > 0 && (
           <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-            <button onClick={() => setStoreMode(true)}
+            <button onClick={() => setNotepadOpen(true)}
               style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, background: 'var(--card)', border: '1px solid var(--separator)', borderRadius: 12, padding: '10px 8px', fontSize: 13, fontWeight: 600, color: 'var(--label)', cursor: 'pointer' }}>
               <span style={{ fontSize: 15 }}>📋</span> Shopping List
             </button>
@@ -2299,6 +2461,11 @@ export default function Fridge() {
           onRemove={() => removeByName(detailModal.name)}
         />
       )}
+
+      {/* ── Shopping-list notepad — opened from the Shopping List action button.
+          Draggable staples panel + free typing + per-item OFF photo & your-store
+          price. Supersedes Store mode's list (kept below for the use-up view). ── */}
+      <ShoppingNotepad open={notepadOpen} onClose={() => setNotepadOpen(false)} staples={smartGrocery} fridgeItems={allItems} />
 
       {/* ── Store mode overlay — glanceable aisle view: what to buy, what to use up ── */}
       {storeMode && (
