@@ -1789,6 +1789,28 @@ export default function Fridge() {
     showToast(`Removed ${name}`)
   }
 
+  // Bulk "I've been away" clear-out: bins everything past its best in one tap
+  // (with a confirm), then refetches once. Solves the "haven't opened the app
+  // in weeks, half the fridge is stale" problem without removing items one by one.
+  async function clearAllPastBest() {
+    const stale = oldItems
+    if (stale.length === 0) return
+    const n = stale.length
+    if (!window.confirm(`Clear ${n} item${n === 1 ? '' : 's'} past their best from your fridge? This can't be undone.`)) return
+    const results = await Promise.allSettled(stale.map(i => api.removeFridgeItem(i.name)))
+    const removed = results.filter(r => r.status === 'fulfilled').length
+    const updated = await api.getFridge()
+    setData(updated)
+    setSlots(prev => {
+      const next = { ...prev }
+      for (const i of stale) delete next[i.name]
+      return next
+    })
+    if (navigator.vibrate) navigator.vibrate(25)
+    if (removed === n) showToast(`Cleared ${removed} past-best item${removed === 1 ? '' : 's'}`)
+    else showToast(`Cleared ${removed} of ${n} — some couldn't be removed`, 'err')
+  }
+
   async function handleAdd(e: React.FormEvent) {
     e.preventDefault()
     if (!addName.trim()) return
@@ -1858,18 +1880,19 @@ export default function Fridge() {
           }}>{scanStatus}</div>
         )}
 
-        {/* ── Capture bar — fast ways to add/update stock (keeping a fridge
-            accurate is the hard part). Surfaces the receipt + barcode scanners
-            that were previously only reachable from the empty state. */}
+        {/* ── Action bar — the centre camera (bottom nav) already does receipt
+            + barcode automatically, so those buttons were redundant here.
+            This bar now surfaces the two things you actually reach for in the
+            fridge: your shopping list and meal ideas. (+ Add stays for manual.) */}
         {totalItems > 0 && (
           <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-            <button onClick={() => fileInputRef.current?.click()}
+            <button onClick={() => setStoreMode(true)}
               style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, background: 'var(--card)', border: '1px solid var(--separator)', borderRadius: 12, padding: '10px 8px', fontSize: 13, fontWeight: 600, color: 'var(--label)', cursor: 'pointer' }}>
-              <span style={{ fontSize: 15 }}>🧾</span> Receipt
+              <span style={{ fontSize: 15 }}>📋</span> Shopping List
             </button>
-            <button onClick={() => barcodeInputRef.current?.click()}
-              style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, background: 'var(--card)', border: '1px solid var(--separator)', borderRadius: 12, padding: '10px 8px', fontSize: 13, fontWeight: 600, color: 'var(--label)', cursor: 'pointer' }}>
-              <span style={{ fontSize: 15 }}>📷</span> Barcode
+            <button onClick={getMeals} disabled={loadingMeals}
+              style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, background: 'var(--card)', border: '1px solid var(--separator)', borderRadius: 12, padding: '10px 8px', fontSize: 13, fontWeight: 600, color: 'var(--label)', cursor: 'pointer', opacity: loadingMeals ? 0.7 : 1 }}>
+              <span style={{ fontSize: 15 }}>🍽️</span> {loadingMeals ? 'Finding…' : 'What can I make?'}
             </button>
             <button onClick={() => setShowAdd(true)}
               style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, background: 'var(--blue)', border: 'none', borderRadius: 12, padding: '10px 8px', fontSize: 13, fontWeight: 600, color: '#fff', cursor: 'pointer' }}>
@@ -1905,7 +1928,12 @@ export default function Fridge() {
               <div style={{ fontSize: 13, fontWeight: 700, color: oldItems.length > 0 ? 'var(--red)' : 'var(--orange)' }}>
                 {oldItems.length > 0 ? `🚨 Past their best · ${alertItems.length}` : `🔥 Eat soon · ${alertItems.length}`}
               </div>
-              <button onClick={shareShoppingList} style={{ background: 'none', border: '1.5px solid var(--blue)', color: 'var(--blue)', borderRadius: 12, padding: '7px 12px', fontSize: 12, fontWeight: 700, cursor: 'pointer', flexShrink: 0 }}>📋 List</button>
+              <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+                {oldItems.length > 0 && (
+                  <button onClick={clearAllPastBest} title="Clear everything past its best" style={{ background: 'none', border: '1.5px solid var(--red)', color: 'var(--red)', borderRadius: 12, padding: '7px 12px', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>🗑️ Clear {oldItems.length}</button>
+                )}
+                <button onClick={shareShoppingList} style={{ background: 'none', border: '1.5px solid var(--blue)', color: 'var(--blue)', borderRadius: 12, padding: '7px 12px', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>📋 List</button>
+              </div>
             </div>
             <div style={{ display: 'flex', gap: 8, overflowX: 'auto', WebkitOverflowScrolling: 'touch', paddingBottom: 2 }}>
               {alertItems.slice(0, 12).map(it => {
@@ -2130,8 +2158,10 @@ export default function Fridge() {
           </DndContext>
         )}
 
-        {/* ── Bottom action row ── */}
-        {totalItems > 0 && (
+        {/* Bottom action row: superseded by the action bar under the header
+            (Shopping List + What can I make now live there). Hidden pending the
+            notepad rebuild that will own the shopping-list experience. */}
+        {totalItems < 0 && (
           <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
             <button onClick={shareShoppingList} style={{
               flex: 1, background: 'var(--card)', border: '1.5px solid var(--separator)',

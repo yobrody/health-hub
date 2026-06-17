@@ -801,7 +801,9 @@ export default function Today({ onNavigate }: Props) {
       setAiState('preview')
     } catch (err) {
       setAiState('idle')
-      showToast(`AI error — ${String(err)}`.slice(0, 80), 'err')
+      const msg = String(err)
+      const busy = /\b(429|500|502|503|504)\b/.test(msg) || /overload|busy|timeout/i.test(msg)
+      showToast(busy ? 'The assistant is briefly busy — tap send again.' : `AI error — ${msg}`.slice(0, 80), 'err')
     }
   }
 
