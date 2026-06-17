@@ -318,10 +318,14 @@ function ShoppingNotepad({ open, onClose, staples, fridgeItems }: {
               const hist = priceByItem.get(it.text.toLowerCase())
               const store = hist?.store || (meta?.stores?.[0] ?? null)
               const price = hist?.cost != null ? `£${hist.cost.toFixed(2)}` : null
+              // Icon: real OFF product photo first; if we looked it up and found
+              // none, fall back to a generated icon (free Workers AI, edge-cached).
+              // If the AI binding is off, that 503s and ItemVisual shows the emoji.
+              const photo = meta?.image_url || (meta && !meta.image_url ? `/api/shop/icon?q=${encodeURIComponent(it.text)}` : null)
               return (
                 <div key={it.id} style={{ display: 'flex', alignItems: 'center', gap: 10, background: 'var(--card)', border: '1px solid var(--separator)', borderRadius: 12, padding: '8px 12px', marginBottom: 8, opacity: it.checked ? 0.55 : 1 }}>
                   <button onClick={() => toggle(it.id)} aria-label="toggle" style={{ background: it.checked ? 'var(--green)' : 'none', border: `2px solid ${it.checked ? 'var(--green)' : 'var(--blue)'}`, borderRadius: '50%', width: 26, height: 26, flexShrink: 0, cursor: 'pointer', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13 }}>{it.checked ? '✓' : ''}</button>
-                  <div style={{ width: 36, height: 36, flexShrink: 0 }}><ItemVisual name={it.text} photoUrl={meta?.image_url} size={36} /></div>
+                  <div style={{ width: 36, height: 36, flexShrink: 0 }}><ItemVisual name={it.text} photoUrl={photo} size={36} /></div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontSize: 15, fontWeight: 600, textDecoration: it.checked ? 'line-through' : 'none', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{it.text}</div>
                     {(store || price) && <div style={{ fontSize: 11.5, color: 'var(--label3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{store || ''}{store && price ? ' · ' : ''}{price || ''}</div>}
