@@ -768,8 +768,10 @@ export default function Today({ onNavigate }: Props) {
     try {
       // Coach intent → reverse macro solver. Reuses the same preview/confirm
       // path since the solver returns ready-to-log log_food actions.
-      const isCoachQuery = /\bhow (much|many)\b/i.test(prompt)
-        || /(hit|reach|to hit|to reach)[^.]*\b(goal|macro|macros|protein|target|calories?)\b/i.test(prompt)
+      // "how much/many" alone isn't enough (e.g. "how many calories in a banana"
+      // is a lookup, not a solve) — require a grams/goal signal alongside it.
+      const isCoachQuery = /\bhow (much|many)\b[^.?]*\b(grams?|to (hit|reach)|hit|reach|each|goal|macros?|protein|target)\b/i.test(prompt)
+        || /(hit|reach|to hit|to reach)[^.]*\b(goal|macro|macros|protein|target)\b/i.test(prompt)
         || /\bgrams?\b[^.]*\b(each|hit|reach|goal|macro|target)\b/i.test(prompt)
       if (isCoachQuery) {
         const goalsNow = data?.goals ?? { calories: 2800, protein: 140, gym_days: 4 }
