@@ -161,20 +161,28 @@ function NotoIcon({ name, size = 48 }: { name: string; size?: number }) {
 // e.g. a bag of shredded cheddar, not a generic block.
 function ItemVisual({ name, photoUrl, size = 44 }: { name: string; photoUrl?: string | null; size?: number }) {
   const [broken, setBroken] = useState(false)
-  if (photoUrl && !broken) {
-    return (
-      <img
-        src={photoUrl}
-        alt=""
-        width={size}
-        height={size}
-        loading="lazy"
-        style={{ width: size, height: size, objectFit: 'cover', borderRadius: 10, display: 'block', background: 'var(--gray5)' }}
-        onError={() => setBroken(true)}
-      />
-    )
-  }
-  return <NotoIcon name={name} size={Math.round(size * 0.82)} />
+  const showImg = !!photoUrl && !broken
+  // Always render the Noto icon underneath; the product/AI photo overlays it
+  // when available + loaded. So there's never a blank box while an image loads
+  // or if it fails — you see the emoji, then it swaps to the real photo.
+  return (
+    <div style={{ position: 'relative', width: size, height: size }}>
+      <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <NotoIcon name={name} size={Math.round(size * 0.82)} />
+      </div>
+      {showImg && (
+        <img
+          src={photoUrl as string}
+          alt=""
+          width={size}
+          height={size}
+          loading="lazy"
+          style={{ position: 'absolute', inset: 0, width: size, height: size, objectFit: 'cover', borderRadius: 10, display: 'block' }}
+          onError={() => setBroken(true)}
+        />
+      )}
+    </div>
+  )
 }
 
 // ── Shopping-list notepad ───────────────────────────────────────────────────
