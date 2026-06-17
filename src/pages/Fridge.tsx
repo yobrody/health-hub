@@ -234,8 +234,8 @@ function ShoppingNotepad({ open, onClose, staples, fridgeItems }: {
     if (!open) return
     api.getList('shopping').then(d => setItems(d.items)).catch(() => {})
     // One-time capability probe for the AI icon generator (no image generated).
-    fetch('/api/shop/icon?probe=1').then(r => {
-      const ok = r.ok
+    fetch('/api/shop/icon?probe=1').then(r => r.text()).then(t => {
+      const ok = t.trim() === 'ready'
       setGenOk(ok)
       try { localStorage.setItem('shop_gen_ok', ok ? '1' : '0') } catch { /* quota */ }
     }).catch(() => setGenOk(false))
