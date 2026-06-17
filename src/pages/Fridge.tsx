@@ -1388,7 +1388,7 @@ function Section({ label, children }: { label: string; children: React.ReactNode
 export default function Fridge() {
   const [data, setData] = useState<FridgeData>({ fridge: [], pantry: [], condiments: [], freezer: [] })
   const [slots, setSlots] = useState<SlotMap>({})
-  const [learnedShelfLife, setLearnedShelfLife] = useState<ShelfLifeMap>({})
+  const [learnedShelfLife] = useState<ShelfLifeMap>({})
   const [meals, setMeals] = useState<Meal[]>([])
   const [loadingMeals, setLoadingMeals] = useState(false)
   const [showMeals, setShowMeals] = useState(false)
@@ -1592,9 +1592,9 @@ export default function Fridge() {
           localStorage.setItem('fridge_expiring_items', JSON.stringify(expiring))
         }
       } catch { /* ignore */ }
-      const names = (['fridge','freezer','pantry','condiments'] as Zone[])
-        .flatMap(z => d[z].map((it: FridgeItem) => it.name))
-      if (names.length) api.getShelfLife(names).then(setLearnedShelfLife).catch(() => {})
+      // /fridge/shelf-life isn't implemented on the backend (returns 404), so we
+      // skip the learned-shelf-life fetch and fall back to per-zone SHELF_LIFE
+      // defaults — learnedShelfLife stays {} and every read degrades gracefully.
     })
     api.getSlots().then(setSlots).catch(() => { /* slot persistence is best-effort */ })
   }, [])
