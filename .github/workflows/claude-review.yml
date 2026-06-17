@@ -1,0 +1,57 @@
+name: Claude PR Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+  id-token: write
+
+jobs:
+  claude-review:
+    if: |
+      (github.event_name == 'pull_request') ||
+      (github.event_name == 'issue_comment' && github.event.issue.pull_request != null && contains(github.event.comment.body, '@claude')) ||
+      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude'))
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Run Claude Code review
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          model: claude-sonnet-4-6
+          direct_prompt: |
+            Review this PR for the Health Hub personal PWA.
+
+            Stack: React 19 + TypeScript + Vite 7 + FastAPI + JSON-file storage.
+
+            Focus areas:
+            1. React 19 hooks rules, missing keys, accidental re-renders.
+            2. API client changes (`pwa/api/`): breaking contracts with FastAPI backend.
+            3. Tailwind v4 class regressions.
+            4. PWA SW (service worker) registration / skipWaiting issues.
+            5. Untracked `pwa/` vs tracked `src/` — flag if changes go to wrong dir.
+
+            Skip nitpicks. Surface bugs, regressions, and missing test coverage on new features.
+
+            If the change is small and safe, say so briefly.
+          allowed_tools: |
+            Read
+            Grep
+            Glob
+            Bash(git diff:*)
+            Bash(git log:*)
+            Bash(rg:*)
+            Bash(npm test:*)
