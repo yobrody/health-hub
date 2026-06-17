@@ -17,6 +17,7 @@ import {
   countTotalSets,
   describeNext,
   findNextIncompleteSet,
+  findFirstIncompleteSet,
 } from '../lib/workout-flow'
 import { genericIncrement } from '../lib/gym-equipment'
 import { searchExerciseDB, getExercisesByGroup, findExercise } from '../lib/exercises'
@@ -966,7 +967,14 @@ export default function Workout() {
       // Advance the focus pointer. We compute on the just-completed snapshot —
       // findNextIncompleteSet starts at setIdx+1, so it ignores the set we
       // just marked done even though setLive hasn't flushed yet.
-      const next = findNextIncompleteSet(liveNonNull.exercises, exIdx, setIdx)
+      // Snapshot with this set marked done (setLive hasn't flushed yet). Prefer
+      // the next set forward; if nothing remains forward, loop back to an
+      // exercise PARKED earlier (skipped for a busy machine) so it's never
+      // stranded and the workout doesn't end with sets still owed.
+      const snapshot = liveNonNull.exercises.map((ex, ei) => ei === exIdx
+        ? { ...ex, sets: ex.sets.map((s, si) => si === setIdx ? { ...s, done: true } : s) }
+        : ex)
+      const next = findNextIncompleteSet(snapshot, exIdx, setIdx) ?? findFirstIncompleteSet(snapshot)
       if (next) {
         setFocusExIdx(next.exerciseIdx)
         setFocusSetIdx(next.setIdx)
@@ -977,6 +985,30 @@ export default function Workout() {
         setRestTimer(null)
         setPhase('done')
       }
+    }
+
+    // Machine busy? Park the current exercise and jump to the next one with
+    // sets left (searching forward, then wrapping). You'll be routed back to
+    // the parked one automatically once everything else is done.
+    function skipToNextExercise() {
+      const exs = liveNonNull.exercises
+      for (let i = 1; i <= exs.length; i++) {
+        const idx = (focusExIdx + i) % exs.length
+        if (idx === focusExIdx) continue
+        const setIdx = exs[idx].sets.findIndex(s => !s.done)
+        if (setIdx >= 0) {
+          const parked = exs[focusExIdx]?.name
+          setFocusExIdx(idx)
+          setFocusSetIdx(setIdx)
+          setPhase('active')
+          setRestTimer(null)
+          if (navigator.vibrate) navigator.vibrate(10)
+          if (parked) showToast(`Parked ${parked} — come back when it's free`)
+          setTimeout(() => document.getElementById('active-exercise')?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 100)
+          return
+        }
+      }
+      showToast('No other exercise to jump to')
     }
 
     // Note: free Prev/Next navigation removed from the active card per the
@@ -1002,6 +1034,13 @@ export default function Workout() {
               </div>
             </div>
             <div style={{ display: 'flex', gap: 8 }}>
+              {phase !== 'done' && liveNonNull.exercises.length > 1 && (
+                <button
+                  onClick={skipToNextExercise}
+                  title="Machine busy? Skip to the next exercise — you'll come back to this one"
+                  style={{ background: 'var(--gray6)', border: 'none', borderRadius: 18, padding: '0 12px', height: 36, fontSize: 13, fontWeight: 600, cursor: 'pointer', color: 'var(--label)', display: 'flex', alignItems: 'center', gap: 5 }}
+                >⏭ Skip</button>
+              )}
               <button
                 onClick={() => setShowManage(true)}
                 aria-label="Manage exercises"
