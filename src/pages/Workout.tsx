@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState, useRef } from 'react'
 import { api } from '../api/client'
 import type { WorkoutData, ExerciseSet } from '../api/client'
 import { showToast } from '../toast'
+import { MuscleVolumeCard } from '../components/MuscleVolumeCard'
+import { GymChatSheet } from '../components/GymChatSheet'
 import { PROGRAM, ROTATION, getNextDay } from '../program'
 import type { DayName, ProgramDay } from '../program'
 import {
@@ -506,6 +508,7 @@ export default function Workout() {
   const [templates, setTemplates] = useState<WorkoutTemplate[]>(loadTemplates)
   const [showSaveTemplate, setShowSaveTemplate] = useState(false)
   const [templateName, setTemplateName] = useState('')
+  const [showCoach, setShowCoach] = useState(false)
   const repsInputRef = useRef<HTMLInputElement>(null)
   const searchTimeout = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
@@ -1271,6 +1274,16 @@ export default function Workout() {
             no extra fetch. Brody asked for "see your consistency". */}
         <ConsistencyCalendar workouts={workouts} />
 
+        {/* Per-muscle weekly volume vs MEV/MAV/MRV — from the gym-live system. */}
+        <div className="section-label">Volume this week</div>
+        <MuscleVolumeCard workouts={workouts} />
+
+        {/* In-gym AI coach: ask about a machine, get it slotted into the program. */}
+        <button
+          onClick={() => setShowCoach(true)}
+          style={{ width: '100%', background: 'var(--card)', border: '1px solid var(--separator)', borderRadius: 14, padding: '13px', color: 'var(--label)', fontSize: 15, fontWeight: 600, cursor: 'pointer', marginTop: 12, marginBottom: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}
+        >🏋️ Ask the gym coach</button>
+
         {/* PRs — strength PRs only (audit P2-5). Bodybuilding strength PRs
             sit in the 1–12 rep range; over 15 reps is endurance not strength
             and was previously shown as e.g. "20kg × 50" PR which read as a
@@ -1362,6 +1375,8 @@ export default function Workout() {
           </div>
         )}
       </div>
+
+      {showCoach && <GymChatSheet onClose={() => setShowCoach(false)} />}
     </div>
   )
 }
