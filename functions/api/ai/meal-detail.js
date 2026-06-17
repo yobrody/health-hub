@@ -48,6 +48,8 @@ Rules:
 
   const r = await geminiTextJSON({
     apiKey: context.env.GEMINI_API_KEY,
+      apiKey2: context.env.GEMINI_API_KEY_2,
+    openaiApiKey: context.env.OPENAI_API_KEY,
     prompt,
     maxTokens: 800,
     temperature: 0.5,

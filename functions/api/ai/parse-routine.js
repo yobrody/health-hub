@@ -71,6 +71,7 @@ ${text.replace(/"/g, "'")}
 
   const r = await geminiTextJSON({
     apiKey: context.env.GEMINI_API_KEY,
+      apiKey2: context.env.GEMINI_API_KEY_2,
     prompt: sysPrompt,
     maxTokens: 2048,
     temperature: 0.2,

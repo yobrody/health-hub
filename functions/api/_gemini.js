@@ -47,11 +47,94 @@ async function fetchWithRetry(url, init, attempts = 3, baseDelay = 450) {
   return last
 }
 
+// OpenAI fallback. NOTE: a ChatGPT *Pro* subscription does NOT grant API
+// access — this uses an OpenAI Platform API key (env OPENAI_API_KEY,
+// pay-as-you-go). When that key is set, every AI feature automatically retries
+// here if Gemini fails (quota/rate/5xx), so a drained free-tier Gemini quota no
+// longer breaks food logging, coach, the routine parser, etc.
+async function openaiJSON({ apiKey, prompt, imageBase64, mimeType = 'image/jpeg', maxTokens = 1024, temperature = 0.3, timeoutMs = 30000 }) {
+  if (!apiKey) return { ok: false, status: 503, error: 'OPENAI_API_KEY not configured' }
+  const ctrl = new AbortController()
+  const t = setTimeout(() => ctrl.abort(), timeoutMs)
+  const content = imageBase64
+    ? [{ type: 'text', text: prompt }, { type: 'image_url', image_url: { url: `data:${mimeType};base64,${imageBase64}` } }]
+    : prompt
+  try {
+    const res = await fetchWithRetry('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({
+        model: imageBase64 ? 'gpt-4o' : 'gpt-4o-mini',
+        messages: [{ role: 'user', content }],
+        response_format: { type: 'json_object' },
+        temperature,
+        max_tokens: maxTokens,
+      }),
+      signal: ctrl.signal,
+    }, 2)
+    if (!res.ok) {
+      const errTxt = await res.text()
+      return { ok: false, status: res.status, error: 'openai: ' + errTxt.slice(0, 200) }
+    }
+    const data = await res.json()
+    const text = data?.choices?.[0]?.message?.content || ''
+    if (!text) return { ok: false, status: 502, error: 'empty response from OpenAI' }
+    return { ok: true, text, provider: 'openai' }
+  } catch (e) {
+    return { ok: false, status: 502, error: 'openai fetch failed: ' + String(e) }
+  } finally {
+    clearTimeout(t)
+  }
+}
+
+/**
+ * Text JSON with automatic Gemini→OpenAI fallback. Pass openaiApiKey to enable
+ * the fallback; without it, behaves exactly as Gemini-only.
+ * @returns {Promise<{ ok: true, text: string } | { ok: false, status: number, error: string }>}
+ */
+// Statuses worth retrying on a DIFFERENT key (quota/rate/auth/availability) —
+// as opposed to 400/422 which would just fail again.
+const FAILOVER = new Set([401, 403, 408, 429, 500, 502, 503, 504])
+
+export async function geminiTextJSON(opts) {
+  const r = await geminiTextOnly(opts)
+  if (r.ok) return r
+  // Free second Gemini key (GEMINI_API_KEY_2) has its own daily quota — when
+  // key 1 is rate-limited or exhausted we transparently retry on key 2.
+  if (opts.apiKey2 && FAILOVER.has(r.status)) {
+    const r2 = await geminiTextOnly({ ...opts, apiKey: opts.apiKey2 })
+    if (r2.ok) return r2
+  }
+  if (opts.openaiApiKey) {
+    const o = await openaiJSON({ apiKey: opts.openaiApiKey, prompt: opts.prompt, maxTokens: opts.maxTokens, temperature: opts.temperature })
+    if (o.ok) return o
+  }
+  return r
+}
+
+/**
+ * Vision JSON with automatic Gemini→OpenAI fallback. Pass openaiApiKey to enable.
+ */
+export async function geminiVisionJSON(opts) {
+  const r = await geminiVisionOnly(opts)
+  if (r.ok) return r
+  // Free second Gemini key fallback (does vision too) before any paid provider.
+  if (opts.apiKey2 && FAILOVER.has(r.status)) {
+    const r2 = await geminiVisionOnly({ ...opts, apiKey: opts.apiKey2 })
+    if (r2.ok) return r2
+  }
+  if (opts.openaiApiKey) {
+    const o = await openaiJSON({ apiKey: opts.openaiApiKey, prompt: opts.prompt, imageBase64: opts.imageBase64, mimeType: opts.mimeType, maxTokens: opts.maxTokens, temperature: 0.2 })
+    if (o.ok) return o
+  }
+  return r
+}
+
 /**
  * Text-only Gemini call expecting JSON.
  * @returns {Promise<{ ok: true, text: string } | { ok: false, status: number, error: string }>}
  */
-export async function geminiTextJSON({
+async function geminiTextOnly({
   apiKey, prompt, maxTokens = 800, temperature = 0.4, timeoutMs = 25000,
 }) {
   if (!apiKey) return { ok: false, status: 503, error: 'GEMINI_API_KEY not configured' }
@@ -102,7 +185,7 @@ export async function geminiTextJSON({
  * @param {number} [opts.timeoutMs=25000]
  * @returns {Promise<{ ok: true, text: string } | { ok: false, status: number, error: string }>}
  */
-export async function geminiVisionJSON({
+async function geminiVisionOnly({
   apiKey, prompt, imageBase64, mimeType = 'image/jpeg',
   maxTokens = 1500, timeoutMs = 25000,
 }) {

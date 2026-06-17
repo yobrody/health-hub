@@ -69,6 +69,7 @@ export async function onRequestPost(context) {
 
   const kind = String(body?.kind || '').trim()
   const apiKey = context.env.GEMINI_API_KEY
+  const apiKey2 = context.env.GEMINI_API_KEY_2
 
   if (kind === 'machine-question') {
     const question = String(body?.question || '').trim().slice(0, 400)
@@ -83,7 +84,7 @@ Brody's question: ${question}
 
 Equipment already in his catalog: ${known || 'none yet'}`
 
-    const result = await geminiTextJSON({ apiKey, prompt, maxTokens: 600, temperature: 0.3 })
+    const result = await geminiTextJSON({ apiKey, apiKey2, prompt, maxTokens: 600, temperature: 0.3 })
     if (!result.ok) {
       return json({
         ok: true,
@@ -119,7 +120,7 @@ ${JSON.stringify(analysis).slice(0, 1500)}
 Last 7 days of muscle volume:
 ${JSON.stringify(weekly).slice(0, 800)}`
 
-    const result = await geminiTextJSON({ apiKey, prompt, maxTokens: 400, temperature: 0.5 })
+    const result = await geminiTextJSON({ apiKey, apiKey2, prompt, maxTokens: 400, temperature: 0.5 })
     if (!result.ok) {
       // Deterministic fallback so the user always sees *something*.
       const head = analysis.headline || `${analysis.completedSets} sets · ${analysis.durationMins}m`

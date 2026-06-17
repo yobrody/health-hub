@@ -149,6 +149,8 @@ export async function onRequestPost(context) {
   try {
     const r = await geminiVisionJSON({
       apiKey: context.env.GEMINI_API_KEY,
+      apiKey2: context.env.GEMINI_API_KEY_2,
+      openaiApiKey: context.env.OPENAI_API_KEY,
       prompt: promptText,
       imageBase64: image,
       mimeType,
