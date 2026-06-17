@@ -824,6 +824,15 @@ export default function Nutrition() {
             <input ref={fileInputRef} type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={handleBarcodeFile} />
             <input ref={photoInputRef} type="file" accept="image/*" capture="environment" style={{ display: 'none' }} onChange={handlePhotoAnalysis} />
 
+            {/* Capture guidance — teaches the accurate path. For packaged food the
+                nutrition label gives exact numbers; for a plated meal, snap the food. */}
+            {!scanMsg && !photoAnalysis && !barcodeProduct && (
+              <div style={{ background: 'var(--c-bg)', border: '1px solid var(--c-border)', borderRadius: 10, padding: '10px 12px', marginBottom: 12, fontSize: 12, color: 'var(--c-label-dim)', lineHeight: 1.55 }}>
+                <div>📋 <strong style={{ color: 'var(--c-label)' }}>Packaged?</strong> Snap the <strong style={{ color: 'var(--c-label)' }}>nutrition label</strong> — exact numbers, every time.</div>
+                <div style={{ marginTop: 3 }}>🍽️ <strong style={{ color: 'var(--c-label)' }}>A plated meal?</strong> Snap the food for a best-effort estimate.</div>
+              </div>
+            )}
+
             {/* Scan message */}
             {scanMsg && (
               <div style={{ background: 'var(--c-bg)', border: '1px solid var(--c-border)', borderRadius: 10, padding: '10px 14px', marginBottom: 12, fontSize: 13, color: 'var(--c-label-dim)', lineHeight: 1.4 }}>
