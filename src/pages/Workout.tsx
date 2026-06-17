@@ -1042,6 +1042,12 @@ export default function Workout() {
                 >⏭ Skip</button>
               )}
               <button
+                onClick={() => setShowCoach(true)}
+                aria-label="Ask the coach"
+                title="Ask the coach — machines, swaps, form"
+                style={{ background: 'var(--gray6)', border: 'none', borderRadius: 18, width: 36, height: 36, fontSize: 16, cursor: 'pointer', color: 'var(--label)' }}
+              >💬</button>
+              <button
                 onClick={() => setShowManage(true)}
                 aria-label="Manage exercises"
                 style={{ background: 'var(--gray6)', border: 'none', borderRadius: 18, width: 36, height: 36, fontSize: 17, cursor: 'pointer', color: 'var(--label)' }}
@@ -1390,6 +1396,8 @@ export default function Workout() {
             </div>
           </div>
         )}
+
+        {showCoach && <GymChatSheet onClose={() => setShowCoach(false)} />}
       </div>
     )
   }
