@@ -506,6 +506,9 @@ export default function Workout() {
   // properlyEating gates the progressive-overload bump. Computed from the most
   // recent fully-logged day's calories + protein vs the user's goals.
   const [properlyEating, setProperlyEating] = useState(false)
+  // Real kcal-vs-goal signal for the decision engine. Undefined fields = no
+  // logged data → engine stays neutral (never penalises for not logging).
+  const [dietSignal, setDietSignal] = useState<{ lastDayKcalPct?: number; threeDayKcalPct?: number }>({})
   // Focus-mode pointer + phase. While `live` is set, the screen shows ONE
   // exercise/set at a time (active or rest), not the previous all-stacked view.
   // Editing-mode (live.editingId) skips the rest phase entirely so the user
@@ -538,8 +541,19 @@ export default function Workout() {
           logged: d.logged,
         }))
         setProperlyEating(isProperlyEating(totals, goalsResp.parsed))
+        // Compute real kcal-vs-goal percentages from logged days only. No
+        // logged day → leave undefined so the engine treats it as neutral.
+        const goalKcal = goalsResp.parsed.calories || 2200
+        const logged = totals.filter(t => t.logged && (t.total_kcal ?? 0) > 0)
+          .sort((a, b) => b.date.localeCompare(a.date))
+        const lastDayKcalPct = logged[0] ? logged[0].total_kcal / goalKcal : undefined
+        const recent = logged.slice(0, 3)
+        const threeDayKcalPct = recent.length
+          ? recent.reduce((s, t) => s + t.total_kcal, 0) / (recent.length * goalKcal)
+          : undefined
+        setDietSignal({ lastDayKcalPct, threeDayKcalPct })
       })
-      .catch(() => setProperlyEating(false))
+      .catch(() => { setProperlyEating(false); setDietSignal({}) })
   }, [])
 
   // Last-session sets per exercise — the "did all reps hit?" signal for predictNextWeight.
@@ -602,7 +616,7 @@ export default function Workout() {
       programRestSeconds: restSeconds,
       lastSetRIR: null,
       sleepHours: null,
-      diet: { properlyEating },
+      diet: { properlyEating, lastDayKcalPct: dietSignal.lastDayKcalPct, threeDayKcalPct: dietSignal.threeDayKcalPct },
       session: { positionInSession, totalExercises, sessionVolumeSoFar: 0 },
       isFirstSet: true,
     })

@@ -87,7 +87,11 @@ export interface DecisionResult {
 // ── Modifiers ────────────────────────────────────────────────────────────
 
 export function dietModifier(diet: DietState): { mult: number; note?: string } {
-  const last = diet.lastDayKcalPct ?? (diet.properlyEating ? 1 : 0.7)
+  // No logged intake to judge → stay neutral. We never hold weights back just
+  // because the user hasn't logged food yet — that read as a penalty for not
+  // logging, which felt wrong and demotivating. Only a CONFIRMED deficit pulls back.
+  if (diet.lastDayKcalPct == null && diet.threeDayKcalPct == null) return { mult: 1.00 }
+  const last = diet.lastDayKcalPct ?? diet.threeDayKcalPct!
   const three = diet.threeDayKcalPct ?? last
   // 3-day deficit beats single-day signal — chronic underfueling kills progression.
   if (three < 0.90) return { mult: 0.92, note: '3-day kcal deficit · holding back' }

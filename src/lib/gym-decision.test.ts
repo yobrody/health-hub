@@ -22,6 +22,10 @@ describe('gym-decision: dietModifier', () => {
   it('big undershoot → 0.95', () => {
     expect(dietModifier({ properlyEating: false, lastDayKcalPct: 0.6, threeDayKcalPct: 0.95 }).mult).toBe(0.95)
   })
+  it('no logged intake → neutral 1.0 (never penalise missing data)', () => {
+    expect(dietModifier({ properlyEating: false }).mult).toBe(1.0)
+    expect(dietModifier({ properlyEating: true }).mult).toBe(1.0)
+  })
 })
 
 describe('gym-decision: fatigueModifier', () => {
