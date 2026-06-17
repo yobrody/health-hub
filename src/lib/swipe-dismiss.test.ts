@@ -3,9 +3,12 @@ import {
   clampDragX,
   shouldDismiss,
   classifyGesture,
+  classifyGestureVertical,
+  shouldDismissSheet,
   DISMISS_DISTANCE_FRACTION,
   DISMISS_VELOCITY,
   DRAG_ACTIVATION_PX,
+  SHEET_DISMISS_PX,
 } from './swipe-dismiss'
 
 describe('clampDragX', () => {
@@ -52,5 +55,36 @@ describe('classifyGesture', () => {
   })
   it('classifies a leftward move as scroll (never dismiss)', () => {
     expect(classifyGesture(-40, 5)).toBe('scroll')
+  })
+})
+
+describe('classifyGestureVertical', () => {
+  it('returns null below the activation threshold', () => {
+    expect(classifyGestureVertical(2, DRAG_ACTIVATION_PX - 1)).toBeNull()
+  })
+  it('classifies a downward vertical move as a drag', () => {
+    expect(classifyGestureVertical(5, 40)).toBe('drag')
+  })
+  it('classifies an upward move as scroll (never dismiss)', () => {
+    expect(classifyGestureVertical(5, -40)).toBe('scroll')
+  })
+  it('classifies a horizontal-dominant move as scroll', () => {
+    expect(classifyGestureVertical(40, 10)).toBe('scroll')
+  })
+})
+
+describe('shouldDismissSheet', () => {
+  it('dismisses past the absolute distance threshold', () => {
+    expect(shouldDismissSheet(SHEET_DISMISS_PX + 1, 0)).toBe(true)
+  })
+  it('keeps open below the threshold with no velocity', () => {
+    expect(shouldDismissSheet(SHEET_DISMISS_PX - 1, 0)).toBe(false)
+  })
+  it('dismisses on a fast downward flick even when short', () => {
+    expect(shouldDismissSheet(20, DISMISS_VELOCITY + 0.1)).toBe(true)
+  })
+  it('never dismisses on zero or upward drag', () => {
+    expect(shouldDismissSheet(0, 5)).toBe(false)
+    expect(shouldDismissSheet(-50, 5)).toBe(false)
   })
 })

@@ -3,16 +3,52 @@
 const BASE = import.meta.env.VITE_API_BASE || '/api'
 const KEY: string | undefined = import.meta.env.VITE_API_KEY || undefined
 
+// ── Backend connectivity tracking ──────────────────────────────────────────
+// Passive: every API call reports reachability. A thrown fetch (network down /
+// server unreachable) flips us to 'offline'; a 5xx to 'degraded'; any response
+// (including 4xx) means the server is reachable → 'online'. <ConnectionBanner>
+// subscribes so the user always knows when their data may be stale.
+export type ConnStatus = 'online' | 'offline' | 'degraded'
+let _conn: ConnStatus = 'online'
+const _connSubs = new Set<(s: ConnStatus) => void>()
+export function getConnStatus(): ConnStatus { return _conn }
+export function subscribeConn(fn: (s: ConnStatus) => void): () => void {
+  _connSubs.add(fn)
+  return () => { _connSubs.delete(fn) }
+}
+function setConn(s: ConnStatus) {
+  if (s === _conn) return
+  _conn = s
+  for (const fn of _connSubs) { try { fn(s) } catch { /* ignore subscriber errors */ } }
+}
+// Active recovery probe — the banner calls this while we're not 'online' so it
+// clears itself the instant the server returns. Any HTTP response means
+// reachable; a thrown fetch means still down.
+export async function probeBackend(): Promise<boolean> {
+  try {
+    await fetch(`${BASE}/today`, { method: 'HEAD', cache: 'no-store' })
+    setConn('online')
+    return true
+  } catch {
+    setConn('offline')
+    return false
+  }
+}
+
 async function request<T>(path: string, opts: RequestInit = {}): Promise<T> {
   const h = new Headers(opts.headers)
   // Only attach the key when explicitly configured (e.g. direct-to-VPS debugging).
   if (KEY) h.set('X-Health-Key', KEY)
   if (!h.has('Content-Type')) h.set('Content-Type', 'application/json')
 
-  const res = await fetch(`${BASE}${path}`, {
-    ...opts,
-    headers: h,
-  })
+  let res: Response
+  try {
+    res = await fetch(`${BASE}${path}`, { ...opts, headers: h })
+  } catch (e) {
+    setConn('offline') // network error / server unreachable
+    throw e
+  }
+  setConn(res.status >= 500 ? 'degraded' : 'online') // any response = reachable
   if (!res.ok) throw new Error(`API error ${res.status}: ${await res.text()}`)
   return res.json()
 }

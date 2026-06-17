@@ -9,6 +9,10 @@ export const DISMISS_DISTANCE_FRACTION = 0.32
 export const DISMISS_VELOCITY = 0.45
 /** Min pointer travel (px) before we decide drag-vs-scroll intent. */
 export const DRAG_ACTIVATION_PX = 8
+/** Absolute downward travel (px) that dismisses a bottom sheet. Sheets are
+ *  shorter than the viewport, so an absolute threshold feels better than a
+ *  fraction of screen height. */
+export const SHEET_DISMISS_PX = 110
 
 /** Clamp a raw horizontal delta to the rightward-only drag range. */
 export function clampDragX(dx: number): number {
@@ -34,4 +38,19 @@ export function shouldDismiss(dx: number, vx: number, width: number): boolean {
 export function classifyGesture(dx: number, dy: number): 'drag' | 'scroll' | null {
   if (Math.abs(dx) < DRAG_ACTIVATION_PX && Math.abs(dy) < DRAG_ACTIVATION_PX) return null
   return dx > 0 && Math.abs(dx) > Math.abs(dy) ? 'drag' : 'scroll'
+}
+
+/**
+ * Vertical counterpart for bottom sheets: a downward, vertical-dominant move is
+ * a dismiss drag; anything else (upward, or horizontal-dominant) is a scroll.
+ */
+export function classifyGestureVertical(dx: number, dy: number): 'drag' | 'scroll' | null {
+  if (Math.abs(dx) < DRAG_ACTIVATION_PX && Math.abs(dy) < DRAG_ACTIVATION_PX) return null
+  return dy > 0 && Math.abs(dy) > Math.abs(dx) ? 'drag' : 'scroll'
+}
+
+/** Decide whether a released downward sheet-swipe should dismiss or spring back. */
+export function shouldDismissSheet(dy: number, vy: number): boolean {
+  if (dy <= 0) return false
+  return dy > SHEET_DISMISS_PX || vy > DISMISS_VELOCITY
 }

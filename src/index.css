@@ -457,3 +457,19 @@ input, textarea, button, select {
     width: 100% !important;
   }
 }
+
+/* ── Respect reduced-motion ─────────────────────────────────────────────
+   Users who set "reduce motion" get instant transitions instead of the
+   portal expand / sheet slide / page fade animations. Loading spinners are
+   exempted because their motion conveys state, not decoration. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+  .btn-spinner, .ptr-spinner {
+    animation: spinnerRot 0.65s linear infinite !important;
+  }
+}
