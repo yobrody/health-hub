@@ -209,6 +209,9 @@ function ShoppingNotepad({ open, onClose, staples, fridgeItems }: {
   const [input, setInput] = useState('')
   const [iconCache, setIconCache] = useState<ShopIconCache>(() => loadShopIconCache())
   const [dragName, setDragName] = useState<string | null>(null)
+  // Whether the free AI-icon generator is available (Workers AI binding on).
+  // Probed once; cached. When off we never point an <img> at it, so no noise.
+  const [genOk, setGenOk] = useState<boolean>(() => { try { return localStorage.getItem('shop_gen_ok') === '1' } catch { return false } })
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }))
   const { setNodeRef: setDropRef, isOver } = useDroppable({ id: 'notepad-dropzone' })
 
@@ -230,6 +233,12 @@ function ShoppingNotepad({ open, onClose, staples, fridgeItems }: {
   useEffect(() => {
     if (!open) return
     api.getList('shopping').then(d => setItems(d.items)).catch(() => {})
+    // One-time capability probe for the AI icon generator (no image generated).
+    fetch('/api/shop/icon?probe=1').then(r => {
+      const ok = r.ok
+      setGenOk(ok)
+      try { localStorage.setItem('shop_gen_ok', ok ? '1' : '0') } catch { /* quota */ }
+    }).catch(() => setGenOk(false))
   }, [open])
 
   // Enrich any items we haven't looked up yet — OFF product photo + stores,
@@ -321,7 +330,7 @@ function ShoppingNotepad({ open, onClose, staples, fridgeItems }: {
               // Icon: real OFF product photo first; if we looked it up and found
               // none, fall back to a generated icon (free Workers AI, edge-cached).
               // If the AI binding is off, that 503s and ItemVisual shows the emoji.
-              const photo = meta?.image_url || (meta && !meta.image_url ? `/api/shop/icon?q=${encodeURIComponent(it.text)}` : null)
+              const photo = meta?.image_url || (genOk && meta && !meta.image_url ? `/api/shop/icon?q=${encodeURIComponent(it.text)}` : null)
               return (
                 <div key={it.id} style={{ display: 'flex', alignItems: 'center', gap: 10, background: 'var(--card)', border: '1px solid var(--separator)', borderRadius: 12, padding: '8px 12px', marginBottom: 8, opacity: it.checked ? 0.55 : 1 }}>
                   <button onClick={() => toggle(it.id)} aria-label="toggle" style={{ background: it.checked ? 'var(--green)' : 'none', border: `2px solid ${it.checked ? 'var(--green)' : 'var(--blue)'}`, borderRadius: '50%', width: 26, height: 26, flexShrink: 0, cursor: 'pointer', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13 }}>{it.checked ? '✓' : ''}</button>

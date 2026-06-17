@@ -19,6 +19,12 @@ export async function onRequestOptions() {
 export async function onRequestGet(context) {
   const { request, env } = context
   const url = new URL(request.url)
+  // Capability probe: the client calls this once to learn whether real icons
+  // are available, so it never points an <img> at a 503 (avoids console noise).
+  if (url.searchParams.get('probe')) {
+    return new Response(env.AI ? 'ready' : 'off', { status: env.AI ? 200 : 503, headers: CORS })
+  }
+
   const q = String(url.searchParams.get('q') || '').trim().slice(0, 60)
   if (!q) return new Response('q required', { status: 400, headers: CORS })
 
