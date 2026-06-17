@@ -8,6 +8,7 @@ import type { DayName, ProgramDay } from '../program'
 import {
   isProperlyEating,
   predictNextWeight,
+  parseRepRange,
   type DailyTotals,
 } from '../lib/workout-progression'
 import { decideNextSet, type DecisionResult } from '../lib/gym-decision'
@@ -582,12 +583,21 @@ export default function Workout() {
   // weight + reps from eating (properlyEating) and training history (PRs + last
   // sets), snapping to real gym-stack increments. Used for BOTH the Next-Up
   // card and seeding a live workout, so the preview matches what you'll lift.
-  function targetFor(exerciseName: string, repRange: string | null | undefined, restSeconds: number | undefined, positionInSession: number, totalExercises: number): DecisionResult {
+  function targetFor(exerciseName: string, repRange: string | null | undefined, restSeconds: number | undefined, positionInSession: number, totalExercises: number, startingWeight?: string): DecisionResult {
     const pr = prs[exerciseName]
+    const prevSets = lastSetsByExercise[exerciseName]
+    // No PR and no logged sets yet? Seed the engine with the program's starting
+    // weight (at the bottom of the rep range, so it holds rather than bumps) —
+    // this lets the number still adapt to EATING before any history exists.
+    let prevBest = pr ? { weight_kg: pr.weight_kg, reps: pr.reps } : null
+    if (!prevBest && !(prevSets && prevSets.length) && startingWeight) {
+      const m = startingWeight.match(/(\d+(?:\.\d+)?)\s*kg/i)
+      if (m) prevBest = { weight_kg: parseFloat(m[1]), reps: parseRepRange(repRange)?.min ?? 8 }
+    }
     return decideNextSet({
       exerciseName,
-      prevBest: pr ? { weight_kg: pr.weight_kg, reps: pr.reps } : null,
-      prevSets: lastSetsByExercise[exerciseName],
+      prevBest,
+      prevSets,
       repRange,
       programRestSeconds: restSeconds,
       lastSetRIR: null,
@@ -606,7 +616,7 @@ export default function Workout() {
     if (day) {
       const exercises: LiveExercise[] = day.exercises.map((ex, i) => {
         const pr = prs[ex.name]
-        const t = targetFor(ex.name, ex.repRange, ex.restSeconds, i, day.exercises.length)
+        const t = targetFor(ex.name, ex.repRange, ex.restSeconds, i, day.exercises.length, ex.startingWeight)
         const sets: LiveSet[] = Array.from({ length: ex.sets }, () => ({
           weight_kg: t.weight_kg,
           reps: t.repsTarget,
@@ -1266,7 +1276,7 @@ export default function Workout() {
           day={PROGRAM[displayDay]}
           isNext={true}
           onStart={() => startWorkout(PROGRAM[displayDay])}
-          targets={PROGRAM[displayDay].exercises.map((ex, i) => targetFor(ex.name, ex.repRange, ex.restSeconds, i, PROGRAM[displayDay].exercises.length))}
+          targets={PROGRAM[displayDay].exercises.map((ex, i) => targetFor(ex.name, ex.repRange, ex.restSeconds, i, PROGRAM[displayDay].exercises.length, ex.startingWeight))}
         />
 
         {/* Day picker */}
