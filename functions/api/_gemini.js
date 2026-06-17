@@ -17,6 +17,36 @@
 const MODEL = 'gemini-2.5-flash-lite'
 const ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`
 
+// Free-tier Gemini intermittently returns 429 (rate) / 503 (overloaded) /
+// 5xx for a second or two. Those are transient — a short retry absorbs them
+// so the user doesn't see "API error" when they log food. Non-retryable
+// statuses (400/401/403/404) fail fast.
+const RETRYABLE = new Set([429, 500, 502, 503, 504])
+async function fetchWithRetry(url, init, attempts = 3, baseDelay = 450) {
+  let last
+  for (let i = 0; i < attempts; i++) {
+    try {
+      const res = await fetch(url, init)
+      if (res.ok || !RETRYABLE.has(res.status)) return res
+      last = res
+    } catch (e) {
+      // Network/abort error — retry too (unless the signal was aborted, in
+      // which case the next fetch will throw immediately and we bail out).
+      last = e
+      if (init.signal && init.signal.aborted) throw e
+    }
+    if (i < attempts - 1) {
+      const retryAfter = last && last.headers ? parseInt(last.headers.get('retry-after') || '', 10) : NaN
+      const delay = Number.isFinite(retryAfter)
+        ? Math.min(retryAfter * 1000, 4000)
+        : Math.min(baseDelay * Math.pow(2, i) + Math.random() * 150, 4000)
+      await new Promise(r => setTimeout(r, delay))
+    }
+  }
+  if (last instanceof Error) throw last
+  return last
+}
+
 /**
  * Text-only Gemini call expecting JSON.
  * @returns {Promise<{ ok: true, text: string } | { ok: false, status: number, error: string }>}
@@ -28,7 +58,7 @@ export async function geminiTextJSON({
   const ctrl = new AbortController()
   const t = setTimeout(() => ctrl.abort(), timeoutMs)
   try {
-    const res = await fetch(`${ENDPOINT}?key=${apiKey}`, {
+    const res = await fetchWithRetry(`${ENDPOINT}?key=${apiKey}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -44,7 +74,7 @@ export async function geminiTextJSON({
         },
       }),
       signal: ctrl.signal,
-    })
+    }, 3)
     if (!res.ok) {
       const errTxt = await res.text()
       return { ok: false, status: res.status, error: errTxt.slice(0, 300) }
@@ -80,7 +110,7 @@ export async function geminiVisionJSON({
   const ctrl = new AbortController()
   const t = setTimeout(() => ctrl.abort(), timeoutMs)
   try {
-    const res = await fetch(`${ENDPOINT}?key=${apiKey}`, {
+    const res = await fetchWithRetry(`${ENDPOINT}?key=${apiKey}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -98,7 +128,7 @@ export async function geminiVisionJSON({
         },
       }),
       signal: ctrl.signal,
-    })
+    }, 2)
     if (!res.ok) {
       const t = await res.text()
       return { ok: false, status: res.status, error: t.slice(0, 300) }
