@@ -766,6 +766,29 @@ export default function Today({ onNavigate }: Props) {
     if (!prompt || aiState !== 'idle') return
     setAiState('parsing')
     try {
+      // Coach intent → reverse macro solver. Reuses the same preview/confirm
+      // path since the solver returns ready-to-log log_food actions.
+      const isCoachQuery = /\bhow (much|many)\b/i.test(prompt)
+        || /(hit|reach|to hit|to reach)[^.]*\b(goal|macro|macros|protein|target|calories?)\b/i.test(prompt)
+        || /\bgrams?\b[^.]*\b(each|hit|reach|goal|macro|target)\b/i.test(prompt)
+      if (isCoachQuery) {
+        const goalsNow = data?.goals ?? { calories: 2800, protein: 140, gym_days: 4 }
+        const totalNow = data?.total_kcal ?? 0
+        const proteinNow = data?.entries?.reduce((acc, e) => acc + (e.protein_g ?? 0), 0) ?? 0
+        const remaining = {
+          kcal: Math.max(goalsNow.calories - totalNow, 0),
+          protein_g: Math.max(goalsNow.protein - proteinNow, 0),
+        }
+        const cr = await api.coachSolve(prompt, remaining)
+        if (!cr.ok || !cr.plan || !cr.actions.length) {
+          setAiState('idle')
+          showToast(cr.error || "I couldn't work that out — try naming the ingredients", 'err')
+          return
+        }
+        setAiPreview({ ok: true, summary: cr.note ? `${cr.summary} ${cr.note}` : cr.summary, actions: cr.actions })
+        setAiState('preview')
+        return
+      }
       const resp = await api.parseAct(prompt)
       if (!resp.ok || !resp.actions.length) {
         setAiState('idle')
@@ -1250,7 +1273,7 @@ export default function Today({ onNavigate }: Props) {
             <input
               ref={inputRef}
               className="flex-1 min-w-0 bg-[var(--c-bg)] border border-[var(--c-border)] rounded-lg px-3 py-2 text-[14px] text-[var(--c-label)] placeholder:text-[var(--c-label-faint)] focus:outline-none focus:border-[var(--c-accent)] transition-colors disabled:opacity-50"
-              placeholder='"sausage roll from Aldi" or "weigh 79kg"'
+              placeholder='"sausage roll from Aldi" or "pork & broccoli — grams to hit my goal?"'
               value={aiPrompt}
               onChange={e => setAiPrompt(e.target.value)}
               disabled={aiState === 'parsing' || aiState === 'applying' || aiState === 'success'}

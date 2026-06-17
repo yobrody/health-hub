@@ -138,6 +138,11 @@ export const api = {
   parseAct: (prompt: string) =>
     request<AiActResponse>('/ai/act', { method: 'POST', body: JSON.stringify({ prompt }) }),
 
+  // Reverse macro solver. Pass the day's remaining targets so the coach fits
+  // portions to what's left (protein-prioritised). Returns a plan + log actions.
+  coachSolve: (prompt: string, remaining: { kcal: number; protein_g: number }) =>
+    request<CoachResponse>('/ai/coach', { method: 'POST', body: JSON.stringify({ prompt, remaining }) }),
+
   getMealSuggestions: () => request<{ meals: Meal[] }>('/ai/meals', { method: 'POST' }),
   // Detailed recipe + full macros for a single meal idea. Called on tap-to-expand
   // so we don't pay the recipe-generation token cost for ideas the user ignores.
@@ -543,6 +548,24 @@ export type AiAction =
 export interface AiActResponse {
   ok: boolean
   summary: string
+  actions: AiAction[]
+  error?: string
+}
+
+// Returned by POST /api/ai/coach — the reverse macro solver. Given the day's
+// remaining targets + a set of ingredients, it proposes grams of each. All
+// arithmetic is recomputed server-side from grams x per-100g, so totals are
+// trustworthy; `actions` are ready to confirm + log via the normal path.
+export interface CoachIngredient { name: string; grams: number; kcal: number; protein_g: number; carbs_g: number; fat_g: number }
+export interface CoachResponse {
+  ok: boolean
+  summary: string
+  note?: string
+  plan: {
+    ingredients: CoachIngredient[]
+    totals: { kcal: number; protein_g: number; carbs_g: number; fat_g: number }
+    remaining: { kcal: number; protein_g: number }
+  } | null
   actions: AiAction[]
   error?: string
 }
