@@ -202,6 +202,9 @@ export default function App({ onToggleTheme, theme }: Props) {
   const [portal, setPortal] = useState<Tab | null>(null)
   const [portalClosing, setPortalClosing] = useState(false)
   const portalOrigin = useRef<{ x: number; y: number }>({ x: 0, y: 0 })
+  const [portalOriginPos, setPortalOriginPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
+  function openPortal(t: Tab) { if (t === 'today') { setTab('today'); return } setPortalOriginPos({ x: portalOrigin.current.x, y: portalOrigin.current.y }); setPortalClosing(false); setPortal(t) }
+  function closePortal() { setPortalClosing(true); window.setTimeout(() => { setPortal(null); setPortalClosing(false) }, 260) }
   useEffect(() => {
     const onPointer = (e: PointerEvent) => { portalOrigin.current = { x: e.clientX, y: e.clientY } }
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') closePortal() }
@@ -209,8 +212,6 @@ export default function App({ onToggleTheme, theme }: Props) {
     window.addEventListener('keydown', onKey)
     return () => { window.removeEventListener('pointerdown', onPointer, true); window.removeEventListener('keydown', onKey) }
   }, [])
-  function openPortal(t: Tab) { if (t === 'today') { setTab('today'); return } setPortalClosing(false); setPortal(t) }
-  function closePortal() { setPortalClosing(true); window.setTimeout(() => { setPortal(null); setPortalClosing(false) }, 260) }
   function renderPortal(t: Tab) {
     switch (t) {
       case 'nutrition': return <Nutrition />
@@ -425,7 +426,7 @@ export default function App({ onToggleTheme, theme }: Props) {
               position: 'absolute', inset: 0,
               background: 'var(--bg, #09090b)',
               display: 'flex', flexDirection: 'column', overflow: 'hidden',
-              transformOrigin: `${portalOrigin.current.x}px ${portalOrigin.current.y}px`,
+              transformOrigin: `${portalOriginPos.x}px ${portalOriginPos.y}px`,
               animation: portalClosing ? 'hhPortalOut 0.24s ease-in forwards' : 'hhPortalIn 0.36s cubic-bezier(0.22,1,0.36,1)',
               boxShadow: '0 0 60px rgba(0,0,0,0.55)',
             }}
