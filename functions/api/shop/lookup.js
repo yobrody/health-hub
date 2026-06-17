@@ -65,11 +65,28 @@ export async function onRequestGet(context) {
     fields: 'product_name,product_name_en,brands,image_small_url,image_front_small_url,stores,stores_tags,quantity,nutriments',
   }).toString()
 
+  // OFF's text-search endpoint is notoriously slow/flaky — give it a generous
+  // timeout and one retry so transient stalls don't surface as a dead lookup.
+  async function fetchOFF() {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const ctrl = new AbortController()
+      const t = setTimeout(() => ctrl.abort(), 9000)
+      try {
+        const res = await fetch(offUrl, { headers: { 'User-Agent': 'HealthHub/1.0 (personal use)' }, signal: ctrl.signal })
+        clearTimeout(t)
+        if (res.ok) return await res.json()
+        if (attempt === 1) throw new Error(`OFF ${res.status}`)
+      } catch (e) {
+        clearTimeout(t)
+        if (attempt === 1) throw e
+      }
+      await new Promise(r => setTimeout(r, 500))
+    }
+    return null
+  }
   let data
   try {
-    const res = await fetch(offUrl, { headers: { 'User-Agent': 'HealthHub/1.0 (personal use)' } })
-    if (!res.ok) return json({ ok: false, error: `OFF ${res.status}`, product: null, stores: [], kcal_100g: null }, 502)
-    data = await res.json()
+    data = await fetchOFF()
   } catch (e) {
     return json({ ok: false, error: 'OFF unreachable: ' + String(e), product: null, stores: [], kcal_100g: null }, 502)
   }
