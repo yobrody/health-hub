@@ -198,7 +198,7 @@ Return ONLY this JSON (no markdown):
 Examples:
 
 User: "I ate 3 eggs today"
-{"actions":[{"type":"log_food","name":"eggs","count":3,"kcal":78,"protein_g":6,"meal":"Breakfast"}],"summary":"Logged 3 eggs to breakfast (~234 kcal)."}
+{"actions":[{"type":"log_food","name":"eggs","count":3,"kcal":78,"protein_g":6,"carbs_g":1,"fat_g":5,"meal":"Breakfast"}],"summary":"Logged 3 eggs to breakfast (~234 kcal)."}
 
 User: "yesterday I had a slice of pizza for dinner"
 {"actions":[{"type":"log_food","name":"pizza slice","count":1,"kcal":285,"protein_g":12,"meal":"Dinner","date":"${yesterdayIso}"}],"summary":"Logged a slice of pizza to yesterday's dinner."}
@@ -243,11 +243,11 @@ User: "remind me to call mum and add tomatoes to groceries"
 
 User: "75g of dried oats, 46g of smooth peanut butter, 7g of chia seeds, 75g of banana, 1g of cinnamon, 39g of honey"
 {"actions":[
-  {"type":"log_food","name":"75g oats","count":1,"kcal":284,"protein_g":10,"meal":"Breakfast"},
-  {"type":"log_food","name":"46g peanut butter","count":1,"kcal":275,"protein_g":10,"meal":"Breakfast"},
-  {"type":"log_food","name":"7g chia seeds","count":1,"kcal":34,"protein_g":1,"meal":"Breakfast"},
-  {"type":"log_food","name":"75g banana","count":1,"kcal":67,"protein_g":1,"meal":"Breakfast"},
-  {"type":"log_food","name":"39g honey","count":1,"kcal":119,"protein_g":0,"meal":"Breakfast"}
+  {"type":"log_food","name":"75g oats","count":1,"kcal":284,"protein_g":10,"carbs_g":51,"fat_g":5,"meal":"Breakfast"},
+  {"type":"log_food","name":"46g peanut butter","count":1,"kcal":275,"protein_g":10,"carbs_g":10,"fat_g":23,"meal":"Breakfast"},
+  {"type":"log_food","name":"7g chia seeds","count":1,"kcal":34,"protein_g":1,"carbs_g":3,"fat_g":2,"meal":"Breakfast"},
+  {"type":"log_food","name":"75g banana","count":1,"kcal":67,"protein_g":1,"carbs_g":17,"fat_g":0,"meal":"Breakfast"},
+  {"type":"log_food","name":"39g honey","count":1,"kcal":119,"protein_g":0,"carbs_g":32,"fat_g":0,"meal":"Breakfast"}
 ],"summary":"Logged oats, peanut butter, chia, banana and honey to breakfast (~779 kcal, 22g protein)."}
 
 User: "${prompt.replace(/"/g, '\\"')}"`
