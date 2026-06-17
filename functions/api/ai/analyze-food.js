@@ -36,16 +36,26 @@ export async function onRequestOptions() {
   return new Response(null, { status: 204, headers: CORS })
 }
 
+// Packaged-food accuracy: a printed nutrition label is the ground truth, so
+// READ it rather than estimate. A branded front-of-pack with no readable label
+// must NOT yield a confident guess (wrong numbers are worse than none) — flag
+// it low-confidence + needs_label so the app asks for the label.
+const LABEL_RULE = `PACKAGED FOOD & NUTRITION LABELS — check this FIRST, before anything else:
+- If a NUTRITION LABEL / information panel is visible (a table listing Energy/kcal, Fat, Carbohydrate, Protein — per 100g and/or per serving/pack): READ THE PRINTED NUMBERS EXACTLY. Never estimate when the label is readable. Return ONE food item. If a per-serving or per-pack column is shown, use those values and set grams to that serving size; otherwise use the per-100g values and set grams to 100. Set "source":"label" and "confidence":"high".
+- If a PACKAGED PRODUCT is shown only from the FRONT (branded wrapper/box, e.g. a meal-deal sandwich) and you CANNOT actually read a nutrition panel: identify the product name and give a rough best-effort estimate, but set "source":"estimate", "confidence":"low", and "needs_label": true. Do NOT present a confident number you could not read — the app will ask the user to photograph the nutrition label.`
+
 // CRITICAL: the model must REFUSE to invent food when the image is empty,
 // dark, blurry, or non-food. Past failure mode: black screen → "chicken katsu
 // curry". The IMAGE GUARD rules below + an empty-array escape hatch fix that.
-const IMAGE_GUARD = `IMAGE QUALITY GUARD — read this BEFORE identifying anything:
-- If the image is mostly black, dark, blurry, blank, a screen capture, a UI screenshot, a wall, or otherwise contains NO recognisable food: return {"foods":[],"fridge_matches":[],"confidence":"low"}. DO NOT guess.
+const IMAGE_GUARD = `IMAGE QUALITY GUARD:
+- If the image is mostly black, dark, blurry, blank, a screen capture, a UI screenshot, a wall, a person, a logo, a pet, or a building AND there is no food and no nutrition label: return {"foods":[],"fridge_matches":[],"confidence":"low"}. DO NOT guess.
+- A photo of a NUTRITION LABEL is VALID input — do NOT treat printed nutrition text as "no food"; read it per the PACKAGED FOOD rule above.
 - If you would have to invent details to fill the JSON, return empty foods.
-- If the image has NO food but does have something else (a person, a logo, text, a pet, a building): return empty foods.
-- Only invent a meal name if the food is clearly visible. "Maybe chicken curry" → empty foods.`
+- Only name a plated meal if the food is clearly visible. "Maybe chicken curry" → empty foods.`
 
-const HOME_PROMPT = (desc, fridgeNames) => `${IMAGE_GUARD}
+const HOME_PROMPT = (desc, fridgeNames) => `${LABEL_RULE}
+
+${IMAGE_GUARD}
 
 Analyze this home-made meal photo${desc ? ` (user says: "${desc}")` : ''}.
 
@@ -65,17 +75,23 @@ Return ONLY valid JSON, no markdown:
     {"name":"chicken breast","grams_used":150},
     {"name":"brown rice","grams_used":120}
   ],
-  "confidence": "high"
+  "confidence": "high",
+  "source": "estimate",
+  "needs_label": false
 }
 
 Rules:
+- source: "label" only if you READ a printed nutrition panel; otherwise "estimate".
+- needs_label: true when it's a packaged product you can't read a label for (see PACKAGED FOOD rule).
 - grams: visible portion weight in grams (raw/cooked, whichever is on the plate)
 - fridge_matches: only items from the fridge list that clearly match something visible. Use the EXACT name from the fridge list.
 - grams_used: estimated raw/dry grams of the fridge item that went into this dish (a 150g cooked chicken portion ≈ 200g raw)
 - confidence: "high" if clearly visible, "medium" if partially visible, "low" if unclear
 - Empty/non-food images: return empty foods + empty fridge_matches + "low" confidence — see IMAGE QUALITY GUARD above.`
 
-const OUT_PROMPT = (desc) => `${IMAGE_GUARD}
+const OUT_PROMPT = (desc) => `${LABEL_RULE}
+
+${IMAGE_GUARD}
 
 Analyze this restaurant / takeaway / out-and-about food photo${desc ? ` (user says: "${desc}")` : ''}.
 
@@ -86,10 +102,14 @@ Return ONLY valid JSON, no markdown:
   "foods": [
     {"name":"Chicken katsu curry","kcal":820,"protein_g":42,"carbs_g":86,"fat_g":34,"grams":480}
   ],
-  "confidence": "high"
+  "confidence": "high",
+  "source": "estimate",
+  "needs_label": false
 }
 
 Rules:
+- source: "label" only if you READ a printed nutrition panel; otherwise "estimate".
+- needs_label: true when it's a packaged product you can't read a label for (see PACKAGED FOOD rule).
 - grams: estimated total weight of the dish in grams as served
 - confidence: "high" if clearly visible, "medium" if partially visible, "low" if unclear
 - Be realistic about restaurant portions (often larger than home-cooked)
@@ -168,6 +188,8 @@ export async function onRequestPost(context) {
       foods,
       fridge_matches,
       confidence: result.confidence || 'medium',
+      source: result.source === 'label' ? 'label' : 'estimate',
+      needs_label: result.needs_label === true,
     })
   } catch (e) {
     console.error('analyze-food error:', e)

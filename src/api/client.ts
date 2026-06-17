@@ -281,7 +281,22 @@ export const api = {
       body: JSON.stringify({ image, mimeType: file.type || 'image/jpeg', description }),
     })
     if (!res.ok) throw new Error(`AI error: ${res.status}`)
-    return res.json()
+    // The endpoint returns { foods:[...], confidence, source, needs_label }.
+    // Collapse to the single-entry shape this caller logs: one product → that
+    // item; a multi-item plate → summed into one entry. Carry source/needs_label
+    // so the UI can flag estimates and prompt for the nutrition label.
+    const data = await res.json() as { foods?: Array<{ name: string; kcal?: number; protein_g?: number; carbs_g?: number; fat_g?: number }>; confidence?: 'high' | 'medium' | 'low'; source?: 'label' | 'estimate'; needs_label?: boolean }
+    const foods = Array.isArray(data.foods) ? data.foods : []
+    const sum = foods.reduce((a, f) => ({
+      kcal: a.kcal + (f.kcal || 0), protein_g: a.protein_g + (f.protein_g || 0),
+      carbs_g: a.carbs_g + (f.carbs_g || 0), fat_g: a.fat_g + (f.fat_g || 0),
+    }), { kcal: 0, protein_g: 0, carbs_g: 0, fat_g: 0 })
+    const name = foods.length === 0 ? '' : foods.length === 1 ? foods[0].name : foods.map(f => f.name).join(', ')
+    return {
+      name, ...sum, description,
+      confidence: data.confidence || (foods.length ? 'medium' : 'low'),
+      source: data.source, needs_label: data.needs_label,
+    }
   },
   lookupBarcode,
 
@@ -438,12 +453,20 @@ export type SmartScanResult =
 export interface FoodAnalysis {
   name: string; kcal: number; protein_g: number; carbs_g: number; fat_g: number
   description: string; confidence: 'high' | 'medium' | 'low'
+  // 'label' = read from a printed nutrition panel (trustworthy); 'estimate' = guessed.
+  source?: 'label' | 'estimate'
+  // Packaged product we couldn't read a label for — UI should prompt to snap it.
+  needs_label?: boolean
 }
 export interface FoodAnalysisV2 {
   mode?: 'home' | 'out'
   foods: Array<{ name: string; kcal: number; protein_g: number; carbs_g: number; fat_g: number; grams?: number }>
   fridge_matches: Array<FridgeItem & { zone: string; grams_used?: number | null }>
   confidence: 'high' | 'medium' | 'low'
+  // 'label' = read from a printed nutrition panel (trustworthy); 'estimate' = guessed.
+  source?: 'label' | 'estimate'
+  // True for a packaged product we couldn't read a label for — prompt the user to snap it.
+  needs_label?: boolean
 }
 export interface UsageLogInput { item_name: string; zone: string; date_added: string | null }
 export interface ShelfLifeMap { [item_name: string]: { avg_days: number; sample_count: number } }

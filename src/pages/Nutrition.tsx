@@ -290,6 +290,15 @@ export default function Nutrition() {
       if (result.carbs_g > 0) setCarbsG(result.carbs_g)
       if (result.fat_g > 0) setFatG(result.fat_g)
       setConfidence(result.confidence)
+      // Packaged product without a readable label → these macros are a GUESS.
+      // Don't let the user log wrong numbers blind: prompt them to snap the label.
+      if (result.needs_label || (result.source === 'estimate' && result.confidence === 'low')) {
+        setScanMsg('\u{1F4CB} Looks packaged — these macros are an estimate. Snap the nutrition label and I’ll read the exact numbers.')
+        setTimeout(() => setScanMsg(null), 7000)
+      } else if (result.source === 'label') {
+        setScanMsg('✓ Read straight from the nutrition label')
+        setTimeout(() => setScanMsg(null), 3500)
+      }
     } catch {
       setScanMsg('AI analysis failed \u2014 enter details manually')
       setTimeout(() => setScanMsg(null), 4000)
