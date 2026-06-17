@@ -143,6 +143,10 @@ export const api = {
   coachSolve: (prompt: string, remaining: { kcal: number; protein_g: number }) =>
     request<CoachResponse>('/ai/coach', { method: 'POST', body: JSON.stringify({ prompt, remaining }) }),
 
+  // Shopping-list notepad per-item intelligence: OFF product + photo + stores.
+  shopLookup: (q: string) =>
+    request<ShopLookupResult>(`/shop/lookup?q=${encodeURIComponent(q)}`),
+
   getMealSuggestions: () => request<{ meals: Meal[] }>('/ai/meals', { method: 'POST' }),
   // Detailed recipe + full macros for a single meal idea. Called on tap-to-expand
   // so we don't pay the recipe-generation token cost for ideas the user ignores.
@@ -556,6 +560,16 @@ export interface AiActResponse {
 // remaining targets + a set of ingredients, it proposes grams of each. All
 // arithmetic is recomputed server-side from grams x per-100g, so totals are
 // trustworthy; `actions` are ready to confirm + log via the normal path.
+// Returned by GET /api/shop/lookup — best-matching real product from Open
+// Food Facts plus the stores OFF knows stock it (notepad enriches typed items).
+export interface ShopLookupResult {
+  ok: boolean
+  query: string
+  product: { name: string; brand: string | null; image_url: string | null; quantity: string | null } | null
+  stores: string[]
+  kcal_100g: number | null
+  error?: string
+}
 export interface CoachIngredient { name: string; grams: number; kcal: number; protein_g: number; carbs_g: number; fat_g: number }
 export interface CoachResponse {
   ok: boolean
