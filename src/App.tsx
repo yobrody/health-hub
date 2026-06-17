@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
 import Today from './pages/Today'
 import Nutrition from './pages/Nutrition'
 import Fridge from './pages/Fridge'
@@ -24,6 +24,7 @@ import Celebrations from './components/Celebrations'
 import { api } from './api/client'
 import type { FridgeData } from './api/client'
 import { registerToastHandler } from './toast'
+import { clampDragX, shouldDismiss, classifyGesture } from './lib/swipe-dismiss'
 import type { Theme } from './main'
 import './App.css'
 
@@ -203,8 +204,61 @@ export default function App({ onToggleTheme, theme }: Props) {
   const [portalClosing, setPortalClosing] = useState(false)
   const portalOrigin = useRef<{ x: number; y: number }>({ x: 0, y: 0 })
   const [portalOriginPos, setPortalOriginPos] = useState<{ x: number; y: number }>({ x: 0, y: 0 })
-  function openPortal(t: Tab) { if (t === 'today') { setTab('today'); return } setPortalOriginPos({ x: portalOrigin.current.x, y: portalOrigin.current.y }); setPortalClosing(false); setPortal(t) }
-  function closePortal() { setPortalClosing(true); window.setTimeout(() => { setPortal(null); setPortalClosing(false) }, 260) }
+  // Swipe-right-to-dismiss: a second way to close a Today detail overlay. The
+  // panel tracks the finger and, past a distance/velocity threshold, slides off
+  // to the right; otherwise it springs back. The back chevron + Escape still
+  // collapse it to the tapped tile (the original gesture). Because every Today
+  // detail renders through this one portal, the gesture applies everywhere.
+  const [dragX, setDragX] = useState(0)
+  const [dragging, setDragging] = useState(false)
+  const [swipeClosing, setSwipeClosing] = useState(false)
+  const dragRef = useRef<{ startX: number; startY: number; lastX: number; lastT: number; mode: 'idle' | 'drag' | 'scroll'; active: boolean }>({ startX: 0, startY: 0, lastX: 0, lastT: 0, mode: 'idle', active: false })
+  function openPortal(t: Tab) { if (t === 'today') { setTab('today'); return } setPortalOriginPos({ x: portalOrigin.current.x, y: portalOrigin.current.y }); setPortalClosing(false); setSwipeClosing(false); setDragX(0); setPortal(t) }
+  function closePortal() { setPortalClosing(true); window.setTimeout(() => { setPortal(null); setPortalClosing(false); setDragX(0) }, 260) }
+  function onPortalPointerDown(e: ReactPointerEvent<HTMLDivElement>) {
+    if (portalClosing || swipeClosing) return
+    dragRef.current = { startX: e.clientX, startY: e.clientY, lastX: e.clientX, lastT: performance.now(), mode: 'idle', active: true }
+  }
+  function onPortalPointerMove(e: ReactPointerEvent<HTMLDivElement>) {
+    const d = dragRef.current
+    if (!d.active) return
+    const dx = e.clientX - d.startX
+    const dy = e.clientY - d.startY
+    if (d.mode === 'idle') {
+      // Engage the dismiss drag only when the first real movement is horizontal
+      // AND rightward — so vertical scrolling inside the detail is never
+      // hijacked. (Decision logic is unit-tested in lib/swipe-dismiss.)
+      const intent = classifyGesture(dx, dy)
+      if (intent === null) return
+      if (intent === 'drag') {
+        d.mode = 'drag'; setDragging(true)
+        try { e.currentTarget.setPointerCapture(e.pointerId) } catch { /* ignore */ }
+      } else {
+        d.mode = 'scroll'
+      }
+    }
+    if (d.mode === 'drag') { d.lastX = e.clientX; d.lastT = performance.now(); setDragX(clampDragX(dx)) }
+  }
+  function onPortalPointerUp(e: ReactPointerEvent<HTMLDivElement>) {
+    const d = dragRef.current
+    if (!d.active) return
+    d.active = false
+    if (d.mode !== 'drag') return
+    setDragging(false)
+    const dx = Math.max(0, e.clientX - d.startX)
+    const dt = Math.max(1, performance.now() - d.lastT)
+    const vx = (e.clientX - d.lastX) / dt // px/ms — flick velocity
+    const w = window.innerWidth || 400
+    if (shouldDismiss(dx, vx, w)) {
+      // Past the threshold (or a fast flick): complete the dismissal by
+      // sliding the panel off to the right, then unmount.
+      setSwipeClosing(true); setDragX(w + 40)
+      window.setTimeout(() => { setPortal(null); setSwipeClosing(false); setDragX(0) }, 300)
+    } else {
+      setDragX(0) // spring back to rest
+    }
+  }
+  function onPortalPointerCancel() { dragRef.current.active = false; setDragging(false); setDragX(0) }
   useEffect(() => {
     const onPointer = (e: PointerEvent) => { portalOrigin.current = { x: e.clientX, y: e.clientY } }
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') closePortal() }
@@ -320,6 +374,10 @@ export default function App({ onToggleTheme, theme }: Props) {
   // trip (audit P1-5). The bottom nav still works for jumping anywhere.
   const SECONDARY_TABS = new Set<Tab>(['skincare', 'goals', 'lists', 'agenda', 'routines', 'metrics', 'timeline', 'barcode', 'weekly-report', 'chat', 'insights', 'meal-plan', 'streaks'])
 
+  // Drag progress 0→1 drives the portal's slide-out scale/opacity feedback.
+  const portalW = (typeof window !== 'undefined' && window.innerWidth) || 400
+  const portalProgress = Math.min(1, dragX / portalW)
+
   return (
     <div className={portal ? 'hh-portal-open' : undefined} style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
       <div className="hh-blurable" style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
@@ -421,31 +479,50 @@ export default function App({ onToggleTheme, theme }: Props) {
           a blurred Today, and collapses back. ── */}
       {portal && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 300 }}>
+          {/* Outer wrapper owns the open/collapse animation (expand from the
+              tapped tile). The inner layer owns the swipe-to-dismiss translate
+              so the two transforms never fight. */}
           <div
             style={{
               position: 'absolute', inset: 0,
-              background: 'var(--bg, #09090b)',
-              display: 'flex', flexDirection: 'column', overflow: 'hidden',
               transformOrigin: `${portalOriginPos.x}px ${portalOriginPos.y}px`,
               animation: portalClosing ? 'hhPortalOut 0.24s ease-in forwards' : 'hhPortalIn 0.36s cubic-bezier(0.22,1,0.36,1)',
-              boxShadow: '0 0 60px rgba(0,0,0,0.55)',
             }}
           >
-            <button
-              onClick={closePortal}
-              aria-label="Back to Today"
+            <div
+              onPointerDown={onPortalPointerDown}
+              onPointerMove={onPortalPointerMove}
+              onPointerUp={onPortalPointerUp}
+              onPointerCancel={onPortalPointerCancel}
               style={{
-                position: 'absolute', top: 'max(14px, env(safe-area-inset-top, 0px) + 14px)', left: 12, zIndex: 10,
-                width: 38, height: 38, borderRadius: 19,
-                background: 'var(--card, rgba(255,255,255,0.9))', border: '1px solid var(--separator, rgba(0,0,0,0.1))',
-                display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
-                color: 'var(--label)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)',
+                position: 'absolute', inset: 0,
+                background: 'var(--bg, #09090b)',
+                display: 'flex', flexDirection: 'column', overflow: 'hidden',
+                transform: `translateX(${dragX}px) scale(${1 - portalProgress * 0.04})`,
+                transformOrigin: 'center left',
+                transition: dragging ? 'none' : 'transform 0.34s cubic-bezier(0.22,1,0.36,1), opacity 0.34s ease',
+                opacity: 1 - portalProgress * 0.15,
+                borderRadius: dragX > 4 ? 22 : 0,
+                boxShadow: '0 0 60px rgba(0,0,0,0.55)',
+                touchAction: 'pan-y',
               }}
             >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 9l6 6 6-6"/></svg>
-            </button>
-            <div style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
-              {renderPortal(portal)}
+              <button
+                onClick={closePortal}
+                aria-label="Back to Today"
+                style={{
+                  position: 'absolute', top: 'max(14px, env(safe-area-inset-top, 0px) + 14px)', left: 12, zIndex: 10,
+                  width: 38, height: 38, borderRadius: 19,
+                  background: 'var(--card, rgba(255,255,255,0.9))', border: '1px solid var(--separator, rgba(0,0,0,0.1))',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
+                  color: 'var(--label)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)',
+                }}
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 9l6 6 6-6"/></svg>
+              </button>
+              <div style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
+                {renderPortal(portal)}
+              </div>
             </div>
           </div>
         </div>
