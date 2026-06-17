@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react'
 import { api } from '../api/client'
 import { showToast } from '../toast'
+import { useSwipeDown } from '../hooks/useSwipeDown'
 import type { FridgeData, FoodAnalysisV2, BarcodeLookupResult } from '../api/client'
 
 type Stage = 'idle' | 'mode-pick' | 'analyzing' | 'result' | 'barcode'
@@ -170,6 +171,7 @@ function looksLikeHallucination(analysis: FoodAnalysisV2): boolean {
 
 export default function CameraSheet({ open, onClose, fridgeData, onFridgeUpdated }: Props) {
   const [stage, setStage] = useState<Stage>('idle')
+  const sheetSwipe = useSwipeDown(handleClose) // swipe-down-to-dismiss (handleClose is hoisted)
   const [mode, setMode] = useState<CameraMode>(loadCameraMode)
   const [analysis, setAnalysis] = useState<FoodAnalysisV2 | null>(null)
   const [checkedMatches, setCheckedMatches] = useState<Set<string>>(new Set())
@@ -438,12 +440,16 @@ export default function CameraSheet({ open, onClose, fridgeData, onFridgeUpdated
       style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 400, display: 'flex', alignItems: 'flex-end' }}
       onClick={e => { if (e.target === e.currentTarget) handleClose() }}
     >
-      <div style={{
-        background: 'var(--card)', borderRadius: '22px 22px 0 0', width: '100%',
-        padding: '16px 20px calc(32px + var(--safe-bottom))',
-        animation: 'slideUp 0.28s cubic-bezier(0.32,0.72,0,1)',
-        maxHeight: '90vh', overflowY: 'auto',
-      }}>
+      <div
+        {...sheetSwipe.bind}
+        style={{
+          background: 'var(--card)', borderRadius: '22px 22px 0 0', width: '100%',
+          padding: '16px 20px calc(32px + var(--safe-bottom))',
+          animation: 'slideUp 0.28s cubic-bezier(0.32,0.72,0,1)',
+          maxHeight: '90vh', overflowY: 'auto',
+          ...sheetSwipe.style,
+        }}
+      >
         {/* Handle + header */}
         <div style={{ width: 36, height: 5, background: 'var(--gray4)', borderRadius: 3, margin: '0 auto 16px' }} />
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>

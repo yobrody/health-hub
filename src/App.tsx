@@ -20,6 +20,7 @@ import CameraSheet from './components/CameraSheet'
 import SmartScanner from './components/SmartScanner'
 import { UpdatePrompt } from './components/UpdatePrompt'
 import ChangelogPopup from './components/ChangelogPopup'
+import ConnectionBanner from './components/ConnectionBanner'
 import Celebrations from './components/Celebrations'
 import { api } from './api/client'
 import type { FridgeData } from './api/client'
@@ -380,6 +381,7 @@ export default function App({ onToggleTheme, theme }: Props) {
 
   return (
     <div className={portal ? 'hh-portal-open' : undefined} style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+      <ConnectionBanner />
       <div className="hh-blurable" style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
         {SECONDARY_TABS.has(tab) && (
           <button

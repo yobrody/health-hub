@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef } from 'react'
 import { api } from '../api/client'
 import { showToast } from '../toast'
+import { useSwipeDown } from '../hooks/useSwipeDown'
 import type { FoodEntry, TodayData, HistoryDay, FoodAnalysis, BarcodeLookupResult, FoodSearchProduct, RecipeResult } from '../api/client'
 
 const MEALS = ['Breakfast', 'Lunch', 'Dinner', 'Snack']
@@ -73,6 +74,7 @@ const mono: React.CSSProperties = { fontFamily: "'JetBrains Mono', ui-monospace,
 
 export default function Nutrition() {
   const [data, setData] = useState<TodayData | null>(null)
+  const sheetSwipe = useSwipeDown(resetSheet) // swipe-down-to-dismiss (resetSheet is hoisted)
   const [history, setHistory] = useState<HistoryDay[]>([])
   const [showAdd, setShowAdd] = useState(false)
   const [meal, setMeal] = useState('Breakfast')
@@ -793,7 +795,7 @@ export default function Nutrition() {
       {showAdd && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 200, display: 'flex', alignItems: 'flex-end' }}
           onClick={e => { if (e.target === e.currentTarget) resetSheet() }}>
-          <div style={{ background: 'var(--c-card)', borderRadius: '20px 20px 0 0', padding: 'calc(8px) 20px calc(40px + var(--safe-bottom))', width: '100%', animation: 'slideUp 0.28s cubic-bezier(0.32,0.72,0,1)', maxHeight: '92vh', overflowY: 'auto' }}>
+          <div {...sheetSwipe.bind} style={{ background: 'var(--c-card)', borderRadius: '20px 20px 0 0', padding: 'calc(8px) 20px calc(40px + var(--safe-bottom))', width: '100%', animation: 'slideUp 0.28s cubic-bezier(0.32,0.72,0,1)', maxHeight: '92vh', overflowY: 'auto', ...sheetSwipe.style }}>
             <div style={{ width: 36, height: 5, background: 'var(--c-border)', borderRadius: 3, margin: '8px auto 16px' }} />
 
             {/* Header row */}
