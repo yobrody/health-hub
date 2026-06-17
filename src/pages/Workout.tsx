@@ -584,7 +584,6 @@ export default function Workout() {
 
   useEffect(() => {
     if (!exSearch) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- clear results when query empties
       setExResults([])
       return
     }

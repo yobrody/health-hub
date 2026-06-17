@@ -194,9 +194,9 @@ function StapleChip({ name, onAdd }: { name: string; onAdd: () => void }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: `staple:${name}` })
   return (
     <button ref={setNodeRef} {...listeners} {...attributes} onClick={onAdd}
-      style={{ display: 'flex', alignItems: 'center', gap: 8, width: '100%', background: 'var(--card)', border: '1px solid var(--separator)', borderRadius: 12, padding: '8px 9px', marginBottom: 8, cursor: 'grab', opacity: isDragging ? 0.4 : 1, textAlign: 'left', color: 'var(--label)', touchAction: 'none' }}>
-      <div style={{ width: 28, height: 28, flexShrink: 0 }}><ItemVisual name={name} size={28} /></div>
-      <span style={{ flex: 1, fontSize: 13, fontWeight: 600, textTransform: 'capitalize', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{name}</span>
+      style={{ display: 'flex', alignItems: 'center', gap: 7, flexShrink: 0, background: 'var(--card)', border: '1px solid var(--separator)', borderRadius: 12, padding: '7px 11px 7px 8px', cursor: 'grab', opacity: isDragging ? 0.4 : 1, color: 'var(--label)', touchAction: 'none', whiteSpace: 'nowrap' }}>
+      <div style={{ width: 26, height: 26, flexShrink: 0 }}><ItemVisual name={name} size={26} /></div>
+      <span style={{ fontSize: 13, fontWeight: 600, textTransform: 'capitalize' }}>{name}</span>
       <span style={{ fontSize: 15, color: 'var(--blue)' }}>＋</span>
     </button>
   )
@@ -306,11 +306,13 @@ function ShoppingNotepad({ open, onClose, staples, fridgeItems }: {
       </div>
 
       <DndContext sensors={sensors} onDragStart={(e: DragStartEvent) => setDragName(String(e.active.id).replace('staple:', ''))} onDragEnd={onDragEnd}>
-        <div style={{ flex: 1, display: 'flex', gap: 10, padding: '0 12px 16px', overflow: 'hidden' }}>
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 10, padding: '0 12px 16px', overflow: 'hidden' }}>
           {staples.length > 0 && (
-            <div style={{ width: 130, flexShrink: 0, overflowY: 'auto' }}>
-              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--label2)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>Restock</div>
-              {staples.map(s => <StapleChip key={s} name={s} onAdd={() => add(s)} />)}
+            <div style={{ flexShrink: 0 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--label2)', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 }}>Restock · tap or drag in</div>
+              <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 4, WebkitOverflowScrolling: 'touch' }}>
+                {staples.map(s => <StapleChip key={s} name={s} onAdd={() => add(s)} />)}
+              </div>
             </div>
           )}
           <div ref={setDropRef} style={{ flex: 1, overflowY: 'auto', borderRadius: 14, outline: isOver ? '2px dashed var(--blue)' : '2px dashed transparent', outlineOffset: 4, transition: 'outline-color 0.15s' }}>
