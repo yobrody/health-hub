@@ -197,6 +197,25 @@ function loadShopIconCache(): ShopIconCache {
   try { return JSON.parse(localStorage.getItem('shop_icon_cache') || '{}') } catch { return {} }
 }
 
+// Plate → purchase: open a search for the item at the user's store. Retailers
+// don't expose a public "add all to basket" API, so a per-item search deep-link
+// is the honest, robust version. Falls back to Google Shopping if the store is
+// unknown.
+function storeSearchUrl(store: string | null, item: string): string {
+  const q = encodeURIComponent(item)
+  const s = (store || '').toLowerCase()
+  if (s.includes('tesco')) return `https://www.tesco.com/groceries/en-GB/search?query=${q}`
+  if (s.includes('sainsbur')) return `https://www.sainsburys.co.uk/gol-ui/SearchResults/${q}`
+  if (s.includes('ocado')) return `https://www.ocado.com/search?entry=${q}`
+  if (s.includes('waitrose')) return `https://www.waitrose.com/ecom/shop/search?searchTerm=${q}`
+  if (s.includes('asda')) return `https://groceries.asda.com/search/${q}`
+  if (s.includes('morrison')) return `https://groceries.morrisons.com/search?entry=${q}`
+  if (s.includes('aldi')) return `https://groceries.aldi.co.uk/en-GB/Search?keywords=${q}`
+  if (s.includes('lidl')) return `https://www.lidl.co.uk/en-gb/search?q=${q}`
+  if (s.includes('co-op') || s.includes('coop')) return `https://www.coop.co.uk/products/search?q=${q}`
+  return `https://www.google.com/search?tbm=shop&q=${q}`
+}
+
 // One draggable staple chip (hooks can't run in a .map, so this is its own cmp).
 function StapleChip({ name, onAdd }: { name: string; onAdd: () => void }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: `staple:${name}` })
@@ -349,6 +368,8 @@ function ShoppingNotepad({ open, onClose, staples, fridgeItems }: {
                     <div style={{ fontSize: 15, fontWeight: 600, textDecoration: it.checked ? 'line-through' : 'none', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{it.text}</div>
                     {(store || price) && <div style={{ fontSize: 11.5, color: 'var(--label3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{store || ''}{store && price ? ' · ' : ''}{price || ''}</div>}
                   </div>
+                  <a href={storeSearchUrl(myStore, it.text)} target="_blank" rel="noopener noreferrer" aria-label={`Find ${it.text} at ${myStore || 'a store'}`} title={myStore ? `Find at ${myStore}` : 'Find online'}
+                    style={{ flexShrink: 0, textDecoration: 'none', fontSize: 16, padding: '0 4px', lineHeight: 1 }}>🛒</a>
                   <button onClick={() => remove(it.id)} aria-label="remove" style={{ background: 'none', border: 'none', color: 'var(--label3)', fontSize: 18, cursor: 'pointer', flexShrink: 0, lineHeight: 1 }}>×</button>
                 </div>
               )

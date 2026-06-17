@@ -9,6 +9,8 @@
  *   from neighboring files in the functions tree.
  */
 
+import { geminiTextJSON } from '../_gemini.js'
+
 export const UA = 'HealthHub/0.1 (https://health-hub-dwz.pages.dev)'
 export const POS_TTL_SECS = 90 * 24 * 60 * 60
 export const NEG_TTL_SECS = 14 * 24 * 60 * 60
@@ -201,8 +203,7 @@ export async function searchOFFByName(name) {
 // Confidence is tagged "low" because the model is guessing typical UK values,
 // not reading off a product label.
 export async function geminiEstimate(name, env) {
-  const key = env.GEMINI_API_KEY
-  if (!key) return { skipped: true, reason: 'no-key' }
+  if (!env.GEMINI_API_KEY) return { skipped: true, reason: 'no-key' }
 
   const prompt = `For the UK supermarket food item "${name}", return ONLY a JSON object with these fields (omit any you don't know):
 {
@@ -216,54 +217,27 @@ export async function geminiEstimate(name, env) {
 }
 Return only the JSON object — no prose, no markdown fences.`
 
-  // gemini-2.5-flash is on the free tier as of 2026-05; 2.0-flash has been
-  // moved to paid-only. Verify with ListModels if quota issues recur.
-  // thinkingConfig.thinkingBudget=0 — 2.5-flash defaults to reasoning-with-
-  // hidden-thinking which burns the maxOutputTokens budget. Off for structured
-  // extraction.
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${key}`
-  const ctrl = new AbortController()
-  const t = setTimeout(() => ctrl.abort(), 20000)
-  try {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: {
-          responseMimeType: 'application/json',
-          temperature: 0.2,
-          maxOutputTokens: 2048,
-          thinkingConfig: { thinkingBudget: 0 },
-        },
-      }),
-      signal: ctrl.signal,
-    })
-    if (!res.ok) {
-      const errTxt = await res.text().catch(() => '')
-      console.log('[gemini]', name, 'http', res.status, errTxt.slice(0, 200))
-      return { unavailable: true, status: res.status, errTxt: errTxt.slice(0, 200) }
-    }
-    const data = await res.json()
-    const txt = data?.candidates?.[0]?.content?.parts?.[0]?.text
-    const finishReason = data?.candidates?.[0]?.finishReason
-    if (!txt) {
-      console.log('[gemini]', name, 'empty', finishReason, JSON.stringify(data).slice(0, 200))
-      return { miss: true, finishReason }
-    }
-    let parsed
-    try { parsed = JSON.parse(txt) }
-    catch (e) {
-      console.log('[gemini]', name, 'parse', String(e), txt.slice(0, 100))
-      return { miss: true, parseErr: String(e), preview: txt.slice(0, 100) }
-    }
-    return { enriched: { ...parsed, source: 'gemini' }, confidence: 'low' }
-  } catch (e) {
-    console.log('[gemini]', name, 'throw', String(e))
-    return { unavailable: true, throw: String(e) }
-  } finally {
-    clearTimeout(t)
+  // Route through the shared helper so background enrichment gets the same
+  // retry + second-Gemini-key + OpenAI fallback chain as every other AI path
+  // (previously this did its own bespoke fetch with no resilience).
+  const r = await geminiTextJSON({
+    apiKey: env.GEMINI_API_KEY,
+    apiKey2: env.GEMINI_API_KEY_2,
+    openaiApiKey: env.OPENAI_API_KEY,
+    prompt,
+    maxTokens: 2048,
+    temperature: 0.2,
+  })
+  if (!r.ok) {
+    console.log('[gemini-estimate]', name, 'fail', r.status, (r.error || '').slice(0, 160))
+    return { unavailable: true, status: r.status, errTxt: (r.error || '').slice(0, 200) }
   }
+  let parsed
+  try { parsed = JSON.parse(r.text) }
+  catch (e) {
+    return { miss: true, parseErr: String(e), preview: r.text.slice(0, 100) }
+  }
+  return { enriched: { ...parsed, source: 'gemini' }, confidence: 'low' }
 }
 
 /**

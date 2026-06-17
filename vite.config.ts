@@ -339,6 +339,26 @@ export default defineConfig(({ mode }) => {
         },
       }),
     ],
+    build: {
+      // Split heavy, rarely-changing vendor libs into their own cached chunk.
+      // Keeps the app shell + portal transitions in the main bundle (no lazy
+      // page loading), so navigation/animations are untouched while repeat
+      // visits skip re-downloading vendor code. Safe perf win.
+      rollupOptions: {
+        output: {
+          // Function form (not object) so each library is grouped WITH its
+          // transitive deps — the object form left react/recharts/spring as
+          // empty 0kB chunks because they share react and got hoisted.
+          manualChunks(id: string) {
+            if (!id.includes('node_modules')) return
+            if (id.includes('@zxing')) return 'vendor-scan'           // barcode scanner — heaviest, not needed on most pages
+            if (id.includes('@dnd-kit')) return 'vendor-dnd'          // drag-drop (shopping list)
+            if (id.includes('recharts') || id.includes('/d3-') || id.includes('victory')) return 'vendor-charts'
+            if (id.includes('react') || id.includes('/scheduler/')) return 'vendor-react' // react, react-dom, react-spring
+          },
+        },
+      },
+    },
     server: {
       port: 3000,
       proxy: {
