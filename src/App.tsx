@@ -196,6 +196,42 @@ interface Props {
 
 export default function App({ onToggleTheme, theme }: Props) {
   const [tab, setTab] = useState<Tab>('today')
+  // ── The Living Today — tapping a Today tile opens its detail as a portal
+  // overlay that expands from the tapped point while Today blurs behind, so it
+  // never feels like you left. closePortal reverses the animation.
+  const [portal, setPortal] = useState<Tab | null>(null)
+  const [portalClosing, setPortalClosing] = useState(false)
+  const portalOrigin = useRef<{ x: number; y: number }>({ x: 0, y: 0 })
+  useEffect(() => {
+    const onPointer = (e: PointerEvent) => { portalOrigin.current = { x: e.clientX, y: e.clientY } }
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') closePortal() }
+    window.addEventListener('pointerdown', onPointer, true)
+    window.addEventListener('keydown', onKey)
+    return () => { window.removeEventListener('pointerdown', onPointer, true); window.removeEventListener('keydown', onKey) }
+  }, [])
+  function openPortal(t: Tab) { if (t === 'today') { setTab('today'); return } setPortalClosing(false); setPortal(t) }
+  function closePortal() { setPortalClosing(true); window.setTimeout(() => { setPortal(null); setPortalClosing(false) }, 260) }
+  function renderPortal(t: Tab) {
+    switch (t) {
+      case 'nutrition': return <Nutrition />
+      case 'fridge': return <Fridge />
+      case 'workout': return <Workout />
+      case 'chat': return <Chat />
+      case 'insights': return <Insights />
+      case 'meal-plan': return <MealPlan />
+      case 'skincare': return <Skincare />
+      case 'goals': return <GoalsPage />
+      case 'lists': return <Lists />
+      case 'agenda': return <Agenda />
+      case 'routines': return <Routines />
+      case 'metrics': return <Metrics />
+      case 'timeline': return <Timeline />
+      case 'barcode': return <Barcode />
+      case 'weekly-report': return <WeeklyReport />
+      case 'streaks': return <Streaks />
+      default: return null
+    }
+  }
   const [showOnboarding, setShowOnboarding] = useState(false)
   // Audit P2-8: empty default; onboarding will fill it. The Today header
   // hides the "Brody" suffix when name is empty, so a fresh install reads
@@ -284,8 +320,8 @@ export default function App({ onToggleTheme, theme }: Props) {
   const SECONDARY_TABS = new Set<Tab>(['skincare', 'goals', 'lists', 'agenda', 'routines', 'metrics', 'timeline', 'barcode', 'weekly-report', 'chat', 'insights', 'meal-plan', 'streaks'])
 
   return (
-    <div style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
-      <div style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
+    <div className={portal ? 'hh-portal-open' : undefined} style={{ height: '100%', display: 'flex', flexDirection: 'column' }}>
+      <div className="hh-blurable" style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
         {SECONDARY_TABS.has(tab) && (
           <button
             onClick={() => setTab('today')}
@@ -307,7 +343,7 @@ export default function App({ onToggleTheme, theme }: Props) {
           </button>
         )}
         <div key={tab} className="page-transition-enter" style={{ height: '100%' }}>
-          {tab === 'today'     && <Today onNavigate={setTab} onToggleTheme={onToggleTheme} themeIcon={themeIcon} />}
+          {tab === 'today'     && <Today onNavigate={openPortal} onToggleTheme={onToggleTheme} themeIcon={themeIcon} />}
           {tab === 'nutrition' && <Nutrition />}
           {tab === 'fridge'    && <Fridge />}
           {tab === 'workout'   && <Workout />}
@@ -328,7 +364,7 @@ export default function App({ onToggleTheme, theme }: Props) {
       </div>
 
       {/* Tab Bar — 2 tabs | camera FAB | 2 tabs */}
-      <div style={{
+      <div className="hh-blurable" style={{
         height: 'calc(var(--tab-bar-height) + var(--safe-bottom))',
         background: 'var(--tab-bar-bg)',
         backdropFilter: 'blur(20px)',
@@ -379,6 +415,47 @@ export default function App({ onToggleTheme, theme }: Props) {
           </button>
         ))}
       </div>
+
+      {/* ── The Living Today portal — detail expands from the tapped tile over
+          a blurred Today, and collapses back. ── */}
+      {portal && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 300 }}>
+          <div
+            style={{
+              position: 'absolute', inset: 0,
+              background: 'var(--bg, #09090b)',
+              display: 'flex', flexDirection: 'column', overflow: 'hidden',
+              transformOrigin: `${portalOrigin.current.x}px ${portalOrigin.current.y}px`,
+              animation: portalClosing ? 'hhPortalOut 0.24s ease-in forwards' : 'hhPortalIn 0.36s cubic-bezier(0.22,1,0.36,1)',
+              boxShadow: '0 0 60px rgba(0,0,0,0.55)',
+            }}
+          >
+            <button
+              onClick={closePortal}
+              aria-label="Back to Today"
+              style={{
+                position: 'absolute', top: 'max(14px, env(safe-area-inset-top, 0px) + 14px)', left: 12, zIndex: 10,
+                width: 38, height: 38, borderRadius: 19,
+                background: 'var(--card, rgba(255,255,255,0.9))', border: '1px solid var(--separator, rgba(0,0,0,0.1))',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
+                color: 'var(--label)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)',
+              }}
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M6 9l6 6 6-6"/></svg>
+            </button>
+            <div style={{ flex: 1, minHeight: 0, overflow: 'auto' }}>
+              {renderPortal(portal)}
+            </div>
+          </div>
+        </div>
+      )}
+
+      <style>{`
+        .hh-portal-open .hh-blurable { filter: blur(7px) saturate(0.92); transform: scale(0.975); pointer-events: none; }
+        .hh-blurable { transition: filter 0.32s ease, transform 0.32s ease; }
+        @keyframes hhPortalIn { from { opacity: 0.3; transform: scale(0.32); border-radius: 30px; } to { opacity: 1; transform: scale(1); border-radius: 0; } }
+        @keyframes hhPortalOut { from { opacity: 1; transform: scale(1); border-radius: 0; } to { opacity: 0; transform: scale(0.4); border-radius: 30px; } }
+      `}</style>
 
       {/* Legacy camera sheet (accessible from other entry points) */}
       <CameraSheet

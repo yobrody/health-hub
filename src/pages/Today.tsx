@@ -1141,7 +1141,7 @@ export default function Today({ onNavigate }: Props) {
         {isPerfectDay && <PerfectDayBadge />}
 
         {/* Hero — calorie */}
-        <Card className="mb-3">
+        <Card className="mb-3" onClick={() => onNavigate('nutrition')}>
           <div className="flex items-start justify-between mb-1">
             <CardLabel>Calories today</CardLabel>
             <StatBadge
