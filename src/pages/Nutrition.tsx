@@ -305,14 +305,34 @@ export default function Nutrition() {
   const pct = Math.min(total / goal, 1)
   const remaining = Math.max(goal - total, 0)
   const proteinGoal = data?.goals.protein ?? 140
-  // Compute macros from entries
-  const totalProtein = (data?.entries ?? []).reduce((a, e) => a + (e.protein_g ?? 0), 0)
-  // Estimate carbs/fat from remaining calories after protein
-  // rough: protein = 4cal/g, carbs = 4cal/g, fat = 9cal/g
+  // Compute macros from entries — prefer REAL stored macros per item, and
+  // fall back to a calorie-based estimate only for legacy items missing data.
+  const ents = data?.entries ?? []
+  const totalProtein = ents.reduce((a, e) => a + (e.protein_g ?? 0), 0)
+  let realCarbs = 0, realFat = 0, totalFiber = 0, totalSugar = 0, totalSodium = 0
+  let macrosEstimated = false  // at least one item had no real carbs/fat
+  let hasRealMacros = false    // at least one item carried real carbs/fat
+  for (const e of ents) {
+    const hasReal = e.carbs_g != null || e.fat_g != null
+    if (hasReal) {
+      realCarbs += e.carbs_g ?? 0
+      realFat += e.fat_g ?? 0
+      totalFiber += e.fiber_g ?? 0
+      totalSugar += e.sugar_g ?? 0
+      totalSodium += e.sodium_mg ?? 0
+      hasRealMacros = true
+    } else {
+      // estimate this single item from its own calories after protein
+      const eRemaining = Math.max((e.kcal ?? 0) - (e.protein_g ?? 0) * 4, 0)
+      realFat += Math.round(eRemaining * 0.35 / 9)
+      realCarbs += Math.round(eRemaining * 0.65 / 4)
+      macrosEstimated = true
+    }
+  }
+  // Back-compat aliases used throughout the view (now real where available)
+  const estimatedCarbs = Math.round(realCarbs)
+  const estimatedFat = Math.round(realFat)
   const proteinCals = totalProtein * 4
-  const remainingCals = Math.max(total - proteinCals, 0)
-  const estimatedFat = Math.round(remainingCals * 0.35 / 9)
-  const estimatedCarbs = Math.round(remainingCals * 0.65 / 4)
   // Macro goals (rough split: 30% protein, 40% carbs, 30% fat)
   const carbsGoal = Math.round(goal * 0.4 / 4)
   const fatGoal = Math.round(goal * 0.3 / 9)
@@ -481,6 +501,15 @@ export default function Nutrition() {
                   <span style={{ color: 'var(--c-green)' }}>{estimatedCarbs}g carbs</span>
                   <span style={{ color: 'var(--c-orange)' }}>{estimatedFat}g fat</span>
                 </div>
+                {(hasRealMacros || macrosEstimated) && (
+                  <div style={{ fontSize: 10, color: 'var(--c-label-faint)', marginTop: 6, fontStyle: 'italic' }}>
+                    {hasRealMacros && !macrosEstimated
+                      ? 'Carbs & fat from logged items'
+                      : hasRealMacros
+                        ? 'Mostly tracked · some items estimated'
+                        : 'Estimated from calories'}
+                  </div>
+                )}
               </Card>
             )}
 
@@ -489,9 +518,9 @@ export default function Nutrition() {
               <Card style={{ marginBottom: 12, padding: '14px 16px' }}>
                 <CardLabel>Micros</CardLabel>
                 {[
-                  { label: 'Fiber', current: Math.round(total * 0.012), goal: 30, unit: 'g', color: 'var(--c-green)' },
-                  { label: 'Sugar', current: Math.round(total * 0.08 / 4), goal: 30, unit: 'g', color: 'var(--c-orange)', isLimit: true },
-                  { label: 'Sodium', current: Math.round(total * 0.9), goal: 2300, unit: 'mg', color: 'var(--c-red)', isLimit: true },
+                  { label: 'Fiber', current: hasRealMacros ? Math.round(totalFiber) : Math.round(total * 0.012), goal: 30, unit: 'g', color: 'var(--c-green)' },
+                  { label: 'Sugar', current: totalSugar > 0 ? Math.round(totalSugar) : Math.round(total * 0.08 / 4), goal: 30, unit: 'g', color: 'var(--c-orange)', isLimit: true },
+                  { label: 'Sodium', current: totalSodium > 0 ? Math.round(totalSodium) : Math.round(total * 0.9), goal: 2300, unit: 'mg', color: 'var(--c-red)', isLimit: true },
                 ].map(micro => {
                   const pctFill = Math.min(micro.current / micro.goal, 1.3)
                   const isOver = micro.isLimit && micro.current > micro.goal
@@ -516,7 +545,9 @@ export default function Nutrition() {
                   )
                 })}
                 <div style={{ fontSize: 10, color: 'var(--c-label-faint)', marginTop: 4, fontStyle: 'italic' }}>
-                  Based on AI estimates
+                  {hasRealMacros
+                    ? (totalSugar > 0 && totalSodium > 0 ? 'From logged item data' : 'Fiber tracked · sugar & sodium estimated')
+                    : 'Estimated from calories'}
                 </div>
               </Card>
             )}
