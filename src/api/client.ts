@@ -147,6 +147,12 @@ export const api = {
   shopLookup: (q: string) =>
     request<ShopLookupResult>(`/shop/lookup?q=${encodeURIComponent(q)}`),
 
+  // Gym coach — one endpoint, two kinds (machine-question, workout-summary).
+  gymCoachMachine: (question: string, knownEquipment: string[]) =>
+    request<GymCoachMachineResponse>('/ai/gym-coach', { method: 'POST', body: JSON.stringify({ kind: 'machine-question', question, knownEquipment }) }),
+  gymCoachSummary: (analysis: unknown, weeklyVolume: unknown) =>
+    request<GymCoachSummaryResponse>('/ai/gym-coach', { method: 'POST', body: JSON.stringify({ kind: 'workout-summary', analysis, weeklyVolume }) }),
+
   getMealSuggestions: () => request<{ meals: Meal[] }>('/ai/meals', { method: 'POST' }),
   // Detailed recipe + full macros for a single meal idea. Called on tap-to-expand
   // so we don't pay the recipe-generation token cost for ideas the user ignores.
@@ -569,6 +575,35 @@ export interface ShopLookupResult {
   stores: string[]
   kcal_100g: number | null
   error?: string
+}
+// Gym coach (/api/ai/gym-coach) — machine-question + workout-summary modes.
+export interface GymCoachMachineResponse {
+  ok: boolean
+  answer: string
+  suggestedEquipment?: {
+    id: string
+    name: string
+    type: 'stack' | 'plate-loaded' | 'dumbbell' | 'barbell' | 'cable' | 'bodyweight' | 'machine-fixed'
+    stack?: { min: number; max: number; step: number }
+    aliases?: string[]
+    notes?: string
+  } | null
+  suggestedSchedule?: {
+    addToDay: 'Upper A' | 'Lower A' | 'Upper B' | 'Lower B' | 'none'
+    afterExercise: string
+    sets: number
+    repRange: string
+    rir: string
+    restSeconds: number
+    startingWeight_kg: number
+    rationale: string
+  } | null
+  offline?: boolean
+}
+export interface GymCoachSummaryResponse {
+  ok: boolean
+  narrative: string
+  offline?: boolean
 }
 export interface CoachIngredient { name: string; grams: number; kcal: number; protein_g: number; carbs_g: number; fat_g: number }
 export interface CoachResponse {
