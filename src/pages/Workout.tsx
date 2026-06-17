@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, useRef } from 'react'
 import { api } from '../api/client'
-import type { WorkoutData, ExerciseSet } from '../api/client'
+import type { WorkoutData, ExerciseSet, ParsedRoutine } from '../api/client'
 import { showToast } from '../toast'
 import { GymChatSheet } from '../components/GymChatSheet'
 import { PROGRAM, ROTATION, getNextDay } from '../program'
@@ -521,6 +521,11 @@ export default function Workout() {
   const [showSaveTemplate, setShowSaveTemplate] = useState(false)
   const [templateName, setTemplateName] = useState('')
   const [showCoach, setShowCoach] = useState(false)
+  // Paste-a-routine importer state.
+  const [showImport, setShowImport] = useState(false)
+  const [importText, setImportText] = useState('')
+  const [importBusy, setImportBusy] = useState(false)
+  const [importPreview, setImportPreview] = useState<ParsedRoutine | null>(null)
   const repsInputRef = useRef<HTMLInputElement>(null)
   const searchTimeout = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
@@ -796,6 +801,43 @@ export default function Workout() {
     setShowSaveTemplate(false)
     setTemplateName('')
     showToast(`Template "${name.trim()}" saved`)
+  }
+
+  async function parseImport() {
+    const text = importText.trim()
+    if (!text || importBusy) return
+    setImportBusy(true)
+    setImportPreview(null)
+    try {
+      const r = await api.parseRoutine(text)
+      if (!r.ok || !r.exercises.length) {
+        showToast(r.error || "Couldn't read that routine — try simpler text", 'err')
+      } else {
+        setImportPreview(r)
+        if (navigator.vibrate) navigator.vibrate(10)
+      }
+    } catch (err) {
+      const msg = String(err)
+      const busy = /\b(429|500|502|503|504)\b/.test(msg)
+      showToast(busy ? 'The parser is briefly busy — tap again.' : 'Import failed — try again', 'err')
+    } finally {
+      setImportBusy(false)
+    }
+  }
+
+  // Start a live workout from a parsed routine. Each exercise is engine-seeded
+  // (targetFor) so imported routines adapt to eating + history just like the program.
+  function startFromRoutine(routine: ParsedRoutine) {
+    const exercises: LiveExercise[] = routine.exercises.map((ex, i) => {
+      const pr = prs[ex.name]
+      const t = targetFor(ex.name, ex.repRange, ex.restSeconds, i, routine.exercises.length)
+      const sets: LiveSet[] = Array.from({ length: ex.sets }, () => ({ weight_kg: t.weight_kg, reps: t.repsTarget, done: false }))
+      return { name: ex.name, sets, prevBest: pr, repRange: ex.repRange, rir: ex.rir, restSeconds: ex.restSeconds }
+    })
+    setLive({ title: routine.title, startTime: new Date().toISOString(), exercises })
+    setFocusExIdx(0); setFocusSetIdx(0); setPhase('active'); setRestTimer(null)
+    setShowImport(false); setImportPreview(null); setImportText('')
+    if (navigator.vibrate) navigator.vibrate(20)
   }
 
   function startFromTemplate(tmpl: WorkoutTemplate) {
@@ -1320,6 +1362,11 @@ export default function Workout() {
           style={{ width: '100%', background: 'none', border: '1.5px dashed var(--gray4)', borderRadius: 14, padding: '13px', color: 'var(--label2)', fontSize: 15, fontWeight: 600, cursor: 'pointer', marginTop: 12, marginBottom: 8 }}
         >+ Custom Workout</button>
 
+        <button
+          onClick={() => { setShowImport(true); setImportPreview(null) }}
+          style={{ width: '100%', background: 'none', border: '1.5px dashed var(--gray4)', borderRadius: 14, padding: '13px', color: 'var(--label2)', fontSize: 15, fontWeight: 600, cursor: 'pointer', marginBottom: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
+        >📋 Paste a routine</button>
+
         {/* Consistency calendar — last 8 weeks at a glance. Each cell is a day,
             filled if a workout was logged. Reads from the loaded workouts list,
             no extra fetch. Brody asked for "see your consistency". */}
@@ -1424,6 +1471,40 @@ export default function Workout() {
       </div>
 
       {showCoach && <GymChatSheet onClose={() => setShowCoach(false)} />}
+
+      {showImport && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 240, background: 'var(--bg, #09090b)', display: 'flex', flexDirection: 'column', padding: 16, animation: 'hhImportIn 0.3s cubic-bezier(0.32,0.72,0,1)' }}>
+          <style>{'@keyframes hhImportIn { from { opacity: 0; transform: translateY(20px) } to { opacity: 1; transform: none } }'}</style>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+            <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--label)' }}>📋 Import a routine</div>
+            <button onClick={() => { setShowImport(false); setImportPreview(null) }} style={{ background: 'var(--card)', border: '1px solid var(--separator)', color: 'var(--label)', borderRadius: 18, padding: '8px 16px', fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>Close</button>
+          </div>
+          <div style={{ fontSize: 13, color: 'var(--label2)', marginBottom: 10, lineHeight: 1.5 }}>Paste a routine from ChatGPT, a website, or your notes — I'll turn it into a tracked workout that adapts to your eating + history.</div>
+          <textarea value={importText} onChange={e => setImportText(e.target.value)}
+            placeholder={'e.g.\nPush Day\nBench Press 4x6-8\nIncline DB Press 3x10-12\nLateral Raises 3x15\nTricep Pushdown 3x12'}
+            style={{ width: '100%', minHeight: 130, background: 'var(--card)', border: '1px solid var(--separator)', borderRadius: 12, padding: 12, fontSize: 14, color: 'var(--label)', resize: 'vertical', fontFamily: 'inherit', boxSizing: 'border-box' }} />
+          <button onClick={parseImport} disabled={!importText.trim() || importBusy}
+            style={{ width: '100%', background: 'var(--blue)', border: 'none', color: '#fff', borderRadius: 12, padding: 12, fontSize: 15, fontWeight: 700, cursor: 'pointer', marginTop: 10, opacity: (!importText.trim() || importBusy) ? 0.5 : 1 }}>
+            {importBusy ? 'Reading…' : 'Parse routine'}
+          </button>
+
+          {importPreview && (
+            <div style={{ marginTop: 16, flex: 1, overflowY: 'auto' }}>
+              <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--label)', marginBottom: 8 }}>{importPreview.title} · {importPreview.exercises.length} exercises</div>
+              {importPreview.exercises.map((ex, i) => (
+                <div key={i} style={{ background: 'var(--card)', border: '1px solid var(--separator)', borderRadius: 10, padding: '10px 12px', marginBottom: 6 }}>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--label)' }}>{ex.name}</div>
+                  <div style={{ fontSize: 12, color: 'var(--label2)' }}>{ex.sets}×{ex.repRange} · {ex.restSeconds}s rest · RIR {ex.rir}</div>
+                </div>
+              ))}
+              <button onClick={() => startFromRoutine(importPreview)}
+                style={{ width: '100%', background: 'var(--green)', border: 'none', color: '#fff', borderRadius: 12, padding: 13, fontSize: 15, fontWeight: 700, cursor: 'pointer', marginTop: 8, marginBottom: 24 }}>
+                Start this workout →
+              </button>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }
