@@ -40,19 +40,22 @@ export async function onRequestGet(context) {
 
   let bytes
   try {
-    const prompt = `A clean minimalist flat-design app icon of ${q}, a single centred grocery product, soft solid pastel background, crisp vector style, centered, no text, no words`
-    const out = await env.AI.run('@cf/black-forest-labs/flux-1-schnell', { prompt })
-    // flux-1-schnell returns { image: <base64 jpeg> }.
-    const b64 = out && out.image
-    if (!b64) throw new Error('no image in model output')
-    bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0))
+    // SDXL-Lightning (vs Flux schnell) supports a negative prompt, which is the
+    // only reliable way to stop the model stamping garbled text/labels on the
+    // icon. Returns a binary PNG stream rather than base64.
+    const out = await env.AI.run('@cf/bytedance/stable-diffusion-xl-lightning', {
+      prompt: `a single ${q}, centered minimalist flat product icon, clean vector illustration, plain soft pastel studio background, crisp, fills the frame`,
+      negative_prompt: 'text, words, letters, label, caption, typography, watermark, logo, multiple items, clutter, border, frame, blurry, low quality',
+    })
+    bytes = await new Response(out).arrayBuffer()
+    if (!bytes || bytes.byteLength < 100) throw new Error('empty image from model')
   } catch (e) {
     return new Response('generation failed: ' + String(e).slice(0, 120), { status: 502, headers: CORS })
   }
 
   const resp = new Response(bytes, {
     headers: {
-      'Content-Type': 'image/jpeg',
+      'Content-Type': 'image/png',
       'Cache-Control': 'public, max-age=31536000, immutable',
       ...CORS,
     },
