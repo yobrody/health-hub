@@ -112,8 +112,8 @@ the items individually if they want detail.
 
 Available action types:
 1. log_food — log eaten food to the calorie/protein log
-   args: { name: string, count?: number, kcal: number, protein_g: number, meal?: "Breakfast"|"Lunch"|"Snack"|"Dinner", date?: string, matched_product?: string, brand_or_shop?: string, confidence?: "high"|"medium"|"low", confidence_reason?: string }
-   Notes: estimate kcal+protein per UNIT for typical UK supermarket portions.
+   args: { name: string, count?: number, kcal: number, protein_g: number, carbs_g: number, fat_g: number, fiber_g?: number, meal?: "Breakfast"|"Lunch"|"Snack"|"Dinner", date?: string, matched_product?: string, brand_or_shop?: string, confidence?: "high"|"medium"|"low", confidence_reason?: string }
+   Notes: estimate kcal, protein, carbs and fat (per UNIT) for typical UK supermarket portions; add fiber_g when notable. ALWAYS include carbs_g and fat_g on every log_food — the app stores full macros per item.
    If the user says "3 eggs", emit ONE entry with count=3 and kcal/protein per egg
    (the app multiplies). If meal isn't stated, pick by time of day — current
    default is "${defaultMeal}".
@@ -198,7 +198,7 @@ Return ONLY this JSON (no markdown):
 Examples:
 
 User: "I ate 3 eggs today"
-{"actions":[{"type":"log_food","name":"eggs","count":3,"kcal":78,"protein_g":6,"meal":"Breakfast"}],"summary":"Logged 3 eggs to breakfast (~234 kcal)."}
+{"actions":[{"type":"log_food","name":"eggs","count":3,"kcal":78,"protein_g":6,"carbs_g":1,"fat_g":5,"meal":"Breakfast"}],"summary":"Logged 3 eggs to breakfast (~234 kcal)."}
 
 User: "yesterday I had a slice of pizza for dinner"
 {"actions":[{"type":"log_food","name":"pizza slice","count":1,"kcal":285,"protein_g":12,"meal":"Dinner","date":"${yesterdayIso}"}],"summary":"Logged a slice of pizza to yesterday's dinner."}
@@ -243,11 +243,11 @@ User: "remind me to call mum and add tomatoes to groceries"
 
 User: "75g of dried oats, 46g of smooth peanut butter, 7g of chia seeds, 75g of banana, 1g of cinnamon, 39g of honey"
 {"actions":[
-  {"type":"log_food","name":"75g oats","count":1,"kcal":284,"protein_g":10,"meal":"Breakfast"},
-  {"type":"log_food","name":"46g peanut butter","count":1,"kcal":275,"protein_g":10,"meal":"Breakfast"},
-  {"type":"log_food","name":"7g chia seeds","count":1,"kcal":34,"protein_g":1,"meal":"Breakfast"},
-  {"type":"log_food","name":"75g banana","count":1,"kcal":67,"protein_g":1,"meal":"Breakfast"},
-  {"type":"log_food","name":"39g honey","count":1,"kcal":119,"protein_g":0,"meal":"Breakfast"}
+  {"type":"log_food","name":"75g oats","count":1,"kcal":284,"protein_g":10,"carbs_g":51,"fat_g":5,"meal":"Breakfast"},
+  {"type":"log_food","name":"46g peanut butter","count":1,"kcal":275,"protein_g":10,"carbs_g":10,"fat_g":23,"meal":"Breakfast"},
+  {"type":"log_food","name":"7g chia seeds","count":1,"kcal":34,"protein_g":1,"carbs_g":3,"fat_g":2,"meal":"Breakfast"},
+  {"type":"log_food","name":"75g banana","count":1,"kcal":67,"protein_g":1,"carbs_g":17,"fat_g":0,"meal":"Breakfast"},
+  {"type":"log_food","name":"39g honey","count":1,"kcal":119,"protein_g":0,"carbs_g":32,"fat_g":0,"meal":"Breakfast"}
 ],"summary":"Logged oats, peanut butter, chia, banana and honey to breakfast (~779 kcal, 22g protein)."}
 
 User: "${prompt.replace(/"/g, '\\"')}"`
@@ -274,9 +274,12 @@ User: "${prompt.replace(/"/g, '\\"')}"`
       if (!name) continue
       const kcal = clampNumber(a.kcal, 0, 5000)
       const protein_g = clampNumber(a.protein_g, 0, 500)
+      const carbs_g = clampNumber(a.carbs_g, 0, 800)
+      const fat_g = clampNumber(a.fat_g, 0, 500)
+      const fiber_g = clampNumber(a.fiber_g, 0, 200)
       const count = clampNumber(a.count, 1, 50) ?? 1
       const meal = VALID_MEALS.has(a.meal) ? a.meal : defaultMeal
-      const out = { type: 'log_food', name, count, kcal: kcal ?? 0, protein_g: protein_g ?? 0, meal }
+      const out = { type: 'log_food', name, count, kcal: kcal ?? 0, protein_g: protein_g ?? 0, carbs_g: carbs_g ?? 0, fat_g: fat_g ?? 0, fiber_g: fiber_g ?? 0, meal }
       // Validate any date Gemini emitted: must be ISO + within last 7d / next 1d.
       if (typeof a.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(a.date)) {
         const d = new Date(a.date + 'T12:00:00Z')

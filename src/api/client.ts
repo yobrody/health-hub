@@ -520,7 +520,7 @@ export interface EnrichResult {
 export type AiAction =
   // `date` is optional ISO YYYY-MM-DD. Gemini fills it when the user says
   // "yesterday", "last night", "this morning", etc.; otherwise unset = today.
-  | { type: 'log_food'; name: string; count: number; kcal: number; protein_g: number; meal: 'Breakfast' | 'Lunch' | 'Snack' | 'Dinner'; date?: string; matched_product?: string; brand_or_shop?: string; confidence?: 'high' | 'medium' | 'low'; confidence_reason?: string }
+  | { type: 'log_food'; name: string; count: number; kcal: number; protein_g: number; carbs_g?: number; fat_g?: number; fiber_g?: number; meal: 'Breakfast' | 'Lunch' | 'Snack' | 'Dinner'; date?: string; matched_product?: string; brand_or_shop?: string; confidence?: 'high' | 'medium' | 'low'; confidence_reason?: string }
   | { type: 'add_fridge'; name: string; section: 'fridge' | 'freezer' | 'pantry' | 'condiments'; store?: string; size?: string; unit_size_g?: number; unit_count?: number; cost?: number }
   // Glasses of water (1-12). Frontend writes to localStorage water_intake;
   // backend has no notion of hydration today.

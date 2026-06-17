@@ -794,6 +794,9 @@ export default function Today({ onNavigate }: Props) {
           description: a.count > 1 ? `${a.count} ${a.name}` : a.name,
           kcal: a.kcal * a.count,
           protein_g: a.protein_g * a.count,
+          carbs_g: a.carbs_g != null ? a.carbs_g * a.count : undefined,
+          fat_g: a.fat_g != null ? a.fat_g * a.count : undefined,
+          fiber_g: a.fiber_g != null ? a.fiber_g * a.count : undefined,
           date: a.date,
         })
         return
