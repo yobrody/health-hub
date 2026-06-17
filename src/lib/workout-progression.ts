@@ -5,7 +5,7 @@ export type RepRange = { min: number; max: number }
 
 export function parseRepRange(repRange?: string | null): RepRange | null {
   if (!repRange) return null
-  const m = repRange.match(/(\d+)\s*-\s*(\d+)/)
+  const m = repRange.match(/(\d+)\s*[-–—]\s*(\d+)/)
   if (!m) return null
   const min = parseInt(m[1], 10)
   const max = parseInt(m[2], 10)
