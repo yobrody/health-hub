@@ -1,4 +1,7 @@
 // Default to same-origin Pages Functions: keeps secrets server-side.
+import { showToast } from '../toast'
+import { addItem, removeItem, bumpTries, dropExpired, loadOutbox, saveOutbox, newId, type OutboxItem } from '../lib/outbox'
+
 // For local debugging you can still set VITE_API_BASE to an absolute URL.
 const BASE = import.meta.env.VITE_API_BASE || '/api'
 const KEY: string | undefined = import.meta.env.VITE_API_KEY || undefined
@@ -28,6 +31,7 @@ export async function probeBackend(): Promise<boolean> {
   try {
     await fetch(`${BASE}/today`, { method: 'HEAD', cache: 'no-store' })
     setConn('online')
+    void flushOutbox() // we're back — drain anything captured while offline
     return true
   } catch {
     setConn('offline')
@@ -35,7 +39,70 @@ export async function probeBackend(): Promise<boolean> {
   }
 }
 
-async function request<T>(path: string, opts: RequestInit = {}): Promise<T> {
+// ── Offline outbox ──────────────────────────────────────────────────────────
+// A mutating call that can't reach the server is captured and replayed on
+// reconnect, so a log is never lost on a flaky connection. Callers opt a method
+// in by passing `queueLabel` to request(); on a network failure that request is
+// enqueued and a QueuedError is thrown (callers handle it like any failure, but
+// the data is now safe). The banner reads the pending count via subscribeOutbox.
+export class QueuedError extends Error {
+  readonly queued = true
+  constructor() { super('Saved offline — will sync when you reconnect.') }
+}
+
+let _outbox: OutboxItem[] = loadOutbox()
+const _outboxSubs = new Set<(items: OutboxItem[]) => void>()
+export function getOutbox(): OutboxItem[] { return _outbox }
+export function getOutboxCount(): number { return _outbox.length }
+export function subscribeOutbox(fn: (items: OutboxItem[]) => void): () => void {
+  _outboxSubs.add(fn)
+  return () => { _outboxSubs.delete(fn) }
+}
+function commitOutbox(next: OutboxItem[]) {
+  _outbox = next
+  saveOutbox(_outbox)
+  for (const fn of _outboxSubs) { try { fn(_outbox) } catch { /* ignore */ } }
+}
+
+let _flushing = false
+// Replay queued mutations in order. Stops at the first network failure (still
+// offline); server-rejected items get a try bumped and are dropped once they
+// exceed MAX_TRIES so they can't wedge the queue.
+export async function flushOutbox(): Promise<number> {
+  if (_flushing || _outbox.length === 0) return 0
+  _flushing = true
+  let synced = 0
+  try {
+    for (const it of [..._outbox]) {
+      try {
+        await request(it.path, { method: it.method, body: it.body })
+        commitOutbox(removeItem(_outbox, it.id))
+        synced++
+      } catch (e) {
+        if (e instanceof QueuedError || isNetworkError(e)) break // still offline
+        commitOutbox(bumpTries(_outbox, it.id)) // server rejected — retry later
+      }
+    }
+    commitOutbox(dropExpired(_outbox))
+  } finally {
+    _flushing = false
+  }
+  if (synced > 0) {
+    showToast(`Synced ${synced} change${synced > 1 ? 's' : ''}`, 'ok')
+    // Nudge listening pages (Today, Nutrition, …) to refresh now that the
+    // queued writes landed.
+    try { window.dispatchEvent(new CustomEvent('data-synced')) } catch { /* non-DOM env */ }
+  }
+  return synced
+}
+
+function isNetworkError(e: unknown): boolean {
+  return e instanceof TypeError || (e instanceof Error && /network|fetch|Failed to fetch/i.test(e.message))
+}
+
+type ReqOpts = RequestInit & { queueLabel?: string }
+
+async function request<T>(path: string, opts: ReqOpts = {}): Promise<T> {
   const h = new Headers(opts.headers)
   // Only attach the key when explicitly configured (e.g. direct-to-VPS debugging).
   if (KEY) h.set('X-Health-Key', KEY)
@@ -46,10 +113,19 @@ async function request<T>(path: string, opts: RequestInit = {}): Promise<T> {
     res = await fetch(`${BASE}${path}`, { ...opts, headers: h })
   } catch (e) {
     setConn('offline') // network error / server unreachable
+    if (opts.queueLabel) {
+      commitOutbox(addItem(_outbox, {
+        id: newId(), path, method: (opts.method || 'GET'), body: typeof opts.body === 'string' ? opts.body : undefined,
+        label: opts.queueLabel, ts: Date.now(), tries: 0,
+      }))
+      throw new QueuedError()
+    }
     throw e
   }
   setConn(res.status >= 500 ? 'degraded' : 'online') // any response = reachable
   if (!res.ok) throw new Error(`API error ${res.status}: ${await res.text()}`)
+  // Opportunistic drain: any successful call means we're back — replay pending.
+  if (!_flushing && _outbox.length > 0) void flushOutbox()
   return res.json()
 }
 
@@ -115,7 +191,7 @@ export const api = {
   getToday: () => request<TodayData>('/today'),
 
   // Food
-  addFood: (entry: FoodEntryInput) => request('/food', { method: 'POST', body: JSON.stringify(entry) }),
+  addFood: (entry: FoodEntryInput) => request('/food', { method: 'POST', body: JSON.stringify(entry), queueLabel: 'food' }),
   deleteFood: (time: string, meal: string) =>
     request('/food/delete', { method: 'POST', body: JSON.stringify({ time, meal }) }),
   recalculateFood: (name: string, original_name: string) =>
@@ -441,12 +517,13 @@ export const api = {
     request<{ ok: boolean; total_ml: number; entry: WaterEntry }>('/water', {
       method: 'POST',
       body: JSON.stringify({ ml, label, date }),
+      queueLabel: 'water',
     }),
 
   // Routines (skincare, vitamins, etc — single-tap daily check-ins with streak)
   getRoutine: (name: string) => request<RoutineData>(`/routines/${encodeURIComponent(name)}`),
   logRoutine: (name: string) =>
-    request<{ ok: boolean; date: string }>(`/routines/${encodeURIComponent(name)}/log`, { method: 'POST' }),
+    request<{ ok: boolean; date: string }>(`/routines/${encodeURIComponent(name)}/log`, { method: 'POST', queueLabel: 'routine' }),
 
   // Agenda
   getAgendaToday: () => request<AgendaData>('/agenda/today'),

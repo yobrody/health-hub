@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import { subscribeConn, getConnStatus, probeBackend, type ConnStatus } from '../api/client'
+import { subscribeConn, getConnStatus, probeBackend, getOutbox, subscribeOutbox, type ConnStatus } from '../api/client'
+import { summarize } from '../lib/outbox'
 
 // A slim, self-managing banner that slides down from the top whenever the
 // backend is unreachable or erroring, and clears itself (with a brief "Back
@@ -8,8 +9,12 @@ import { subscribeConn, getConnStatus, probeBackend, type ConnStatus } from '../
 export default function ConnectionBanner() {
   const [status, setStatus] = useState<ConnStatus>(getConnStatus())
   const [recovered, setRecovered] = useState(false)
+  const [pending, setPending] = useState(() => summarize(getOutbox()))
   const prev = useRef<ConnStatus>(getConnStatus())
   const recoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Track how many writes are waiting to sync.
+  useEffect(() => subscribeOutbox(items => setPending(summarize(items))), [])
 
   // One handler for every connectivity transition (API subscription + device
   // online/offline events). setState here is event-driven, not a synchronous
@@ -50,7 +55,7 @@ export default function ConnectionBanner() {
   const msg = isRecovered
     ? 'Back online'
     : status === 'offline'
-      ? 'Offline — showing saved data. Changes sync when you reconnect.'
+      ? (pending ? `Offline — ${pending} saved, will sync` : 'Offline — showing saved data.')
       : 'Trouble reaching the server — retrying…'
 
   return (

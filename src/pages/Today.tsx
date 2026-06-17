@@ -710,6 +710,8 @@ export default function Today({ onNavigate }: Props) {
       api.getToday().then(setData).catch(() => {})
     }
     window.addEventListener('food-logged', onFoodLogged)
+    // When queued offline writes replay on reconnect, refresh totals too.
+    window.addEventListener('data-synced', onFoodLogged)
 
     // Notification reminders — request permission once (after onboarding),
     // then check/fire reminders on every Today page load.
@@ -717,7 +719,10 @@ export default function Today({ onNavigate }: Props) {
       requestPermission().then(() => scheduleReminders())
     }
 
-    return () => window.removeEventListener('food-logged', onFoodLogged)
+    return () => {
+      window.removeEventListener('food-logged', onFoodLogged)
+      window.removeEventListener('data-synced', onFoodLogged)
+    }
   }, [])
 
   // Pull-to-refresh handlers
