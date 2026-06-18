@@ -1,6 +1,6 @@
 // Default to same-origin Pages Functions: keeps secrets server-side.
 import { showToast } from '../toast'
-import { addItem, removeItem, bumpTries, dropExpired, loadOutbox, saveOutbox, newId, type OutboxItem } from '../lib/outbox'
+import { addItem, bumpTries, dropExpired, loadOutbox, saveOutbox, newId, replayQueue, type OutboxItem } from '../lib/outbox'
 
 // For local debugging you can still set VITE_API_BASE to an absolute URL.
 const BASE = import.meta.env.VITE_API_BASE || '/api'
@@ -49,6 +49,7 @@ export class QueuedError extends Error {
   readonly queued = true
   constructor() { super('Saved offline — will sync when you reconnect.') }
 }
+export function isQueuedError(e: unknown): boolean { return e instanceof QueuedError }
 
 let _outbox: OutboxItem[] = loadOutbox()
 const _outboxSubs = new Set<(items: OutboxItem[]) => void>()
@@ -73,17 +74,17 @@ export async function flushOutbox(): Promise<number> {
   _flushing = true
   let synced = 0
   try {
-    for (const it of [..._outbox]) {
-      try {
-        await request(it.path, { method: it.method, body: it.body })
-        commitOutbox(removeItem(_outbox, it.id))
-        synced++
-      } catch (e) {
-        if (e instanceof QueuedError || isNetworkError(e)) break // still offline
-        commitOutbox(bumpTries(_outbox, it.id)) // server rejected — retry later
-      }
-    }
-    commitOutbox(dropExpired(_outbox))
+    const outcome = await replayQueue(
+      _outbox,
+      it => request<unknown>(it.path, { method: it.method, body: it.body }).then(() => undefined),
+      e => e instanceof QueuedError || isNetworkError(e),
+    )
+    // Rebuild from the *current* queue (not the snapshot) so writes enqueued
+    // mid-flush survive: drop the synced ids, bump the rejected ones, prune.
+    let next = _outbox.filter(i => !outcome.syncedIds.includes(i.id))
+    for (const id of outcome.bumpedIds) next = bumpTries(next, id)
+    commitOutbox(dropExpired(next))
+    synced = outcome.syncedIds.length
   } finally {
     _flushing = false
   }
@@ -114,10 +115,14 @@ async function request<T>(path: string, opts: ReqOpts = {}): Promise<T> {
   } catch (e) {
     setConn('offline') // network error / server unreachable
     if (opts.queueLabel) {
-      commitOutbox(addItem(_outbox, {
-        id: newId(), path, method: (opts.method || 'GET'), body: typeof opts.body === 'string' ? opts.body : undefined,
-        label: opts.queueLabel, ts: Date.now(), tries: 0,
-      }))
+      const method = opts.method || 'GET'
+      const body = typeof opts.body === 'string' ? opts.body : undefined
+      // Dedup: don't enqueue an identical pending write twice (e.g. an
+      // impatient double-tap while offline).
+      const dup = _outbox.some(i => i.path === path && i.method === method && i.body === body)
+      if (!dup) {
+        commitOutbox(addItem(_outbox, { id: newId(), path, method, body, label: opts.queueLabel, ts: Date.now(), tries: 0 }))
+      }
       throw new QueuedError()
     }
     throw e
@@ -484,7 +489,7 @@ export const api = {
   // Lists (groceries, errands, etc.)
   getList: (name: string) => request<ListData>(`/lists/${name}`),
   addListItem: (listName: string, text: string) =>
-    request<{ ok: boolean; item: ListItemData }>(`/lists/${listName}/items`, { method: 'POST', body: JSON.stringify({ text }) }),
+    request<{ ok: boolean; item: ListItemData }>(`/lists/${listName}/items`, { method: 'POST', body: JSON.stringify({ text }), queueLabel: 'list item' }),
   toggleListItem: (listName: string, itemId: string) =>
     request<{ ok: boolean; item: ListItemData }>(`/lists/${listName}/items/${itemId}`, { method: 'PATCH' }),
   deleteListItem: (listName: string, itemId: string) =>
@@ -528,7 +533,7 @@ export const api = {
   // Agenda
   getAgendaToday: () => request<AgendaData>('/agenda/today'),
   addAgendaItem: (title: string, notes?: string) =>
-    request<{ ok: boolean; item: AgendaItemData }>('/agenda', { method: 'POST', body: JSON.stringify({ title, notes }) }),
+    request<{ ok: boolean; item: AgendaItemData }>('/agenda', { method: 'POST', body: JSON.stringify({ title, notes }), queueLabel: 'task' }),
   toggleAgendaItem: (itemId: string) =>
     request<{ ok: boolean; item: AgendaItemData }>(`/agenda/${itemId}`, { method: 'PATCH' }),
   deleteAgendaItem: (itemId: string) =>

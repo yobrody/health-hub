@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { api } from '../api/client'
+import { api, isQueuedError } from '../api/client'
 import type { ListItemData } from '../api/client'
 import { showToast } from '../toast'
 
@@ -35,7 +35,12 @@ export default function Lists() {
       .finally(() => setLoading(false))
   }
 
-  useEffect(() => { load(activeList) }, [activeList])
+  useEffect(() => {
+    load(activeList)
+    const onSync = () => load(activeList) // queued adds replayed → refresh
+    window.addEventListener('data-synced', onSync)
+    return () => window.removeEventListener('data-synced', onSync)
+  }, [activeList])
 
   async function addItem() {
     const text = input.trim()
@@ -46,8 +51,9 @@ export default function Lists() {
       const { item } = await api.addListItem(activeList, text)
       setItems(prev => [...prev, item])
       if (navigator.vibrate) navigator.vibrate(8)
-    } catch {
-      showToast('Failed to add item', 'err')
+    } catch (e) {
+      if (isQueuedError(e)) showToast('Saved offline — will sync', 'info')
+      else showToast('Failed to add item', 'err')
     } finally {
       setAdding(false)
       inputRef.current?.focus()

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { api } from '../api/client'
+import { api, isQueuedError } from '../api/client'
 import type { AgendaItemData } from '../api/client'
 import { showToast } from '../toast'
 import {
@@ -44,7 +44,12 @@ export default function Agenda() {
       .finally(() => setLoading(false))
   }
 
-  useEffect(() => { load() }, [])
+  useEffect(() => {
+    load()
+    const onSync = () => load() // queued adds replayed → refresh from server
+    window.addEventListener('data-synced', onSync)
+    return () => window.removeEventListener('data-synced', onSync)
+  }, [])
 
   function setItemPriority(itemId: string, p: Priority) {
     setPriorities(prev => {
@@ -64,8 +69,10 @@ export default function Agenda() {
       setItems(prev => [...(prev || []), item])
       if (priority !== 'normal') setItemPriority(item.id, priority)
       if (navigator.vibrate) navigator.vibrate(8)
-    } catch {
-      showToast('Failed to add task', 'err')
+    } catch (e) {
+      // Offline: the add is safely queued and will sync on reconnect.
+      if (isQueuedError(e)) showToast('Saved offline — will sync', 'info')
+      else showToast('Failed to add task', 'err')
     } finally {
       setAdding(false)
       inputRef.current?.focus()
