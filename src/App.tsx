@@ -25,7 +25,7 @@ import Celebrations from './components/Celebrations'
 import { api } from './api/client'
 import type { FridgeData } from './api/client'
 import { registerToastHandler } from './toast'
-import { clampDragX, shouldDismiss, classifyGesture } from './lib/swipe-dismiss'
+import { clampDragX, shouldDismiss, classifyGesture, DISMISS_DISTANCE_FRACTION } from './lib/swipe-dismiss'
 import type { Theme } from './main'
 import './App.css'
 
@@ -213,12 +213,12 @@ export default function App({ onToggleTheme, theme }: Props) {
   const [dragX, setDragX] = useState(0)
   const [dragging, setDragging] = useState(false)
   const [swipeClosing, setSwipeClosing] = useState(false)
-  const dragRef = useRef<{ startX: number; startY: number; lastX: number; lastT: number; mode: 'idle' | 'drag' | 'scroll'; active: boolean }>({ startX: 0, startY: 0, lastX: 0, lastT: 0, mode: 'idle', active: false })
+  const dragRef = useRef<{ startX: number; startY: number; lastX: number; lastT: number; mode: 'idle' | 'drag' | 'scroll'; active: boolean; crossed: boolean }>({ startX: 0, startY: 0, lastX: 0, lastT: 0, mode: 'idle', active: false, crossed: false })
   function openPortal(t: Tab) { if (t === 'today') { setTab('today'); return } setPortalOriginPos({ x: portalOrigin.current.x, y: portalOrigin.current.y }); setPortalClosing(false); setSwipeClosing(false); setDragX(0); setPortal(t) }
   function closePortal() { setPortalClosing(true); window.setTimeout(() => { setPortal(null); setPortalClosing(false); setDragX(0) }, 260) }
   function onPortalPointerDown(e: ReactPointerEvent<HTMLDivElement>) {
     if (portalClosing || swipeClosing) return
-    dragRef.current = { startX: e.clientX, startY: e.clientY, lastX: e.clientX, lastT: performance.now(), mode: 'idle', active: true }
+    dragRef.current = { startX: e.clientX, startY: e.clientY, lastX: e.clientX, lastT: performance.now(), mode: 'idle', active: true, crossed: false }
   }
   function onPortalPointerMove(e: ReactPointerEvent<HTMLDivElement>) {
     const d = dragRef.current
@@ -238,7 +238,16 @@ export default function App({ onToggleTheme, theme }: Props) {
         d.mode = 'scroll'
       }
     }
-    if (d.mode === 'drag') { d.lastX = e.clientX; d.lastT = performance.now(); setDragX(clampDragX(dx)) }
+    if (d.mode === 'drag') {
+      d.lastX = e.clientX; d.lastT = performance.now()
+      const next = clampDragX(dx)
+      setDragX(next)
+      // Haptic tick the moment you cross the dismiss threshold (and reset if
+      // you pull back), matching the bottom-sheet swipe-down feel.
+      const past = next > (window.innerWidth || 400) * DISMISS_DISTANCE_FRACTION
+      if (past && !d.crossed) { d.crossed = true; if (navigator.vibrate) navigator.vibrate(12) }
+      else if (!past && d.crossed) { d.crossed = false }
+    }
   }
   function onPortalPointerUp(e: ReactPointerEvent<HTMLDivElement>) {
     const d = dragRef.current
