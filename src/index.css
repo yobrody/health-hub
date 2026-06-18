@@ -480,6 +480,11 @@ input, textarea, button, select {
 }
 @keyframes skeletonShimmer { 100% { transform: translateX(100%); } }
 
+/* Content reveal — a gentle fade applied to a value the moment it replaces a
+   skeleton, so the swap isn't an abrupt pop. Neutralized by reduced-motion. */
+.hh-reveal { animation: hhReveal 0.3s ease both; }
+@keyframes hhReveal { from { opacity: 0; } to { opacity: 1; } }
+
 /* ── Respect reduced-motion ─────────────────────────────────────────────
    Users who set "reduce motion" get instant transitions instead of the
    portal expand / sheet slide / page fade animations. Loading spinners are
