@@ -47,6 +47,42 @@ export function summarize(items: OutboxItem[]): string {
   return parts.join(' · ')
 }
 
+// ── Replay engine (pure — unit-tested against a fake server) ─────────────────
+export interface ReplayOutcome {
+  syncedIds: string[]   // items the server accepted (remove from queue)
+  bumpedIds: string[]   // server-rejected (non-network) — bump tries, retry later
+  sentOrder: string[]   // ids in the order they were attempted
+}
+
+/**
+ * Replay queued items in order via `send`. Stops at the first *network* error
+ * (we're still offline — leave the rest untouched for the next attempt).
+ * A non-network failure (server rejected the item) is recorded so the caller
+ * can bump its try count; replay continues with the following items. The caller
+ * owns mutating the actual queue from this outcome, which keeps concurrent
+ * enqueues (added mid-flush) safe.
+ */
+export async function replayQueue(
+  items: OutboxItem[],
+  send: (item: OutboxItem) => Promise<void>,
+  isNetworkError: (e: unknown) => boolean,
+): Promise<ReplayOutcome> {
+  const syncedIds: string[] = []
+  const bumpedIds: string[] = []
+  const sentOrder: string[] = []
+  for (const it of [...items]) {
+    sentOrder.push(it.id)
+    try {
+      await send(it)
+      syncedIds.push(it.id)
+    } catch (e) {
+      if (isNetworkError(e)) break
+      bumpedIds.push(it.id)
+    }
+  }
+  return { syncedIds, bumpedIds, sentOrder }
+}
+
 // ── localStorage-backed persistence ─────────────────────────────────────────
 
 const STORAGE_KEY = 'hh_outbox_v1'

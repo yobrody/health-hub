@@ -6,9 +6,12 @@ import {
   dropExpired,
   summarize,
   newId,
+  replayQueue,
   MAX_TRIES,
   type OutboxItem,
 } from './outbox'
+
+const netErr = (e: unknown) => e instanceof Error && e.message === 'NET'
 
 function item(over: Partial<OutboxItem> = {}): OutboxItem {
   return { id: over.id ?? 'a', path: '/food', method: 'POST', label: 'food', ts: 0, tries: 0, ...over }
@@ -54,5 +57,44 @@ describe('newId', () => {
   it('produces unique-ish ids', () => {
     const ids = new Set(Array.from({ length: 50 }, () => newId()))
     expect(ids.size).toBe(50)
+  })
+})
+
+describe('replayQueue', () => {
+  const items = [item({ id: '1' }), item({ id: '2' }), item({ id: '3' })]
+
+  it('sends every item in order on full success', async () => {
+    const sent: string[] = []
+    const out = await replayQueue(items, async i => { sent.push(i.id) }, netErr)
+    expect(sent).toEqual(['1', '2', '3'])
+    expect(out.syncedIds).toEqual(['1', '2', '3'])
+    expect(out.bumpedIds).toEqual([])
+    expect(out.sentOrder).toEqual(['1', '2', '3'])
+  })
+
+  it('stops at the first network error, leaving later items untouched', async () => {
+    const sent: string[] = []
+    const out = await replayQueue(items, async i => {
+      sent.push(i.id)
+      if (i.id === '2') throw new Error('NET')
+    }, netErr)
+    expect(sent).toEqual(['1', '2'])       // 3 never attempted
+    expect(out.syncedIds).toEqual(['1'])
+    expect(out.bumpedIds).toEqual([])      // network error is not a "bump"
+    expect(out.sentOrder).toEqual(['1', '2'])
+  })
+
+  it('bumps a server-rejected item and continues with the rest', async () => {
+    const out = await replayQueue(items, async i => {
+      if (i.id === '2') throw new Error('500 bad')
+    }, netErr)
+    expect(out.syncedIds).toEqual(['1', '3'])
+    expect(out.bumpedIds).toEqual(['2'])
+    expect(out.sentOrder).toEqual(['1', '2', '3'])
+  })
+
+  it('does nothing for an empty queue', async () => {
+    const out = await replayQueue([], async () => {}, netErr)
+    expect(out).toEqual({ syncedIds: [], bumpedIds: [], sentOrder: [] })
   })
 })
