@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
-import { api } from '../api/client'
+import { api, isQueuedError } from '../api/client'
 import { showToast } from '../toast'
 import type { TodayData, WeekStats, FridgeData, AiAction, AiActResponse } from '../api/client'
 import { PROGRAM, getNextDay } from '../program'
@@ -952,9 +952,15 @@ export default function Today({ onNavigate }: Props) {
     // captured per-action so the retry chip can re-fire just those rather
     // than silently swallowing them.
     const failed: { action: AiAction; error: string }[] = []
+    let queuedCount = 0
     for (const a of aiPreview.actions) {
       try { await executeAction(a) }
-      catch (err) { failed.push({ action: a, error: String(err).slice(0, 120) }) }
+      catch (err) {
+        // Offline / transient gateway blip: the write is safely captured in the
+        // outbox and will replay on reconnect — not a failure, not data loss.
+        if (isQueuedError(err)) { queuedCount++; continue }
+        failed.push({ action: a, error: String(err).slice(0, 120) })
+      }
     }
 
     // Re-fetch authoritative state in the background
@@ -980,10 +986,12 @@ export default function Today({ onNavigate }: Props) {
         setAiState('idle')
       }, 1400)
       showToast(
-        stockFailed.length > 0
-          ? `${aiPreview.summary || 'Logged'} · couldn't update fridge stock`
-          : (aiPreview.summary || 'Done'),
-        stockFailed.length > 0 ? 'info' : undefined
+        queuedCount > 0
+          ? 'Saved offline — will sync when you reconnect'
+          : stockFailed.length > 0
+            ? `${aiPreview.summary || 'Logged'} · couldn't update fridge stock`
+            : (aiPreview.summary || 'Done'),
+        (queuedCount > 0 || stockFailed.length > 0) ? 'info' : undefined
       )
       setAiFailed([])
     } else {
@@ -1008,8 +1016,17 @@ export default function Today({ onNavigate }: Props) {
       setAiFailed(prev => prev.filter((_, i) => i !== idx))
       api.getToday().then(setData).catch(() => {})
       api.getFridge().then(setFridgeData).catch(() => {})
+      showToast('Logged', 'ok')
     } catch (err) {
+      if (isQueuedError(err)) {
+        // Still offline / transient — but now safely persisted in the outbox,
+        // so clear the volatile chip; it'll sync automatically on reconnect.
+        setAiFailed(prev => prev.filter((_, i) => i !== idx))
+        showToast('Saved offline — will sync', 'info')
+        return
+      }
       setAiFailed(prev => prev.map((e, i) => i === idx ? { ...e, error: String(err).slice(0, 120) } : e))
+      showToast('Still failing — try again', 'err')
     }
   }
 

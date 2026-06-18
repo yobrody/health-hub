@@ -2,6 +2,7 @@ import { useEffect, useState, useRef } from 'react'
 import { api } from '../api/client'
 import { showToast } from '../toast'
 import { useSwipeDown } from '../hooks/useSwipeDown'
+import Skeleton from '../components/Skeleton'
 import type { FoodEntry, TodayData, HistoryDay, FoodAnalysis, BarcodeLookupResult, FoodSearchProduct, RecipeResult } from '../api/client'
 
 const MEALS = ['Breakfast', 'Lunch', 'Dinner', 'Snack']
@@ -74,6 +75,7 @@ const mono: React.CSSProperties = { fontFamily: "'JetBrains Mono', ui-monospace,
 
 export default function Nutrition() {
   const [data, setData] = useState<TodayData | null>(null)
+  const [loading, setLoading] = useState(true)
   const sheetSwipe = useSwipeDown(resetSheet) // swipe-down-to-dismiss (resetSheet is hoisted)
   const [history, setHistory] = useState<HistoryDay[]>([])
   const [showAdd, setShowAdd] = useState(false)
@@ -131,7 +133,7 @@ export default function Nutrition() {
     const hour = new Date().getHours()
     const defaultMeal = hour < 11 ? 'Breakfast' : hour < 15 ? 'Lunch' : hour < 18 ? 'Snack' : 'Dinner'
     setMeal(defaultMeal)
-    api.getToday().then(setData).catch(console.error)
+    api.getToday().then(setData).catch(console.error).finally(() => setLoading(false))
     api.getFoodHistory(7).then(setHistory).catch(console.error)
     const onFoodLogged = () => {
       api.getToday().then(setData).catch(() => {})
@@ -311,6 +313,8 @@ export default function Nutrition() {
   }
 
   const hasBarcodeSupport = typeof window !== 'undefined' && 'BarcodeDetector' in window
+  // First-paint skeletons for the hero ring numbers while /today is in flight.
+  const showSkeleton = loading && !data
   const total = data?.total_kcal ?? 0
   const goal = data?.goals.calories ?? 2200
   const pct = Math.min(total / goal, 1)
@@ -446,7 +450,7 @@ export default function Nutrition() {
                 />
                 <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
                   <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--c-label)', ...mono }}>
-                    {remaining > 0 ? remaining.toLocaleString() : '0'}
+                    {showSkeleton ? <Skeleton w={52} h={22} /> : (remaining > 0 ? remaining.toLocaleString() : '0')}
                   </div>
                   <div style={{ fontSize: 11, color: 'var(--c-label-dim)', marginTop: 2 }}>left</div>
                 </div>
@@ -463,7 +467,7 @@ export default function Nutrition() {
                     <div style={{ position: 'relative', width: 52, height: 52 }}>
                       <ProgressRing progress={Math.min(totalProtein / proteinGoal, 1)} size={52} stroke={5} color="var(--c-accent)" />
                       <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 600, color: 'var(--c-label)', ...mono }}>
-                        {totalProtein}g
+                        {showSkeleton ? <Skeleton w={22} h={11} /> : `${totalProtein}g`}
                       </div>
                     </div>
                     <div style={{ fontSize: 10, color: 'var(--c-label-dim)', marginTop: 3 }}>Protein</div>
@@ -473,7 +477,7 @@ export default function Nutrition() {
                     <div style={{ position: 'relative', width: 52, height: 52 }}>
                       <ProgressRing progress={Math.min(estimatedCarbs / carbsGoal, 1)} size={52} stroke={5} color="var(--c-green)" />
                       <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 600, color: 'var(--c-label)', ...mono }}>
-                        {estimatedCarbs}g
+                        {showSkeleton ? <Skeleton w={22} h={11} /> : `${estimatedCarbs}g`}
                       </div>
                     </div>
                     <div style={{ fontSize: 10, color: 'var(--c-label-dim)', marginTop: 3 }}>Carbs</div>
@@ -483,7 +487,7 @@ export default function Nutrition() {
                     <div style={{ position: 'relative', width: 52, height: 52 }}>
                       <ProgressRing progress={Math.min(estimatedFat / fatGoal, 1)} size={52} stroke={5} color="var(--c-orange)" />
                       <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 600, color: 'var(--c-label)', ...mono }}>
-                        {estimatedFat}g
+                        {showSkeleton ? <Skeleton w={22} h={11} /> : `${estimatedFat}g`}
                       </div>
                     </div>
                     <div style={{ fontSize: 10, color: 'var(--c-label-dim)', marginTop: 3 }}>Fat</div>

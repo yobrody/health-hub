@@ -101,6 +101,19 @@ function isNetworkError(e: unknown): boolean {
   return e instanceof TypeError || (e instanceof Error && /network|fetch|Failed to fetch/i.test(e.message))
 }
 
+// Gateway / timeout statuses that mean "the write never reached or completed at
+// the origin" — safe to queue and replay (this is the 522 the proxy returns
+// when Cloudflare can't reach the VPS). We deliberately do NOT queue 500 (the
+// origin may have partially processed) or 4xx (a real client error).
+const TRANSIENT_STATUS = new Set([408, 502, 503, 504, 522, 524])
+
+function enqueueWrite(path: string, method: string, body: string | undefined, label: string) {
+  // Dedup: don't enqueue an identical pending write twice (an impatient
+  // double-tap, or the same blip hit on a retry).
+  const dup = _outbox.some(i => i.path === path && i.method === method && i.body === body)
+  if (!dup) commitOutbox(addItem(_outbox, { id: newId(), path, method, body, label, ts: Date.now(), tries: 0 }))
+}
+
 type ReqOpts = RequestInit & { queueLabel?: string }
 
 async function request<T>(path: string, opts: ReqOpts = {}): Promise<T> {
@@ -109,26 +122,27 @@ async function request<T>(path: string, opts: ReqOpts = {}): Promise<T> {
   if (KEY) h.set('X-Health-Key', KEY)
   if (!h.has('Content-Type')) h.set('Content-Type', 'application/json')
 
+  const method = opts.method || 'GET'
+  const body = typeof opts.body === 'string' ? opts.body : undefined
+
   let res: Response
   try {
     res = await fetch(`${BASE}${path}`, { ...opts, headers: h })
   } catch (e) {
     setConn('offline') // network error / server unreachable
-    if (opts.queueLabel) {
-      const method = opts.method || 'GET'
-      const body = typeof opts.body === 'string' ? opts.body : undefined
-      // Dedup: don't enqueue an identical pending write twice (e.g. an
-      // impatient double-tap while offline).
-      const dup = _outbox.some(i => i.path === path && i.method === method && i.body === body)
-      if (!dup) {
-        commitOutbox(addItem(_outbox, { id: newId(), path, method, body, label: opts.queueLabel, ts: Date.now(), tries: 0 }))
-      }
-      throw new QueuedError()
-    }
+    if (opts.queueLabel) { enqueueWrite(path, method, body, opts.queueLabel); throw new QueuedError() }
     throw e
   }
   setConn(res.status >= 500 ? 'degraded' : 'online') // any response = reachable
-  if (!res.ok) throw new Error(`API error ${res.status}: ${await res.text()}`)
+  if (!res.ok) {
+    // A transient gateway blip on a queueable write → capture & replay instead
+    // of losing it (the 522/timeout case from the proxy hop).
+    if (opts.queueLabel && TRANSIENT_STATUS.has(res.status)) {
+      enqueueWrite(path, method, body, opts.queueLabel)
+      throw new QueuedError()
+    }
+    throw new Error(`API error ${res.status}: ${await res.text()}`)
+  }
   // Opportunistic drain: any successful call means we're back — replay pending.
   if (!_flushing && _outbox.length > 0) void flushOutbox()
   return res.json()
