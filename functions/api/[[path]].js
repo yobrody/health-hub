@@ -23,6 +23,23 @@ function jsonResp(data, status = 200) {
   })
 }
 
+// Retry only on a THROWN fetch — i.e. the connection to the VPS never
+// established (the "522 / can't reach origin" blip). A thrown fetch means the
+// request did not reach the origin, so replaying it can't double-write. We do
+// NOT retry on a 5xx *response* (the origin got it and may have processed it).
+async function fetchWithRetry(url, init, retries = 2) {
+  let lastErr
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      return await fetch(url, init)
+    } catch (err) {
+      lastErr = err
+      if (attempt < retries) await new Promise(r => setTimeout(r, 150 * (attempt + 1)))
+    }
+  }
+  throw lastErr
+}
+
 export async function onRequest(context) {
   const url = new URL(context.request.url)
   const backendPath = url.pathname.replace(/^\/api/, '') || '/'
@@ -175,11 +192,13 @@ export async function onRequest(context) {
     headers: reqHeaders,
   }
   if (context.request.method !== 'GET' && context.request.method !== 'HEAD') {
-    init.body = context.request.body
+    // Buffer the body so a retry can re-send it (a request stream can only be
+    // consumed once). Bodies here are small JSON writes.
+    init.body = await context.request.arrayBuffer()
   }
 
   try {
-    const response = await fetch(targetUrl, init)
+    const response = await fetchWithRetry(targetUrl, init)
     const resHeaders = new Headers(response.headers)
     resHeaders.set('Access-Control-Allow-Origin', '*')
     resHeaders.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS')
