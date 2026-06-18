@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react'
 import type { PointerEvent as ReactPointerEvent } from 'react'
-import { clampDragX, classifyGestureVertical, shouldDismissSheet } from '../lib/swipe-dismiss'
+import { clampDragX, classifyGestureVertical, shouldDismissSheet, SHEET_DISMISS_PX } from '../lib/swipe-dismiss'
 
 // Reusable swipe-down-to-dismiss for bottom sheets. Spread `bind` onto the
 // sheet's scrollable panel and merge `style` into that panel's style. The drag
@@ -15,13 +15,13 @@ export function useSwipeDown(onClose: () => void) {
   const [dragY, setDragY] = useState(0)
   const [dragging, setDragging] = useState(false)
   const [closing, setClosing] = useState(false)
-  const ref = useRef({ startX: 0, startY: 0, lastY: 0, lastT: 0, mode: 'idle' as 'idle' | 'drag' | 'scroll', active: false })
+  const ref = useRef({ startX: 0, startY: 0, lastY: 0, lastT: 0, mode: 'idle' as 'idle' | 'drag' | 'scroll', active: false, crossed: false })
 
   function onPointerDown(e: ReactPointerEvent<HTMLElement>) {
     if (closing) return
     const r = ref.current
     r.startX = e.clientX; r.startY = e.clientY; r.lastY = e.clientY
-    r.lastT = performance.now(); r.mode = 'idle'; r.active = true
+    r.lastT = performance.now(); r.mode = 'idle'; r.active = true; r.crossed = false
   }
 
   function onPointerMove(e: ReactPointerEvent<HTMLElement>) {
@@ -42,7 +42,16 @@ export function useSwipeDown(onClose: () => void) {
         r.mode = 'scroll'
       }
     }
-    if (r.mode === 'drag') { r.lastY = e.clientY; r.lastT = performance.now(); setDragY(clampDragX(dy)) }
+    if (r.mode === 'drag') {
+      r.lastY = e.clientY; r.lastT = performance.now()
+      const next = clampDragX(dy)
+      setDragY(next)
+      // One short haptic tick the moment you cross the release threshold —
+      // a "you've pulled far enough to let go" cue. Reset if you pull back up.
+      const past = next > SHEET_DISMISS_PX
+      if (past && !r.crossed) { r.crossed = true; if (navigator.vibrate) navigator.vibrate(12) }
+      else if (!past && r.crossed) { r.crossed = false }
+    }
   }
 
   function onPointerUp(e: ReactPointerEvent<HTMLElement>) {
