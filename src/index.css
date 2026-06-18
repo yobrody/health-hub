@@ -458,6 +458,28 @@ input, textarea, button, select {
   }
 }
 
+/* ── Skeleton loading placeholder ───────────────────────────────────────
+   A shimmering block shown where real data will land, so first paint reads
+   as "loading" rather than "empty / broken". The shimmer is neutralized by
+   the reduced-motion rule below (it falls back to a static tint). */
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  display: inline-block;
+  background: var(--c-border, rgba(127,127,127,0.18));
+  border-radius: 6px;
+  vertical-align: middle;
+}
+.skeleton::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.14), transparent);
+  animation: skeletonShimmer 1.3s ease-in-out infinite;
+}
+@keyframes skeletonShimmer { 100% { transform: translateX(100%); } }
+
 /* ── Respect reduced-motion ─────────────────────────────────────────────
    Users who set "reduce motion" get instant transitions instead of the
    portal expand / sheet slide / page fade animations. Loading spinners are
