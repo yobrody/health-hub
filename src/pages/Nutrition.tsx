@@ -1,8 +1,11 @@
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState, useRef, lazy, Suspense } from 'react'
 import { api } from '../api/client'
 import { showToast } from '../toast'
 import { useSwipeDown } from '../hooks/useSwipeDown'
 import Skeleton from '../components/Skeleton'
+// Lazy so recharts (~100KB gz) only downloads when the trend chart renders,
+// keeping it off the initial load.
+const CalorieTrendChart = lazy(() => import('../components/CalorieTrendChart'))
 import type { FoodEntry, TodayData, HistoryDay, FoodAnalysis, BarcodeLookupResult, FoodSearchProduct, RecipeResult } from '../api/client'
 
 const MEALS = ['Breakfast', 'Lunch', 'Dinner', 'Snack']
@@ -134,10 +137,10 @@ export default function Nutrition() {
     const defaultMeal = hour < 11 ? 'Breakfast' : hour < 15 ? 'Lunch' : hour < 18 ? 'Snack' : 'Dinner'
     setMeal(defaultMeal)
     api.getToday().then(setData).catch(console.error).finally(() => setLoading(false))
-    api.getFoodHistory(7).then(setHistory).catch(console.error)
+    api.getFoodHistory(14).then(setHistory).catch(console.error)
     const onFoodLogged = () => {
       api.getToday().then(setData).catch(() => {})
-      api.getFoodHistory(7).then(setHistory).catch(() => {})
+      api.getFoodHistory(14).then(setHistory).catch(() => {})
     }
     window.addEventListener('food-logged', onFoodLogged)
     return () => window.removeEventListener('food-logged', onFoodLogged)
@@ -493,6 +496,16 @@ export default function Nutrition() {
                     <div style={{ fontSize: 10, color: 'var(--c-label-dim)', marginTop: 3 }}>Fat</div>
                   </div>
                 </div>
+              </div>
+            </Card>
+
+            {/* ── 1b. CALORIE TREND ──────────────────────────────────────────── */}
+            <Card style={{ marginBottom: 12, padding: '14px 16px' }}>
+              <CardLabel>Last 14 days</CardLabel>
+              <div style={{ marginTop: 8 }}>
+                <Suspense fallback={<Skeleton w="100%" h={180} />}>
+                  <CalorieTrendChart history={history} goal={goal} days={14} />
+                </Suspense>
               </div>
             </Card>
 
