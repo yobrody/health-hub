@@ -11,6 +11,7 @@ import { celebrate } from '../lib/celebrations'
 import { useAnimatedNumber } from '../lib/useAnimatedNumber'
 import { PerfectDayBadge } from '../components/Celebrations'
 import VoiceInput from '../components/VoiceInput'
+import Skeleton from '../components/Skeleton'
 
 // =============================================================================
 // C-PREVIEW: Dark + bento + monospaced data
@@ -512,7 +513,7 @@ function WaterTracker() {
           <CardLabel>Hydration</CardLabel>
         </div>
         <span className="text-[13px] text-[var(--c-label-dim)]" style={{ fontFamily: "'JetBrains Mono', ui-monospace, monospace" }}>
-          {loading ? '...' : `${totalMl}ml / ${WATER_GOAL_ML}ml`}
+          {loading ? <Skeleton w={88} h={13} /> : `${totalMl}ml / ${WATER_GOAL_ML}ml`}
         </span>
       </div>
 
@@ -1109,6 +1110,10 @@ export default function Today({ onNavigate }: Props) {
   const lowStockSkincare = lowStockProducts(loadProducts(localStorage)).slice(0, 3)
   const nextDay = PROGRAM[nextWorkout]
 
+  // First-paint skeletons: show shimmer placeholders for the hero numbers
+  // while the initial /today fetch is in flight (before any data has landed).
+  const showSkeleton = loading && !data
+
   return (
     <div
       ref={pageRef}
@@ -1191,7 +1196,7 @@ export default function Today({ onNavigate }: Props) {
               <ProgressRing progress={total / goals.calories} size={90} stroke={7} color="var(--c-accent)" />
               <div className="absolute inset-0 flex flex-col items-center justify-center">
                 <span className="text-[18px] font-bold tracking-tight" style={{ fontFamily: "'JetBrains Mono', ui-monospace, monospace", lineHeight: 1.1 }}>
-                  {animatedTotal.toLocaleString()}
+                  {showSkeleton ? <Skeleton w={34} h={16} /> : animatedTotal.toLocaleString()}
                 </span>
                 <span className="text-[10px] text-[var(--c-label-faint)]">kcal</span>
               </div>
@@ -1201,7 +1206,7 @@ export default function Today({ onNavigate }: Props) {
               <ProgressRing progress={protein / goals.protein} size={72} stroke={6} color="var(--c-orange)" />
               <div className="absolute inset-0 flex flex-col items-center justify-center">
                 <span className="text-[15px] font-bold tracking-tight" style={{ fontFamily: "'JetBrains Mono', ui-monospace, monospace", color: 'var(--c-orange)', lineHeight: 1.1 }}>
-                  {animatedProtein}g
+                  {showSkeleton ? <Skeleton w={24} h={14} /> : <>{animatedProtein}g</>}
                 </span>
                 <span className="text-[10px] text-[var(--c-label-faint)]">prot</span>
               </div>
@@ -1209,10 +1214,10 @@ export default function Today({ onNavigate }: Props) {
             {/* Numeric details */}
             <div className="flex-1 min-w-0">
               <div className="text-[13px] text-[var(--c-label-dim)] mb-1" style={{ fontFamily: "'JetBrains Mono', ui-monospace, monospace" }}>
-                {animatedTotal.toLocaleString()} / {goals.calories.toLocaleString()} kcal
+                {showSkeleton ? <Skeleton w="85%" h={13} /> : <>{animatedTotal.toLocaleString()} / {goals.calories.toLocaleString()} kcal</>}
               </div>
               <div className="text-[13px] text-[var(--c-label-dim)]" style={{ fontFamily: "'JetBrains Mono', ui-monospace, monospace" }}>
-                {animatedProtein}g / {goals.protein}g protein
+                {showSkeleton ? <Skeleton w="65%" h={13} /> : <>{animatedProtein}g / {goals.protein}g protein</>}
               </div>
             </div>
           </div>
