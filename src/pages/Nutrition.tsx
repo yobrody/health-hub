@@ -450,7 +450,7 @@ export default function Nutrition() {
                 />
                 <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
                   <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--c-label)', ...mono }}>
-                    {showSkeleton ? <Skeleton w={52} h={22} /> : (remaining > 0 ? remaining.toLocaleString() : '0')}
+                    {showSkeleton ? <Skeleton w={52} h={22} /> : <span className="hh-reveal">{remaining > 0 ? remaining.toLocaleString() : '0'}</span>}
                   </div>
                   <div style={{ fontSize: 11, color: 'var(--c-label-dim)', marginTop: 2 }}>left</div>
                 </div>
@@ -467,7 +467,7 @@ export default function Nutrition() {
                     <div style={{ position: 'relative', width: 52, height: 52 }}>
                       <ProgressRing progress={Math.min(totalProtein / proteinGoal, 1)} size={52} stroke={5} color="var(--c-accent)" />
                       <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 600, color: 'var(--c-label)', ...mono }}>
-                        {showSkeleton ? <Skeleton w={22} h={11} /> : `${totalProtein}g`}
+                        {showSkeleton ? <Skeleton w={22} h={11} /> : <span className="hh-reveal">{`${totalProtein}g`}</span>}
                       </div>
                     </div>
                     <div style={{ fontSize: 10, color: 'var(--c-label-dim)', marginTop: 3 }}>Protein</div>
@@ -477,7 +477,7 @@ export default function Nutrition() {
                     <div style={{ position: 'relative', width: 52, height: 52 }}>
                       <ProgressRing progress={Math.min(estimatedCarbs / carbsGoal, 1)} size={52} stroke={5} color="var(--c-green)" />
                       <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 600, color: 'var(--c-label)', ...mono }}>
-                        {showSkeleton ? <Skeleton w={22} h={11} /> : `${estimatedCarbs}g`}
+                        {showSkeleton ? <Skeleton w={22} h={11} /> : <span className="hh-reveal">{`${estimatedCarbs}g`}</span>}
                       </div>
                     </div>
                     <div style={{ fontSize: 10, color: 'var(--c-label-dim)', marginTop: 3 }}>Carbs</div>
@@ -487,7 +487,7 @@ export default function Nutrition() {
                     <div style={{ position: 'relative', width: 52, height: 52 }}>
                       <ProgressRing progress={Math.min(estimatedFat / fatGoal, 1)} size={52} stroke={5} color="var(--c-orange)" />
                       <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 600, color: 'var(--c-label)', ...mono }}>
-                        {showSkeleton ? <Skeleton w={22} h={11} /> : `${estimatedFat}g`}
+                        {showSkeleton ? <Skeleton w={22} h={11} /> : <span className="hh-reveal">{`${estimatedFat}g`}</span>}
                       </div>
                     </div>
                     <div style={{ fontSize: 10, color: 'var(--c-label-dim)', marginTop: 3 }}>Fat</div>

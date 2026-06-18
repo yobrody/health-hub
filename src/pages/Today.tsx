@@ -513,7 +513,7 @@ function WaterTracker() {
           <CardLabel>Hydration</CardLabel>
         </div>
         <span className="text-[13px] text-[var(--c-label-dim)]" style={{ fontFamily: "'JetBrains Mono', ui-monospace, monospace" }}>
-          {loading ? <Skeleton w={88} h={13} /> : `${totalMl}ml / ${WATER_GOAL_ML}ml`}
+          {loading ? <Skeleton w={88} h={13} /> : <span className="hh-reveal">{`${totalMl}ml / ${WATER_GOAL_ML}ml`}</span>}
         </span>
       </div>
 
@@ -1213,7 +1213,7 @@ export default function Today({ onNavigate }: Props) {
               <ProgressRing progress={total / goals.calories} size={90} stroke={7} color="var(--c-accent)" />
               <div className="absolute inset-0 flex flex-col items-center justify-center">
                 <span className="text-[18px] font-bold tracking-tight" style={{ fontFamily: "'JetBrains Mono', ui-monospace, monospace", lineHeight: 1.1 }}>
-                  {showSkeleton ? <Skeleton w={34} h={16} /> : animatedTotal.toLocaleString()}
+                  {showSkeleton ? <Skeleton w={34} h={16} /> : <span className="hh-reveal">{animatedTotal.toLocaleString()}</span>}
                 </span>
                 <span className="text-[10px] text-[var(--c-label-faint)]">kcal</span>
               </div>
@@ -1223,7 +1223,7 @@ export default function Today({ onNavigate }: Props) {
               <ProgressRing progress={protein / goals.protein} size={72} stroke={6} color="var(--c-orange)" />
               <div className="absolute inset-0 flex flex-col items-center justify-center">
                 <span className="text-[15px] font-bold tracking-tight" style={{ fontFamily: "'JetBrains Mono', ui-monospace, monospace", color: 'var(--c-orange)', lineHeight: 1.1 }}>
-                  {showSkeleton ? <Skeleton w={24} h={14} /> : <>{animatedProtein}g</>}
+                  {showSkeleton ? <Skeleton w={24} h={14} /> : <span className="hh-reveal">{animatedProtein}g</span>}
                 </span>
                 <span className="text-[10px] text-[var(--c-label-faint)]">prot</span>
               </div>
@@ -1231,10 +1231,10 @@ export default function Today({ onNavigate }: Props) {
             {/* Numeric details */}
             <div className="flex-1 min-w-0">
               <div className="text-[13px] text-[var(--c-label-dim)] mb-1" style={{ fontFamily: "'JetBrains Mono', ui-monospace, monospace" }}>
-                {showSkeleton ? <Skeleton w="85%" h={13} /> : <>{animatedTotal.toLocaleString()} / {goals.calories.toLocaleString()} kcal</>}
+                {showSkeleton ? <Skeleton w="85%" h={13} /> : <span className="hh-reveal">{animatedTotal.toLocaleString()} / {goals.calories.toLocaleString()} kcal</span>}
               </div>
               <div className="text-[13px] text-[var(--c-label-dim)]" style={{ fontFamily: "'JetBrains Mono', ui-monospace, monospace" }}>
-                {showSkeleton ? <Skeleton w="65%" h={13} /> : <>{animatedProtein}g / {goals.protein}g protein</>}
+                {showSkeleton ? <Skeleton w="65%" h={13} /> : <span className="hh-reveal">{animatedProtein}g / {goals.protein}g protein</span>}
               </div>
             </div>
           </div>
