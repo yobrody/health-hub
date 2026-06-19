@@ -3,6 +3,7 @@ import { api } from '../api/client'
 import { showToast } from '../toast'
 import { useSwipeDown } from '../hooks/useSwipeDown'
 import Skeleton from '../components/Skeleton'
+import { rememberFood } from '../lib/food-memory'
 // Lazy so recharts (~100KB gz) only downloads when the trend chart renders,
 // keeping it off the initial load.
 const CalorieTrendChart = lazy(() => import('../components/CalorieTrendChart'))
@@ -213,6 +214,7 @@ export default function Nutrition() {
     try {
       await api.addFood({ meal, description: desc, kcal: kcalNum, protein_g: proteinNum, carbs_g: carbsG, fat_g: fatG, fiber_g: fiberG, sugar_g: sugarG, sodium_mg: sodiumMg, confidence })
       saveRecent({ desc, kcal: kcalNum, protein_g: proteinNum ?? 0 })
+      rememberFood({ name: desc, kcal: kcalNum, protein_g: proteinNum, carbs_g: carbsG, fat_g: fatG })
       const updated = await api.getToday()
       setData(updated)
       resetSheet()

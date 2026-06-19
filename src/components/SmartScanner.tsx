@@ -2,6 +2,7 @@ import { useRef, useState } from 'react'
 import { api } from '../api/client'
 import { showToast } from '../toast'
 import { useSwipeDown } from '../hooks/useSwipeDown'
+import { rememberFood } from '../lib/food-memory'
 import type { FridgeData, SmartScanResult, BarcodeLookupResult, ScannedItem } from '../api/client'
 
 type Stage = 'idle' | 'analyzing' | 'barcode-result' | 'receipt-result' | 'food-result'
@@ -327,6 +328,8 @@ export default function SmartScanner({ open, onClose, onFridgeUpdated }: Props) 
       const meal = h < 11 ? 'Breakfast' : h < 15 ? 'Lunch' : h < 18 ? 'Snack' : 'Dinner'
 
       await api.addFood({ meal, description: foodLine, kcal: totalKcal, protein_g: totalProtein })
+      // Each identified food feeds the personal memory ("Your usual").
+      foodResult.foods.forEach(f => rememberFood({ name: f.name, kcal: f.kcal, protein_g: f.protein_g, carbs_g: f.carbs_g ?? undefined, fat_g: f.fat_g ?? undefined }))
       window.dispatchEvent(new CustomEvent('food-logged'))
       showToast(`Logged ${totalKcal} kcal`)
       handleClose()

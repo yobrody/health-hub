@@ -2,6 +2,7 @@ import { useRef, useState } from 'react'
 import { api } from '../api/client'
 import { showToast } from '../toast'
 import { useSwipeDown } from '../hooks/useSwipeDown'
+import { rememberFood } from '../lib/food-memory'
 import type { FridgeData, FoodAnalysisV2, BarcodeLookupResult } from '../api/client'
 
 type Stage = 'idle' | 'mode-pick' | 'analyzing' | 'result' | 'barcode'
@@ -381,6 +382,9 @@ export default function CameraSheet({ open, onClose, fridgeData, onFridgeUpdated
       const meal = h < 11 ? 'Breakfast' : h < 15 ? 'Lunch' : h < 18 ? 'Snack' : 'Dinner'
 
       await api.addFood({ meal, description, kcal: totalKcal, protein_g: totalProtein })
+      // Feed each identified food into the personal memory so photo logs also
+      // make "Your usual" smarter over time.
+      analysis?.foods.forEach(f => rememberFood({ name: f.name, kcal: f.kcal, protein_g: f.protein_g, carbs_g: f.carbs_g ?? undefined, fat_g: f.fat_g ?? undefined }))
       // Tell Today (and any other listener) to refresh totals — without this
       // the calorie ring stays stale until the next page-load even though
       // the row's been written. Bug surfaced 2026-05-07: photo logs went

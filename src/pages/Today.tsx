@@ -12,6 +12,7 @@ import { useAnimatedNumber } from '../lib/useAnimatedNumber'
 import { PerfectDayBadge } from '../components/Celebrations'
 import VoiceInput from '../components/VoiceInput'
 import Skeleton from '../components/Skeleton'
+import { rememberFood, getUsualFoods, type FoodMemoryItem } from '../lib/food-memory'
 
 // =============================================================================
 // C-PREVIEW: Dark + bento + monospaced data
@@ -667,6 +668,9 @@ export default function Today({ onNavigate }: Props) {
   // Pulse the calorie bar when actions land. Triggers a one-shot CSS animation
   // by mounting a key change.
   const [barPulseKey, setBarPulseKey] = useState(0)
+  // "Your usual" — ranked personal food memory for one-tap re-logging.
+  const [usuals, setUsuals] = useState<FoodMemoryItem[]>([])
+  const [usualLogging, setUsualLogging] = useState<string | null>(null)
   const [nextWorkout, setNextWorkout] = useState<DayName>('Upper A')
   const [weekStats, setWeekStats] = useState<WeekStats | null>(null)
   const [fridgeData, setFridgeData] = useState<FridgeData | null>(null)
@@ -707,8 +711,10 @@ export default function Today({ onNavigate }: Props) {
     // full page reload because the camera sheet only had an onFridgeUpdated
     // callback, no onFoodLogged. The dispatcher in CameraSheet.confirmLog
     // (and the barcode path) emits this event after addFood resolves.
+    setUsuals(getUsualFoods({ limit: 6 }))
     const onFoodLogged = () => {
       api.getToday().then(setData).catch(() => {})
+      setUsuals(getUsualFoods({ limit: 6 }))
     }
     window.addEventListener('food-logged', onFoodLogged)
     // When queued offline writes replay on reconnect, refresh totals too.
@@ -832,6 +838,10 @@ export default function Today({ onNavigate }: Props) {
           fiber_g: a.fiber_g != null ? a.fiber_g * a.count : undefined,
           date: a.date,
         })
+        // Feed the personal food memory (per-unit macros, so a one-tap re-log
+        // matches a single serving). Only throws QueuedError on offline, which
+        // is caught by the caller; recording is best-effort regardless.
+        rememberFood({ name: a.name, kcal: a.kcal, protein_g: a.protein_g, carbs_g: a.carbs_g ?? undefined, fat_g: a.fat_g ?? undefined })
         return
       case 'add_fridge':
         await api.addFridgeItem(a.name, a.section, {
@@ -966,6 +976,7 @@ export default function Today({ onNavigate }: Props) {
     // Re-fetch authoritative state in the background
     api.getToday().then(setData).catch(() => {})
     api.getFridge().then(setFridgeData).catch(() => {})
+    setUsuals(getUsualFoods({ limit: 6 })) // AI-logged foods just entered memory
 
     // Classify failures. A food/weight/water log failing means the user's data
     // didn't get recorded — a real failure worth surfacing. But a fridge STOCK
@@ -1034,6 +1045,29 @@ export default function Today({ onNavigate }: Props) {
     setAiPreview(null)
     setAiState('idle')
     inputRef.current?.focus()
+  }
+
+  // One-tap re-log of a remembered food — uses YOUR stored macros (no AI round
+  // trip), into the meal inferred from the time of day.
+  async function logUsual(u: FoodMemoryItem) {
+    if (usualLogging) return
+    setUsualLogging(u.key)
+    const h = new Date().getHours()
+    const meal = h < 11 ? 'Breakfast' : h < 15 ? 'Lunch' : h < 18 ? 'Snack' : 'Dinner'
+    try {
+      await api.addFood({ meal, description: u.name, kcal: u.kcal, protein_g: u.protein_g, carbs_g: u.carbs_g, fat_g: u.fat_g })
+      rememberFood({ name: u.name, kcal: u.kcal, protein_g: u.protein_g, carbs_g: u.carbs_g, fat_g: u.fat_g })
+      api.getToday().then(setData).catch(() => {})
+      setBarPulseKey(k => k + 1)
+      if (navigator.vibrate) navigator.vibrate(10)
+      showToast(`${u.name} → ${meal.toLowerCase()}`)
+      setUsuals(getUsualFoods({ limit: 6 }))
+    } catch (e) {
+      if (isQueuedError(e)) showToast('Saved offline — will sync', 'info')
+      else showToast('Could not log — try again', 'err')
+    } finally {
+      setUsualLogging(null)
+    }
   }
 
   const total = data?.total_kcal ?? 0
@@ -1339,6 +1373,30 @@ export default function Today({ onNavigate }: Props) {
               )}
             </button>
           </form>
+
+          {/* Your usual — one-tap re-log from personal food memory. Hidden
+              during the AI parse/preview flow to avoid clutter. */}
+          {aiState === 'idle' && usuals.length > 0 && (
+            <div className="mt-3 pt-3 border-t border-[var(--c-border)]">
+              <div className="text-[11px] uppercase tracking-wider text-[var(--c-label-faint)] font-medium mb-2">Your usual</div>
+              <div className="flex flex-wrap gap-1.5">
+                {usuals.map(u => (
+                  <button
+                    key={u.key}
+                    onClick={() => logUsual(u)}
+                    disabled={usualLogging !== null}
+                    className="flex items-center gap-1.5 rounded-full border border-[var(--c-border)] bg-[var(--c-card)] px-2.5 py-1 text-[12px] text-[var(--c-label)] disabled:opacity-40 active:scale-95 transition-transform"
+                    style={{ WebkitTapHighlightColor: 'transparent' }}
+                  >
+                    <span className="truncate" style={{ maxWidth: 120 }}>{u.name}</span>
+                    <span className="text-[var(--c-label-faint)]" style={{ fontFamily: "'JetBrains Mono', ui-monospace, monospace" }}>
+                      {usualLogging === u.key ? '…' : u.kcal}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Preview chip — shown after parse, awaiting confirm */}
           {aiState === 'preview' && aiPreview && (
