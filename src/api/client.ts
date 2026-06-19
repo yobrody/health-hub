@@ -250,15 +250,19 @@ export const api = {
     return res.json()
   },
 
-  // Smart food log — natural language to AI nutrition estimate
-  smartFoodLog: async (description: string) => {
+  // Smart food log — natural language to AI nutrition estimate.
+  // The estimator honours cooking method / portion stated in the free text, so
+  // callers augment `description` (e.g. ", cooked in 1 tbsp sunflower oil") to
+  // re-estimate. It returns the assumptions it made in portion_detail /
+  // confidence_reason so the UI can surface them before logging.
+  smartFoodLog: async (description: string): Promise<SmartFoodResult> => {
     const r = await fetch(`${BASE}/food/smart`, {
       method: 'POST',
       headers: (() => { const h = new Headers({ 'Content-Type': 'application/json' }); if (KEY) h.set('X-Health-Key', KEY); return h })(),
       body: JSON.stringify({ description }),
     })
     if (!r.ok) throw new Error(`Smart food failed: ${r.status}`)
-    return r.json() as Promise<{ meal: string; description: string; kcal: number; protein_g: number; carbs_g?: number; fat_g?: number; confidence: string }>
+    return r.json() as Promise<SmartFoodResult>
   },
 
   // AI meals — cheap listing of names + kcal estimates
@@ -589,6 +593,25 @@ export interface FoodAnalysis {
   source?: 'label' | 'estimate'
   // Packaged product we couldn't read a label for — UI should prompt to snap it.
   needs_label?: boolean
+}
+// Result from POST /food/smart — natural-language nutrition estimate. The
+// estimator states its assumptions (cooking method, portion size) in
+// portion_detail / confidence_reason so the UI can surface them before logging.
+export interface SmartFoodResult {
+  meal: string
+  matched_product?: string | null
+  brand_or_shop?: string | null
+  portion_detail?: string | null
+  kcal: number
+  protein_g: number
+  carbs_g?: number
+  fat_g?: number
+  fiber_g?: number
+  sugar_g?: number
+  sodium_mg?: number
+  confidence: 'high' | 'medium' | 'low'
+  confidence_reason?: string | null
+  description: string
 }
 export interface FoodAnalysisV2 {
   mode?: 'home' | 'out'
