@@ -4,6 +4,7 @@ import { showToast } from '../toast'
 import { useSwipeDown } from '../hooks/useSwipeDown'
 import Skeleton from '../components/Skeleton'
 import { rememberFood } from '../lib/food-memory'
+import { checkFoodPlausibility } from '../lib/food-plausibility'
 // Lazy so recharts (~100KB gz) only downloads when the trend chart renders,
 // keeping it off the initial load.
 const CalorieTrendChart = lazy(() => import('../components/CalorieTrendChart'))
@@ -1113,6 +1114,33 @@ export default function Nutrition() {
                   placeholder="Protein (g)" type="number" inputMode="numeric"
                   value={proteinG} onChange={e => setProteinG(e.target.value)} />
               </div>
+
+              {/* Sanity guard — flags implausible estimates (e.g. an AI
+                  hallucinating "3 eggs" as 702 kcal / 54g protein) so the user
+                  looks before logging. Non-blocking. */}
+              {(() => {
+                const kcalNum = parseFloat(kcal)
+                if (!Number.isFinite(kcalNum) || kcalNum <= 0) return null
+                const proteinNum = proteinG ? parseFloat(proteinG) : undefined
+                const { ok, warnings } = checkFoodPlausibility({
+                  kcal: kcalNum,
+                  protein_g: Number.isFinite(proteinNum as number) ? proteinNum : undefined,
+                  carbs_g: carbsG,
+                  fat_g: fatG,
+                  description: desc,
+                })
+                if (ok) return null
+                return (
+                  <div style={{ background: '#F59E0B14', border: '1px solid var(--c-orange)', borderRadius: 12, padding: '10px 12px', marginBottom: 16 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 700, color: 'var(--c-orange)', marginBottom: warnings.length ? 6 : 0 }}>
+                      <span>⚠️</span> Double-check this estimate
+                    </div>
+                    <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12, color: 'var(--c-label-dim)', lineHeight: 1.45 }}>
+                      {warnings.map((w, i) => <li key={i}>{w}</li>)}
+                    </ul>
+                  </div>
+                )
+              })()}
 
               <button type="submit" className="btn-primary" disabled={submitting || !desc || !kcal}
                 style={{ opacity: (!desc || !kcal) ? 0.45 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>

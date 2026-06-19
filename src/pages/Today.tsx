@@ -13,6 +13,7 @@ import { PerfectDayBadge } from '../components/Celebrations'
 import VoiceInput from '../components/VoiceInput'
 import Skeleton from '../components/Skeleton'
 import { rememberFood, getUsualFoods, type FoodMemoryItem } from '../lib/food-memory'
+import { checkFoodPlausibility } from '../lib/food-plausibility'
 
 // =============================================================================
 // C-PREVIEW: Dark + bento + monospaced data
@@ -1473,6 +1474,27 @@ export default function Today({ onNavigate }: Props) {
                               {a.confidence}
                             </span>
                           )}
+                          {(() => {
+                            // Sanity guard on the per-item estimate — flags
+                            // implausible AI numbers (e.g. hallucinated high
+                            // protein/kcal) before the user taps Apply.
+                            const { ok, warnings } = checkFoodPlausibility({
+                              kcal: a.kcal,
+                              protein_g: a.protein_g,
+                              carbs_g: a.carbs_g ?? undefined,
+                              fat_g: a.fat_g ?? undefined,
+                              description: a.name,
+                            })
+                            if (ok) return null
+                            return (
+                              <span
+                                title={warnings.join(' ')}
+                                className="ml-1 text-[10px] px-1 py-0.5 rounded bg-[rgba(255,159,10,0.15)] text-[var(--c-orange)]"
+                              >
+                                ⚠️ check
+                              </span>
+                            )
+                          })()}
                         </>)}
                         {a.type === 'add_fridge' && (<>
                           {a.size ? `${a.size} of ` : ''}{a.name}
