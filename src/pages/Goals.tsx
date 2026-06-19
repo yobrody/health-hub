@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState, useRef, lazy, Suspense } from 'react'
 import { api } from '../api/client'
 import { showToast } from '../toast'
 import { celebrate } from '../lib/celebrations'
@@ -15,6 +15,9 @@ import {
 } from '../lib/calorie-target'
 // suppress unused import warnings for things referenced elsewhere
 void MEAL_PLAN; void DEFAULT_SCHEDULE; void PROGRAM
+
+// Lazy so recharts only loads when the weight chart renders (off initial load).
+const WeightTrendChart = lazy(() => import('../components/WeightTrendChart'))
 
 function MiniBar({ value, goal, color }: { value: number; goal: number; color: string }) {
   return (
@@ -67,23 +70,12 @@ function WeekChart({ days }: { days: WeekStats['food_by_day'] }) {
 
 function WeightSparkline({ weights }: { weights: WeightEntry[] }) {
   if (weights.length < 2) return null
-  const vals = weights.map(w => w.kg)
-  const min = Math.min(...vals) - 0.5
-  const max = Math.max(...vals) + 0.5
-  const W = 260, H = 52
-  const pts = weights.map((w, i) => {
-    const x = (i / (weights.length - 1)) * W
-    const y = H - ((w.kg - min) / (max - min)) * H
-    return `${x},${y}`
-  })
   const latest = weights[weights.length - 1]
   const prev7 = weights.find(w => {
     const d = new Date(latest.date).getTime() - new Date(w.date).getTime()
     return d >= 6 * 86400000 && d <= 8 * 86400000
   })
   const delta = prev7 ? latest.kg - prev7.kg : null
-  const lastX = parseFloat(pts[pts.length - 1].split(',')[0])
-  const lastY = parseFloat(pts[pts.length - 1].split(',')[1])
 
   return (
     <div>
@@ -95,21 +87,9 @@ function WeightSparkline({ weights }: { weights: WeightEntry[] }) {
           </span>
         )}
       </div>
-      <div style={{ display: 'flex', gap: 4 }}>
-        {/* Y-axis min/max labels */}
-        <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', paddingTop: 2, paddingBottom: 2 }}>
-          <span style={{ fontSize: 10, color: 'var(--label3)', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{max.toFixed(1)}</span>
-          <span style={{ fontSize: 10, color: 'var(--label3)', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>{min.toFixed(1)}</span>
-        </div>
-        <svg width="100%" viewBox={`0 0 ${W} ${H + 4}`} preserveAspectRatio="none" style={{ display: 'block', height: 52, flex: 1 }}>
-          <polyline points={pts.join(' ')} fill="none" stroke="var(--blue)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-          <circle cx={lastX} cy={lastY} r="4" fill="var(--blue)" />
-        </svg>
-      </div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 2, paddingLeft: 30 }}>
-        <span style={{ fontSize: 11, color: 'var(--label3)' }}>{weights[0].date}</span>
-        <span style={{ fontSize: 11, color: 'var(--label3)' }}>{latest.date}</span>
-      </div>
+      <Suspense fallback={<div style={{ height: 160 }} />}>
+        <WeightTrendChart weights={weights} />
+      </Suspense>
     </div>
   )
 }
