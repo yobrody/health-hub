@@ -4,12 +4,37 @@ import { showToast } from '../toast'
 import { useSwipeDown } from '../hooks/useSwipeDown'
 import Skeleton from '../components/Skeleton'
 import { rememberFood } from '../lib/food-memory'
+import { checkFoodPlausibility } from '../lib/food-plausibility'
 // Lazy so recharts (~100KB gz) only downloads when the trend chart renders,
 // keeping it off the initial load.
 const CalorieTrendChart = lazy(() => import('../components/CalorieTrendChart'))
-import type { FoodEntry, TodayData, HistoryDay, FoodAnalysis, BarcodeLookupResult, FoodSearchProduct, RecipeResult } from '../api/client'
+import type { FoodEntry, TodayData, HistoryDay, FoodAnalysis, BarcodeLookupResult, FoodSearchProduct, RecipeResult, SmartFoodResult } from '../api/client'
 
 const MEALS = ['Breakfast', 'Lunch', 'Dinner', 'Snack']
+
+// ── Smart-estimate clarifying chips ──────────────────────────────────────────
+// Cooking fat / portion adjustments the user can tap to re-estimate. null = use
+// the estimator's base assumption. Each maps to a free-text suffix appended to
+// the description, since the estimator honours cooking method / portion stated
+// in plain English.
+type FatChip = null | 'oil' | 'butter'
+type PortionChip = null | 'small' | 'medium' | 'large'
+const FAT_CHIPS: { key: Exclude<FatChip, null>; label: string; suffix: string }[] = [
+  { key: 'oil', label: 'Oil', suffix: ', cooked in 1 tbsp sunflower oil' },
+  { key: 'butter', label: 'Butter', suffix: ', cooked in butter' },
+]
+const PORTION_CHIPS: { key: Exclude<PortionChip, null>; label: string; suffix: string }[] = [
+  { key: 'small', label: 'Small', suffix: ', small portion' },
+  { key: 'medium', label: 'Medium', suffix: ', medium portion' },
+  { key: 'large', label: 'Large', suffix: ', large portion' },
+]
+// Build the augmented description from the user's base text + active chips.
+function buildSmartDesc(base: string, fat: FatChip, portion: PortionChip): string {
+  let d = base.trim()
+  if (fat) d += FAT_CHIPS.find(c => c.key === fat)!.suffix
+  if (portion) d += PORTION_CHIPS.find(c => c.key === portion)!.suffix
+  return d
+}
 
 // ── Barcode scanning (Chrome Android / desktop only) ─────────────────────────
 async function detectBarcode(file: File): Promise<string | null> {
@@ -107,6 +132,14 @@ export default function Nutrition() {
   const [sugarG, setSugarG] = useState<number | undefined>()
   const [sodiumMg, setSodiumMg] = useState<number | undefined>()
   const [confidence, setConfidence] = useState<string | undefined>()
+  // Smart estimate (POST /food/smart) — natural-language nutrition estimate with
+  // clarifying chips. smartBase holds the user's original description so chip
+  // toggles re-estimate from a clean base rather than compounding suffixes.
+  const [smartResult, setSmartResult] = useState<SmartFoodResult | null>(null)
+  const [smartBase, setSmartBase] = useState('')
+  const [smartLoading, setSmartLoading] = useState(false)
+  const [fatChip, setFatChip] = useState<FatChip>(null)
+  const [portionChip, setPortionChip] = useState<PortionChip>(null)
   // Food database search
   const [searchResults, setSearchResults] = useState<FoodSearchProduct[]>([])
   const [searching, setSearching] = useState(false)
@@ -161,6 +194,11 @@ export default function Nutrition() {
     setSugarG(undefined)
     setSodiumMg(undefined)
     setConfidence(undefined)
+    setSmartResult(null)
+    setSmartBase('')
+    setSmartLoading(false)
+    setFatChip(null)
+    setPortionChip(null)
     setSearchResults([])
     setSearchSource(null)
   }
@@ -254,6 +292,48 @@ export default function Nutrition() {
     setConfidence('high')
     setSearchSource('verified')
     setSearchResults([])
+  }
+
+  // Run the natural-language smart estimate. `nextFat`/`nextPortion` let chip
+  // taps re-estimate in the same call; defaults reuse current chip state. The
+  // base description is captured once so chip suffixes never compound.
+  async function runSmartEstimate(nextFat: FatChip = fatChip, nextPortion: PortionChip = portionChip) {
+    const base = (smartResult ? smartBase : desc).trim()
+    if (!base) return
+    setSmartBase(base)
+    setSmartLoading(true)
+    try {
+      const r = await api.smartFoodLog(buildSmartDesc(base, nextFat, nextPortion))
+      setSmartResult(r)
+      setSearchSource(null)
+      // Populate the form so the existing submit button logs the estimate.
+      if (r.description) setDesc(r.description)
+      if (r.kcal > 0) setKcal(String(r.kcal))
+      if (r.protein_g > 0) setProteinG(String(r.protein_g))
+      setCarbsG(r.carbs_g)
+      setFatG(r.fat_g)
+      setFiberG(r.fiber_g)
+      setSugarG(r.sugar_g)
+      setSodiumMg(r.sodium_mg)
+      setConfidence(r.confidence)
+      if (navigator.vibrate) navigator.vibrate(8)
+    } catch {
+      showToast('Smart estimate failed — try again', 'err')
+    } finally {
+      setSmartLoading(false)
+    }
+  }
+
+  // Toggle a chip (tapping the active one clears it) and re-estimate.
+  function toggleFatChip(key: Exclude<FatChip, null>) {
+    const next: FatChip = fatChip === key ? null : key
+    setFatChip(next)
+    runSmartEstimate(next, portionChip)
+  }
+  function togglePortionChip(key: Exclude<PortionChip, null>) {
+    const next: PortionChip = portionChip === key ? null : key
+    setPortionChip(next)
+    runSmartEstimate(fatChip, next)
   }
 
   async function handleBarcodeFile(e: React.ChangeEvent<HTMLInputElement>) {
@@ -910,7 +990,7 @@ export default function Nutrition() {
 
               <input className="input-field" style={{ marginBottom: 10 }}
                 placeholder="What did you eat? e.g. Chicken and rice"
-                value={desc} onChange={e => { setDesc(e.target.value); setSearchSource(null) }} autoFocus={!scanning && !analyzing}
+                value={desc} onChange={e => { setDesc(e.target.value); setSearchSource(null); setSmartResult(null); setFatChip(null); setPortionChip(null) }} autoFocus={!scanning && !analyzing}
                 autoComplete="on" autoCorrect="on" spellCheck={true} />
 
               {/* Search database button + source badge */}
@@ -918,6 +998,10 @@ export default function Nutrition() {
                 <button type="button" onClick={handleFoodSearch} disabled={searching || !desc.trim()}
                   style={{ background: 'var(--c-bg)', border: '1px solid var(--c-border)', borderRadius: 10, padding: '7px 14px', fontSize: 12, fontWeight: 600, color: 'var(--c-label)', cursor: 'pointer', opacity: (!desc.trim() || searching) ? 0.5 : 1 }}>
                   {searching ? 'Searching...' : 'Search Database'}
+                </button>
+                <button type="button" onClick={() => runSmartEstimate()} disabled={smartLoading || !desc.trim()}
+                  style={{ background: 'var(--c-bg)', border: '1px solid var(--c-border)', borderRadius: 10, padding: '7px 14px', fontSize: 12, fontWeight: 600, color: 'var(--c-label)', cursor: 'pointer', opacity: (!desc.trim() || smartLoading) ? 0.5 : 1 }}>
+                  {smartLoading && !smartResult ? 'Estimating...' : 'Smart Estimate'}
                 </button>
                 {searchSource === 'verified' && (
                   <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--c-green)', background: '#10B98120', borderRadius: 8, padding: '2px 8px' }}>Verified</span>
@@ -957,6 +1041,71 @@ export default function Nutrition() {
                 </div>
               )}
 
+              {/* Smart estimate panel — surfaces the estimator's assumptions and
+                  offers clarifying chips that re-estimate in place. */}
+              {smartResult && (() => {
+                const conf = (smartResult.confidence ?? 'medium') as 'high' | 'medium' | 'low'
+                const pill = {
+                  high: { label: 'High', color: 'var(--c-green)', bg: '#10B98120' },
+                  medium: { label: 'Medium', color: 'var(--c-orange)', bg: '#F59E0B20' },
+                  low: { label: 'Low', color: 'var(--c-red)', bg: '#EF444420' },
+                }[conf]
+                const chipBtn = (active: boolean): React.CSSProperties => ({
+                  borderRadius: 999,
+                  padding: '6px 14px',
+                  fontSize: 12,
+                  fontWeight: 600,
+                  cursor: smartLoading ? 'default' : 'pointer',
+                  border: active ? 'none' : '1px solid var(--c-border)',
+                  background: active ? 'var(--c-accent)' : 'var(--c-bg)',
+                  color: active ? '#fff' : 'var(--c-label-dim)',
+                  opacity: smartLoading ? 0.6 : 1,
+                  WebkitTapHighlightColor: 'transparent',
+                })
+                return (
+                  <div style={{ background: 'var(--c-bg)', border: '1px solid var(--c-border)', borderRadius: 12, padding: '12px 14px', marginBottom: 16 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                      <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--c-label)', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {smartResult.portion_detail || smartResult.matched_product || 'Smart estimate'}
+                      </div>
+                      <span style={{ flexShrink: 0, fontSize: 11, fontWeight: 600, color: pill.color, background: pill.bg, borderRadius: 8, padding: '2px 8px' }}>{pill.label}</span>
+                    </div>
+                    {smartResult.confidence_reason && (
+                      <div style={{ fontSize: 12, color: 'var(--c-label-dim)', lineHeight: 1.4, marginBottom: 10 }}>{smartResult.confidence_reason}</div>
+                    )}
+
+                    {/* Cooked in: chips */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
+                      <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--c-label-faint)', marginRight: 2 }}>Cooked in:</span>
+                      <button type="button" disabled={smartLoading} onClick={() => { setFatChip(null); runSmartEstimate(null, portionChip) }} style={chipBtn(fatChip === null)}>None</button>
+                      {FAT_CHIPS.map(c => (
+                        <button key={c.key} type="button" disabled={smartLoading} onClick={() => toggleFatChip(c.key)} style={chipBtn(fatChip === c.key)}>{c.label}</button>
+                      ))}
+                    </div>
+
+                    {/* Portion: chips */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--c-label-faint)', marginRight: 2 }}>Portion:</span>
+                      {PORTION_CHIPS.map(c => (
+                        <button key={c.key} type="button" disabled={smartLoading} onClick={() => togglePortionChip(c.key)} style={chipBtn(portionChip === c.key)}>{c.label}</button>
+                      ))}
+                    </div>
+
+                    {smartLoading && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--c-label-faint)', marginTop: 8, ...mono }}>
+                        <span style={{ display: 'inline-block', width: 12, height: 12, border: '2px solid var(--c-border)', borderTopColor: 'var(--c-accent)', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} />
+                        Re-estimating…
+                      </div>
+                    )}
+                    {!smartLoading && (conf === 'low' || conf === 'medium') && (
+                      <div style={{ fontSize: 11, color: 'var(--c-label-faint)', marginTop: 8, lineHeight: 1.4 }}>
+                        Rough estimate — adjust above before logging.
+                      </div>
+                    )}
+                  </div>
+                )
+              })()}
+
               <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
                 <input className="input-field" style={{ flex: 1 }}
                   placeholder="Calories" type="number" inputMode="numeric"
@@ -965,6 +1114,33 @@ export default function Nutrition() {
                   placeholder="Protein (g)" type="number" inputMode="numeric"
                   value={proteinG} onChange={e => setProteinG(e.target.value)} />
               </div>
+
+              {/* Sanity guard — flags implausible estimates (e.g. an AI
+                  hallucinating "3 eggs" as 702 kcal / 54g protein) so the user
+                  looks before logging. Non-blocking. */}
+              {(() => {
+                const kcalNum = parseFloat(kcal)
+                if (!Number.isFinite(kcalNum) || kcalNum <= 0) return null
+                const proteinNum = proteinG ? parseFloat(proteinG) : undefined
+                const { ok, warnings } = checkFoodPlausibility({
+                  kcal: kcalNum,
+                  protein_g: Number.isFinite(proteinNum as number) ? proteinNum : undefined,
+                  carbs_g: carbsG,
+                  fat_g: fatG,
+                  description: desc,
+                })
+                if (ok) return null
+                return (
+                  <div style={{ background: '#F59E0B14', border: '1px solid var(--c-orange)', borderRadius: 12, padding: '10px 12px', marginBottom: 16 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, fontWeight: 700, color: 'var(--c-orange)', marginBottom: warnings.length ? 6 : 0 }}>
+                      <span>⚠️</span> Double-check this estimate
+                    </div>
+                    <ul style={{ margin: 0, paddingLeft: 18, fontSize: 12, color: 'var(--c-label-dim)', lineHeight: 1.45 }}>
+                      {warnings.map((w, i) => <li key={i}>{w}</li>)}
+                    </ul>
+                  </div>
+                )
+              })()}
 
               <button type="submit" className="btn-primary" disabled={submitting || !desc || !kcal}
                 style={{ opacity: (!desc || !kcal) ? 0.45 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
