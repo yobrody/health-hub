@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { api, isQueuedError } from '../api/client'
 import { showToast } from '../toast'
-import type { TodayData, WeekStats, FridgeData, AiAction, AiActResponse } from '../api/client'
+import type { TodayData, WeekStats, FridgeData, AiAction, AiActResponse, FoodEntry } from '../api/client'
 import { PROGRAM, getNextDay } from '../program'
 import type { DayName } from '../program'
 import { loadProducts, lowStockProducts } from '../lib/skincare-products'
@@ -1111,6 +1111,49 @@ export default function Today({ onNavigate }: Props) {
   // Using time+meal as the row key (the same primary key the VPS uses).
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
   const [deleting, setDeleting] = useState<string | null>(null)
+
+  // ── Inline correction (Phase 3 — corrections compound) ──────────────────
+  // Edit a logged row's kcal/protein. The corrected value is written back to
+  // the food memory, so "Your usual" learns your real numbers for next time.
+  const [editingKey, setEditingKey] = useState<string | null>(null)
+  const [editKcal, setEditKcal] = useState('')
+  const [editProtein, setEditProtein] = useState('')
+  const [savingEdit, setSavingEdit] = useState(false)
+  function cleanItemName(items: string): string {
+    return items.split('\n')[0].replace(/^- /, '').replace(/ \(~\d+ kcal.*?\)/, '').trim()
+  }
+  function startEditEntry(e: FoodEntry) {
+    setEditingKey(`${e.time}|${e.meal}`)
+    setEditKcal(String(e.kcal))
+    setEditProtein(String(e.protein_g ?? 0))
+  }
+  async function saveEditEntry(e: FoodEntry) {
+    const newKcal = parseInt(editKcal) || 0
+    const newProtein = editProtein ? (parseInt(editProtein) || 0) : (e.protein_g ?? 0)
+    if (newKcal === e.kcal && newProtein === (e.protein_g ?? 0)) { setEditingKey(null); return }
+    setSavingEdit(true)
+    const name = cleanItemName(e.items)
+    try {
+      // Safe ordering: add the corrected entry FIRST, then remove the old one.
+      // A failure mid-way can leave a recoverable duplicate but never loses the
+      // log. The corrected entry is marked high-confidence (user-verified).
+      await api.addFood({ meal: e.meal, description: name, kcal: newKcal, protein_g: newProtein, carbs_g: e.carbs_g, fat_g: e.fat_g, confidence: 'high' })
+      await api.deleteFood(e.time, e.meal)
+      rememberFood({ name, kcal: newKcal, protein_g: newProtein, carbs_g: e.carbs_g, fat_g: e.fat_g })
+      await api.getToday().then(setData).catch(() => {})
+      setUsuals(getUsualFoods({ limit: 6 }))
+      setBarPulseKey(k => k + 1)
+      if (navigator.vibrate) navigator.vibrate(10)
+      showToast('Updated · learned')
+      setEditingKey(null)
+    } catch (err) {
+      if (isQueuedError(err)) { showToast('Saved offline — will sync', 'info'); setEditingKey(null) }
+      else showToast('Could not update — try again', 'err')
+    } finally {
+      setSavingEdit(false)
+    }
+  }
+
   async function deleteFoodEntry(time: string, meal: string) {
     const k = `${time}|${meal}`
     if (deleteConfirm !== k) {
@@ -1830,30 +1873,59 @@ export default function Today({ onNavigate }: Props) {
                         </div>
                       </div>
                       <div className="flex items-center gap-2 flex-shrink-0">
-                        <div className="flex flex-col items-end">
-                          <div className="text-[13px] font-semibold" style={{ fontFamily: "'JetBrains Mono', ui-monospace, monospace" }}>
-                            {e.kcal} <span className="text-[11px] font-normal text-[var(--c-label-faint)]">kcal</span>
+                        {editingKey === k ? (
+                          <div className="flex items-center gap-1.5">
+                            <input
+                              value={editKcal} onChange={ev => setEditKcal(ev.target.value)}
+                              inputMode="numeric" aria-label="Calories" autoFocus
+                              style={{ width: 54, background: 'var(--c-bg)', border: '1px solid var(--c-border)', borderRadius: 6, padding: '3px 6px', fontSize: 13, color: 'var(--c-label)', fontFamily: "'JetBrains Mono', ui-monospace, monospace", textAlign: 'right' }}
+                            />
+                            <input
+                              value={editProtein} onChange={ev => setEditProtein(ev.target.value)}
+                              inputMode="numeric" aria-label="Protein grams"
+                              style={{ width: 44, background: 'var(--c-bg)', border: '1px solid var(--c-border)', borderRadius: 6, padding: '3px 6px', fontSize: 13, color: 'var(--c-orange)', fontFamily: "'JetBrains Mono', ui-monospace, monospace", textAlign: 'right' }}
+                            />
+                            <button onClick={() => saveEditEntry(e)} disabled={savingEdit} aria-label="Save correction"
+                              className="w-7 h-7 flex-shrink-0 rounded-full flex items-center justify-center bg-[var(--c-accent)] text-white disabled:opacity-50">
+                              {savingEdit ? '…' : '✓'}
+                            </button>
+                            <button onClick={() => setEditingKey(null)} aria-label="Cancel"
+                              className="w-7 h-7 flex-shrink-0 rounded-full flex items-center justify-center text-[var(--c-label-faint)]">×</button>
                           </div>
-                          {(e.protein_g ?? 0) > 0 && (
-                            <div className="text-[11px] text-[var(--c-orange)]" style={{ fontFamily: "'JetBrains Mono', ui-monospace, monospace" }}>
-                              {e.protein_g}g
-                            </div>
-                          )}
-                        </div>
-                        {/* Delete button — first tap shows 'Sure?', second tap commits.
-                            Auto-cancels after 3s if you tap once and walk away. */}
-                        <button
-                          onClick={() => deleteFoodEntry(e.time, e.meal)}
-                          disabled={isDeleting}
-                          aria-label={isConfirming ? `Confirm remove ${e.meal}` : `Remove ${e.meal}`}
-                          className={`flex-shrink-0 rounded-full transition-all ${
-                            isConfirming
-                              ? 'bg-[var(--c-orange)] text-white px-2.5 py-1 text-[11px] font-semibold'
-                              : 'w-7 h-7 flex items-center justify-center text-[var(--c-label-faint)] hover:text-[var(--c-orange)] hover:bg-[var(--c-bg-tinted,rgba(127,127,127,0.08))]'
-                          }`}
-                        >
-                          {isDeleting ? '…' : isConfirming ? 'Sure?' : '×'}
-                        </button>
+                        ) : (
+                          <>
+                            {/* Tap the macros to correct them inline (Phase 3). */}
+                            <button
+                              onClick={() => startEditEntry(e)}
+                              aria-label={`Edit ${e.meal}`}
+                              className="flex flex-col items-end active:scale-95 transition-transform"
+                              style={{ WebkitTapHighlightColor: 'transparent' }}
+                            >
+                              <div className="text-[13px] font-semibold" style={{ fontFamily: "'JetBrains Mono', ui-monospace, monospace" }}>
+                                {e.kcal} <span className="text-[11px] font-normal text-[var(--c-label-faint)]">kcal</span>
+                              </div>
+                              {(e.protein_g ?? 0) > 0 && (
+                                <div className="text-[11px] text-[var(--c-orange)]" style={{ fontFamily: "'JetBrains Mono', ui-monospace, monospace" }}>
+                                  {e.protein_g}g
+                                </div>
+                              )}
+                            </button>
+                            {/* Delete button — first tap shows 'Sure?', second tap commits.
+                                Auto-cancels after 3s if you tap once and walk away. */}
+                            <button
+                              onClick={() => deleteFoodEntry(e.time, e.meal)}
+                              disabled={isDeleting}
+                              aria-label={isConfirming ? `Confirm remove ${e.meal}` : `Remove ${e.meal}`}
+                              className={`flex-shrink-0 rounded-full transition-all ${
+                                isConfirming
+                                  ? 'bg-[var(--c-orange)] text-white px-2.5 py-1 text-[11px] font-semibold'
+                                  : 'w-7 h-7 flex items-center justify-center text-[var(--c-label-faint)] hover:text-[var(--c-orange)] hover:bg-[var(--c-bg-tinted,rgba(127,127,127,0.08))]'
+                              }`}
+                            >
+                              {isDeleting ? '…' : isConfirming ? 'Sure?' : '×'}
+                            </button>
+                          </>
+                        )}
                       </div>
                     </div>
                   )
