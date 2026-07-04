@@ -837,6 +837,8 @@ export default function Today({ onNavigate }: Props) {
           carbs_g: a.carbs_g != null ? a.carbs_g * a.count : undefined,
           fat_g: a.fat_g != null ? a.fat_g * a.count : undefined,
           fiber_g: a.fiber_g != null ? a.fiber_g * a.count : undefined,
+          sugar_g: a.sugar_g != null ? a.sugar_g * a.count : undefined,
+          sodium_mg: a.sodium_mg != null ? a.sodium_mg * a.count : undefined,
           date: a.date,
         })
         // Feed the personal food memory (per-unit macros, so a one-tap re-log
@@ -1025,7 +1027,7 @@ export default function Today({ onNavigate }: Props) {
     if (!entry) return
     try {
       await executeAction(entry.action)
-      setAiFailed(prev => prev.filter((_, i) => i !== idx))
+      setAiFailed(prev => prev.filter(e => e !== entry))
       api.getToday().then(setData).catch(() => {})
       api.getFridge().then(setFridgeData).catch(() => {})
       showToast('Logged', 'ok')

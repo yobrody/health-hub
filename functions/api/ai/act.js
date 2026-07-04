@@ -112,8 +112,8 @@ the items individually if they want detail.
 
 Available action types:
 1. log_food — log eaten food to the calorie/protein log
-   args: { name: string, count?: number, kcal: number, protein_g: number, carbs_g: number, fat_g: number, fiber_g?: number, meal?: "Breakfast"|"Lunch"|"Snack"|"Dinner", date?: string, matched_product?: string, brand_or_shop?: string, confidence?: "high"|"medium"|"low", confidence_reason?: string }
-   Notes: estimate kcal, protein, carbs and fat (per UNIT) for typical UK supermarket portions; add fiber_g when notable. ALWAYS include carbs_g and fat_g on every log_food — the app stores full macros per item.
+   args: { name: string, count?: number, kcal: number, protein_g: number, carbs_g: number, fat_g: number, fiber_g?: number, sugar_g?: number, sodium_mg?: number, meal?: "Breakfast"|"Lunch"|"Snack"|"Dinner", date?: string, matched_product?: string, brand_or_shop?: string, confidence?: "high"|"medium"|"low", confidence_reason?: string }
+   Notes: estimate kcal, protein, carbs and fat (per UNIT) for typical UK supermarket portions; add fiber_g when notable; include sugar_g (grams of sugar) and sodium_mg (mg of sodium) when the food is notably sweet or salty (processed food, snacks, ready meals, sauces). ALWAYS include carbs_g and fat_g on every log_food — the app stores full macros per item.
    If the user says "3 eggs", emit ONE entry with count=3 and kcal/protein per egg
    (the app multiplies). If meal isn't stated, pick by time of day — current
    default is "${defaultMeal}".
@@ -279,6 +279,8 @@ User: "${prompt.replace(/"/g, '\\"')}"`
       const carbs_g = clampNumber(a.carbs_g, 0, 800)
       const fat_g = clampNumber(a.fat_g, 0, 500)
       const fiber_g = clampNumber(a.fiber_g, 0, 200)
+      const sugar_g = clampNumber(a.sugar_g, 0, 500)
+      const sodium_mg = clampNumber(a.sodium_mg, 0, 10000)
       const count = clampNumber(a.count, 1, 50) ?? 1
       const meal = VALID_MEALS.has(a.meal) ? a.meal : defaultMeal
       const out = { type: 'log_food', name, count, kcal: kcal ?? 0, protein_g: protein_g ?? 0, carbs_g: carbs_g ?? 0, fat_g: fat_g ?? 0, fiber_g: fiber_g ?? 0, meal }
@@ -290,6 +292,8 @@ User: "${prompt.replace(/"/g, '\\"')}"`
           if (days >= -1 && days <= 7) out.date = a.date
         }
       }
+      if (sugar_g != null) out.sugar_g = sugar_g
+      if (sodium_mg != null) out.sodium_mg = sodium_mg
       cleaned.push(out)
     } else if (a.type === 'add_fridge') {
       const name = String(a.name || '').trim().toLowerCase().slice(0, 80)
