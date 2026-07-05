@@ -1823,6 +1823,7 @@ def weekly_report(key=Depends(require_key)):
             "goal": weekly_cal_goal,
             "pct": cal_pct,
             "logged_days": logged_days,
+            "avg_daily": round(total_kcal / max(logged_days, 1)),
         },
         "protein": {
             "avg_daily": avg_protein,

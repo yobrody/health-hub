@@ -166,6 +166,59 @@ export default function WeeklyReport() {
           )}
         </div>
 
+        {/* Calories ↔ Weight correlation */}
+        {report.calories.logged_days > 0 && report.weight.change !== null && (
+          <div style={{
+            background: 'var(--c-card)', border: '1px solid var(--c-border)', borderRadius: 14,
+            padding: 16, marginBottom: 16,
+          }}>
+            <div style={{ fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--c-label-faint)', fontWeight: 500, marginBottom: 10 }}>
+              Calories vs weight
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 22, fontWeight: 700, fontFamily: "'JetBrains Mono', ui-monospace, monospace", letterSpacing: '-0.03em' }}>
+                  {report.calories.avg_daily.toLocaleString()}
+                  <span style={{ fontSize: 13, fontWeight: 400, color: 'var(--c-label-faint)', marginLeft: 3 }}>kcal/day</span>
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--c-label-faint)', marginTop: 2 }}>
+                  avg over {report.calories.logged_days} logged day{report.calories.logged_days !== 1 ? 's' : ''}
+                </div>
+              </div>
+              <div style={{ fontSize: 24 }}>→</div>
+              <div style={{ flex: 1, textAlign: 'right' }}>
+                {(() => {
+                  const ch = report.weight.change!
+                  const col = ch < -0.1 ? 'var(--c-green)' : ch > 0.1 ? 'var(--c-orange)' : 'var(--c-label-dim)'
+                  const arrow = ch < -0.1 ? '↓' : ch > 0.1 ? '↑' : '→'
+                  const label = ch < -0.1 ? 'losing' : ch > 0.1 ? 'gaining' : 'holding'
+                  return (
+                    <>
+                      <div style={{ fontSize: 22, fontWeight: 700, fontFamily: "'JetBrains Mono', ui-monospace, monospace", color: col, letterSpacing: '-0.03em' }}>
+                        {arrow} {Math.abs(ch).toFixed(1)}<span style={{ fontSize: 13, fontWeight: 400, color: 'var(--c-label-faint)', marginLeft: 3 }}>kg</span>
+                      </div>
+                      <div style={{ fontSize: 12, color: 'var(--c-label-faint)', marginTop: 2 }}>{label} weight</div>
+                    </>
+                  )
+                })()}
+              </div>
+            </div>
+            {/* Deficit/surplus estimate */}
+            {(() => {
+              const tdee = 2500
+              const diff = report.calories.avg_daily - tdee
+              if (Math.abs(diff) < 50) return null
+              return (
+                <div style={{ marginTop: 10, padding: '8px 10px', background: 'var(--c-bg)', borderRadius: 8, fontSize: 12, color: 'var(--c-label-dim)' }}>
+                  {diff < 0
+                    ? `~${Math.abs(diff).toLocaleString()} kcal/day deficit vs ~2,500 kcal TDEE`
+                    : `~${diff.toLocaleString()} kcal/day surplus vs ~2,500 kcal TDEE`}
+                </div>
+              )
+            })()}
+          </div>
+        )}
+
         {/* Top foods */}
         {report.top_foods.length > 0 && (
           <div style={{

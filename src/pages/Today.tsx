@@ -1077,6 +1077,10 @@ export default function Today({ onNavigate }: Props) {
   const goals = data?.goals ?? { calories: 2800, protein: 140, gym_days: 4 }
   const protein = data?.entries.reduce((acc, e) => acc + (e.protein_g ?? 0), 0) ?? 0
   const remaining = goals.calories - total
+  const totalSugar = data?.entries.reduce((a, e) => a + (e.sugar_g ?? 0), 0) ?? 0
+  const totalSodium = data?.entries.reduce((a, e) => a + (e.sodium_mg ?? 0), 0) ?? 0
+  const hasSugarData = data?.entries.some(e => e.sugar_g != null) ?? false
+  const hasSodiumData = data?.entries.some(e => e.sodium_mg != null) ?? false
 
   // Animated counters — count up from 0 on load / change
   const animatedTotal = useAnimatedNumber(total)
@@ -1329,6 +1333,48 @@ export default function Today({ onNavigate }: Props) {
               }}
             />
           </div>
+
+          {/* Sugar + sodium row — shown only when at least one logged entry
+              carries the data (avoid "0g / 0mg" clutter on empty days). */}
+          {(hasSugarData || hasSodiumData) && (
+            <div className="flex gap-3 mb-3 text-[12px]" style={{ fontFamily: "'JetBrains Mono', ui-monospace, monospace" }}>
+              {hasSugarData && (
+                <span className="text-[var(--c-label-faint)]">
+                  sugar <span className={`font-semibold ${totalSugar > 50 ? 'text-[var(--c-orange)]' : 'text-[var(--c-label-dim)]'}`}>{totalSugar}g</span>
+                </span>
+              )}
+              {hasSodiumData && (
+                <span className="text-[var(--c-label-faint)]">
+                  sodium <span className={`font-semibold ${totalSodium > 2300 ? 'text-[var(--c-orange)]' : 'text-[var(--c-label-dim)]'}`}>{totalSodium}mg</span>
+                </span>
+              )}
+            </div>
+          )}
+
+          {/* 7-day calorie dots — one per day, coloured by whether the goal
+              was hit. Gives a week-at-a-glance without leaving Today. */}
+          {weekStats && (
+            <div className="flex items-end gap-1.5">
+              {[...weekStats.food_by_day].reverse().map((day, i) => {
+                const isToday = i === weekStats.food_by_day.length - 1
+                const hit = day.logged && day.total_kcal >= weekStats.goal_kcal * 0.85
+                const over = day.logged && day.total_kcal > weekStats.goal_kcal * 1.15
+                const color = !day.logged ? 'var(--c-border)' : over ? 'var(--c-orange)' : hit ? 'var(--c-green)' : 'var(--c-accent)'
+                const height = day.logged ? Math.max(4, Math.round(Math.min(day.total_kcal / weekStats.goal_kcal, 1.3) * 20)) : 4
+                return (
+                  <div key={day.date} className="flex flex-col items-center gap-0.5 flex-1">
+                    <div
+                      className="w-full rounded-sm transition-all duration-500"
+                      style={{ height, background: color, opacity: isToday ? 1 : 0.65 }}
+                    />
+                    <span className="text-[9px] text-[var(--c-label-faint)]">
+                      {new Date(day.date + 'T12:00:00').toLocaleDateString('en-GB', { weekday: 'narrow' })}
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
+          )}
 
         </Card>
 

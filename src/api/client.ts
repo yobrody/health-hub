@@ -918,7 +918,7 @@ export interface InsightsResponse {
 // Weekly Report
 export interface WeeklyReport {
   period: { start: string; end: string }
-  calories: { total: number; goal: number; pct: number; logged_days: number }
+  calories: { total: number; goal: number; pct: number; logged_days: number; avg_daily: number }
   protein: { avg_daily: number; goal: number }
   workouts: { count: number; goal: number }
   weight: { start: number | null; end: number | null; change: number | null }
