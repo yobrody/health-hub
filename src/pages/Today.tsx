@@ -1125,28 +1125,32 @@ export default function Today({ onNavigate }: Props) {
   const [editingKey, setEditingKey] = useState<string | null>(null)
   const [editKcal, setEditKcal] = useState('')
   const [editProtein, setEditProtein] = useState('')
+  const [editCarbs, setEditCarbs] = useState('')
+  const [editFat, setEditFat] = useState('')
   const [savingEdit, setSavingEdit] = useState(false)
+  const [logAgainKey, setLogAgainKey] = useState<string | null>(null)
   function cleanItemName(items: string): string {
     return items.split('\n')[0].replace(/^- /, '').replace(/ \(~\d+ kcal.*?\)/, '').trim()
   }
   function startEditEntry(e: FoodEntry) {
     setEditingKey(`${e.time}|${e.meal}`)
     setEditKcal(String(e.kcal))
-    setEditProtein(String(e.protein_g ?? 0))
+    setEditProtein(String(e.protein_g ?? ''))
+    setEditCarbs(String(e.carbs_g ?? ''))
+    setEditFat(String(e.fat_g ?? ''))
   }
   async function saveEditEntry(e: FoodEntry) {
     const newKcal = parseInt(editKcal) || 0
-    const newProtein = editProtein ? (parseInt(editProtein) || 0) : (e.protein_g ?? 0)
-    if (newKcal === e.kcal && newProtein === (e.protein_g ?? 0)) { setEditingKey(null); return }
+    const newProtein = editProtein !== '' ? (parseInt(editProtein) || 0) : (e.protein_g ?? 0)
+    const newCarbs = editCarbs !== '' ? (parseInt(editCarbs) || 0) : (e.carbs_g ?? undefined)
+    const newFat = editFat !== '' ? (parseInt(editFat) || 0) : (e.fat_g ?? undefined)
+    if (newKcal === e.kcal && newProtein === (e.protein_g ?? 0) && newCarbs === (e.carbs_g ?? undefined) && newFat === (e.fat_g ?? undefined)) { setEditingKey(null); return }
     setSavingEdit(true)
     const name = cleanItemName(e.items)
     try {
-      // Safe ordering: add the corrected entry FIRST, then remove the old one.
-      // A failure mid-way can leave a recoverable duplicate but never loses the
-      // log. The corrected entry is marked high-confidence (user-verified).
-      await api.addFood({ meal: e.meal, description: name, kcal: newKcal, protein_g: newProtein, carbs_g: e.carbs_g, fat_g: e.fat_g, confidence: 'high' })
+      await api.addFood({ meal: e.meal, description: name, kcal: newKcal, protein_g: newProtein, carbs_g: newCarbs, fat_g: newFat, confidence: 'high' })
       await api.deleteFood(e.time, e.meal)
-      rememberFood({ name, kcal: newKcal, protein_g: newProtein, carbs_g: e.carbs_g, fat_g: e.fat_g })
+      rememberFood({ name, kcal: newKcal, protein_g: newProtein, carbs_g: newCarbs, fat_g: newFat })
       await api.getToday().then(setData).catch(() => {})
       setUsuals(getUsualFoods({ limit: 6 }))
       setBarPulseKey(k => k + 1)
@@ -1158,6 +1162,26 @@ export default function Today({ onNavigate }: Props) {
       else showToast('Could not update — try again', 'err')
     } finally {
       setSavingEdit(false)
+    }
+  }
+  async function logAgainEntry(e: FoodEntry) {
+    const k = `${e.time}|${e.meal}`
+    if (logAgainKey) return
+    setLogAgainKey(k)
+    const h = new Date().getHours()
+    const meal = h < 11 ? 'Breakfast' : h < 15 ? 'Lunch' : h < 18 ? 'Snack' : 'Dinner'
+    const name = cleanItemName(e.items)
+    try {
+      await api.addFood({ meal, description: name, kcal: e.kcal, protein_g: e.protein_g, carbs_g: e.carbs_g, fat_g: e.fat_g })
+      api.getToday().then(setData).catch(() => {})
+      setBarPulseKey(k => k + 1)
+      if (navigator.vibrate) navigator.vibrate(10)
+      showToast(`${name} → ${meal.toLowerCase()}`)
+    } catch (err) {
+      if (isQueuedError(err)) showToast('Saved offline — will sync', 'info')
+      else showToast('Could not log — try again', 'err')
+    } finally {
+      setLogAgainKey(null)
     }
   }
 
@@ -1838,8 +1862,21 @@ export default function Today({ onNavigate }: Props) {
                 <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>
               </svg>
             </div>
-            <div className="text-[13px] text-[var(--c-label-dim)]">Full summary</div>
-            <div className="text-[12px] text-[var(--c-label-faint)] mt-0.5">Goals + trends</div>
+            {weekStats ? (
+              <>
+                <div className="text-[13px] text-[var(--c-label-dim)]" style={{ fontFamily: "'JetBrains Mono', ui-monospace, monospace" }}>
+                  {weekStats.avg_kcal > 0 ? `${weekStats.avg_kcal.toLocaleString()} kcal/day` : '—'}
+                </div>
+                <div className="text-[12px] text-[var(--c-label-faint)] mt-0.5">
+                  {weekStats.workout_count} workout{weekStats.workout_count !== 1 ? 's' : ''} · {weekStats.logged_days}d logged
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="text-[13px] text-[var(--c-label-dim)]">Full summary</div>
+                <div className="text-[12px] text-[var(--c-label-faint)] mt-0.5">Goals + trends</div>
+              </>
+            )}
           </Card>
 
           {/* Scan tile — barcode lookup */}
@@ -1924,86 +1961,100 @@ export default function Today({ onNavigate }: Props) {
           </button>
         )}
 
-        {/* Today's log */}
-        {(data?.entries.length ?? 0) > 0 && (
-          <>
-            <div className="text-[11px] uppercase tracking-wider text-[var(--c-label-faint)] font-medium mt-6 mb-2 px-1">Today's log</div>
-            <Card>
-              <div className="divide-y divide-[var(--c-border)]">
-                {data?.entries.map((e, i) => {
-                  const k = `${e.time}|${e.meal}`
-                  const isConfirming = deleteConfirm === k
-                  const isDeleting = deleting === k
-                  return (
-                    <div key={i} className="py-3 first:pt-0 last:pb-0 flex items-center justify-between gap-3">
-                      <div className="flex-1 min-w-0">
-                        <div className="text-[13px] font-medium">{e.meal}</div>
-                        <div className="text-[12px] text-[var(--c-label-dim)] truncate mt-0.5">
-                          {e.items.split('\n')[0].replace(/^- /, '').replace(/ \(~\d+ kcal.*?\)/, '')}
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2 flex-shrink-0">
-                        {editingKey === k ? (
-                          <div className="flex items-center gap-1.5">
-                            <input
-                              value={editKcal} onChange={ev => setEditKcal(ev.target.value)}
-                              inputMode="numeric" aria-label="Calories" autoFocus
-                              style={{ width: 54, background: 'var(--c-bg)', border: '1px solid var(--c-border)', borderRadius: 6, padding: '3px 6px', fontSize: 13, color: 'var(--c-label)', fontFamily: "'JetBrains Mono', ui-monospace, monospace", textAlign: 'right' }}
-                            />
-                            <input
-                              value={editProtein} onChange={ev => setEditProtein(ev.target.value)}
-                              inputMode="numeric" aria-label="Protein grams"
-                              style={{ width: 44, background: 'var(--c-bg)', border: '1px solid var(--c-border)', borderRadius: 6, padding: '3px 6px', fontSize: 13, color: 'var(--c-orange)', fontFamily: "'JetBrains Mono', ui-monospace, monospace", textAlign: 'right' }}
-                            />
-                            <button onClick={() => saveEditEntry(e)} disabled={savingEdit} aria-label="Save correction"
-                              className="w-7 h-7 flex-shrink-0 rounded-full flex items-center justify-center bg-[var(--c-accent)] text-white disabled:opacity-50">
-                              {savingEdit ? '…' : '✓'}
-                            </button>
-                            <button onClick={() => setEditingKey(null)} aria-label="Cancel"
-                              className="w-7 h-7 flex-shrink-0 rounded-full flex items-center justify-center text-[var(--c-label-faint)]">×</button>
+        {/* Today's log — grouped by meal */}
+        {(data?.entries.length ?? 0) > 0 && (() => {
+          const MEAL_ORDER = ['Breakfast', 'Lunch', 'Snack', 'Dinner']
+          const grouped: { meal: string; entries: FoodEntry[] }[] = []
+          const seen = new Set<string>()
+          for (const meal of MEAL_ORDER) {
+            const es = (data?.entries ?? []).filter(e => e.meal === meal)
+            if (es.length > 0) { grouped.push({ meal, entries: es }); seen.add(meal) }
+          }
+          // Any meal not in canonical order (e.g. 'Pre-workout')
+          for (const e of (data?.entries ?? [])) {
+            if (!seen.has(e.meal)) { seen.add(e.meal); grouped.push({ meal: e.meal, entries: (data?.entries ?? []).filter(x => x.meal === e.meal) }) }
+          }
+          return (
+            <>
+              <div className="text-[11px] uppercase tracking-wider text-[var(--c-label-faint)] font-medium mt-6 mb-2 px-1">Today's log</div>
+              {grouped.map(({ meal, entries: mealEntries }) => (
+                <Card key={meal} className="mb-2">
+                  <div className="text-[10px] uppercase tracking-wider text-[var(--c-label-faint)] font-semibold mb-2">{meal}</div>
+                  <div className="divide-y divide-[var(--c-border)]">
+                    {mealEntries.map((e, i) => {
+                      const k = `${e.time}|${e.meal}`
+                      const isConfirming = deleteConfirm === k
+                      const isDeleting = deleting === k
+                      const isLoggingAgain = logAgainKey === k
+                      return (
+                        <div key={i} className="py-2.5 first:pt-0 last:pb-0 flex items-center justify-between gap-2">
+                          <div className="flex-1 min-w-0">
+                            <div className="text-[13px] text-[var(--c-label)] truncate">
+                              {e.items.split('\n')[0].replace(/^- /, '').replace(/ \(~\d+ kcal.*?\)/, '')}
+                            </div>
+                            <div className="text-[11px] text-[var(--c-label-faint)] mt-0.5" style={{ fontFamily: "'JetBrains Mono', ui-monospace, monospace" }}>
+                              {e.kcal} kcal{(e.protein_g ?? 0) > 0 ? ` · ${e.protein_g}g P` : ''}{(e.carbs_g ?? 0) > 0 ? ` · ${e.carbs_g}g C` : ''}{(e.fat_g ?? 0) > 0 ? ` · ${e.fat_g}g F` : ''}
+                            </div>
                           </div>
-                        ) : (
-                          <>
-                            {/* Tap the macros to correct them inline (Phase 3). */}
-                            <button
-                              onClick={() => startEditEntry(e)}
-                              aria-label={`Edit ${e.meal}`}
-                              className="flex flex-col items-end active:scale-95 transition-transform"
-                              style={{ WebkitTapHighlightColor: 'transparent' }}
-                            >
-                              <div className="text-[13px] font-semibold" style={{ fontFamily: "'JetBrains Mono', ui-monospace, monospace" }}>
-                                {e.kcal} <span className="text-[11px] font-normal text-[var(--c-label-faint)]">kcal</span>
-                              </div>
-                              {(e.protein_g ?? 0) > 0 && (
-                                <div className="text-[11px] text-[var(--c-orange)]" style={{ fontFamily: "'JetBrains Mono', ui-monospace, monospace" }}>
-                                  {e.protein_g}g
+                          <div className="flex items-center gap-1 flex-shrink-0">
+                            {editingKey === k ? (
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                                <div className="flex items-center gap-1">
+                                  <input value={editKcal} onChange={ev => setEditKcal(ev.target.value)} inputMode="numeric" aria-label="Calories" autoFocus placeholder="kcal"
+                                    style={{ width: 50, background: 'var(--c-bg)', border: '1px solid var(--c-border)', borderRadius: 6, padding: '3px 5px', fontSize: 12, color: 'var(--c-label)', fontFamily: "'JetBrains Mono', ui-monospace, monospace", textAlign: 'right' }} />
+                                  <input value={editProtein} onChange={ev => setEditProtein(ev.target.value)} inputMode="numeric" aria-label="Protein" placeholder="P"
+                                    style={{ width: 36, background: 'var(--c-bg)', border: '1px solid var(--c-border)', borderRadius: 6, padding: '3px 5px', fontSize: 12, color: 'var(--c-orange)', fontFamily: "'JetBrains Mono', ui-monospace, monospace", textAlign: 'right' }} />
+                                  <input value={editCarbs} onChange={ev => setEditCarbs(ev.target.value)} inputMode="numeric" aria-label="Carbs" placeholder="C"
+                                    style={{ width: 36, background: 'var(--c-bg)', border: '1px solid var(--c-border)', borderRadius: 6, padding: '3px 5px', fontSize: 12, color: 'var(--c-accent)', fontFamily: "'JetBrains Mono', ui-monospace, monospace", textAlign: 'right' }} />
+                                  <input value={editFat} onChange={ev => setEditFat(ev.target.value)} inputMode="numeric" aria-label="Fat" placeholder="F"
+                                    style={{ width: 36, background: 'var(--c-bg)', border: '1px solid var(--c-border)', borderRadius: 6, padding: '3px 5px', fontSize: 12, color: 'var(--c-label-dim)', fontFamily: "'JetBrains Mono', ui-monospace, monospace", textAlign: 'right' }} />
                                 </div>
-                              )}
-                            </button>
-                            {/* Delete button — first tap shows 'Sure?', second tap commits.
-                                Auto-cancels after 3s if you tap once and walk away. */}
-                            <button
-                              onClick={() => deleteFoodEntry(e.time, e.meal)}
-                              disabled={isDeleting}
-                              aria-label={isConfirming ? `Confirm remove ${e.meal}` : `Remove ${e.meal}`}
-                              className={`flex-shrink-0 rounded-full transition-all ${
-                                isConfirming
-                                  ? 'bg-[var(--c-orange)] text-white px-2.5 py-1 text-[11px] font-semibold'
-                                  : 'w-7 h-7 flex items-center justify-center text-[var(--c-label-faint)] hover:text-[var(--c-orange)] hover:bg-[var(--c-bg-tinted,rgba(127,127,127,0.08))]'
-                              }`}
-                            >
-                              {isDeleting ? '…' : isConfirming ? 'Sure?' : '×'}
-                            </button>
-                          </>
-                        )}
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            </Card>
-          </>
-        )}
+                                <div className="flex items-center gap-1">
+                                  <button onClick={() => saveEditEntry(e)} disabled={savingEdit} aria-label="Save"
+                                    className="flex-1 h-7 rounded-lg flex items-center justify-center bg-[var(--c-accent)] text-white text-[11px] font-semibold disabled:opacity-50">
+                                    {savingEdit ? '…' : 'Save'}
+                                  </button>
+                                  <button onClick={() => setEditingKey(null)} aria-label="Cancel"
+                                    className="h-7 px-2 rounded-lg text-[var(--c-label-faint)] text-[11px]">Cancel</button>
+                                </div>
+                              </div>
+                            ) : (
+                              <>
+                                <button onClick={() => startEditEntry(e)} aria-label={`Edit ${e.meal}`}
+                                  className="text-[11px] text-[var(--c-label-faint)] hover:text-[var(--c-accent)] px-1.5 py-1 rounded transition-colors"
+                                  style={{ WebkitTapHighlightColor: 'transparent' }}>
+                                  edit
+                                </button>
+                                <button onClick={() => logAgainEntry(e)} disabled={isLoggingAgain} aria-label="Log again"
+                                  title="Log this again now"
+                                  className="text-[11px] text-[var(--c-label-faint)] hover:text-[var(--c-green)] px-1.5 py-1 rounded transition-colors disabled:opacity-40"
+                                  style={{ WebkitTapHighlightColor: 'transparent' }}>
+                                  {isLoggingAgain ? '…' : '↻'}
+                                </button>
+                                <button
+                                  onClick={() => deleteFoodEntry(e.time, e.meal)}
+                                  disabled={isDeleting}
+                                  aria-label={isConfirming ? `Confirm remove` : `Remove`}
+                                  className={`flex-shrink-0 rounded-full transition-all ${
+                                    isConfirming
+                                      ? 'bg-[var(--c-orange)] text-white px-2 py-0.5 text-[11px] font-semibold'
+                                      : 'w-7 h-7 flex items-center justify-center text-[var(--c-label-faint)] hover:text-[var(--c-orange)]'
+                                  }`}
+                                >
+                                  {isDeleting ? '…' : isConfirming ? 'Sure?' : '×'}
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </Card>
+              ))}
+            </>
+          )
+        })()}
 
         {loading && (
           <div className="text-center py-8 text-[12px] text-[var(--c-label-faint)]">Loading...</div>

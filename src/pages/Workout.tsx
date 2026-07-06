@@ -526,6 +526,10 @@ export default function Workout() {
   const [focusSetIdx, setFocusSetIdx] = useState(0)
   const [phase, setPhase] = useState<'active' | 'rest' | 'done'>('active')
   const [showManage, setShowManage] = useState(false)
+  const [showSwap, setShowSwap] = useState(false)
+  const [swapExIdx, setSwapExIdx] = useState<number | null>(null)
+  const [swapSearch, setSwapSearch] = useState('')
+  const [swapResults, setSwapResults] = useState<string[]>([])
   const [templates, setTemplates] = useState<WorkoutTemplate[]>(loadTemplates)
   const [showSaveTemplate, setShowSaveTemplate] = useState(false)
   const [templateName, setTemplateName] = useState('')
@@ -588,10 +592,8 @@ export default function Workout() {
       setExResults([])
       return
     }
-    // Immediate local search
     const local = searchExercisesLocal(exSearch)
     setExResults(local)
-    // If local DB has few results, supplement with remote search
     if (local.length < 4) {
       clearTimeout(searchTimeout.current)
       searchTimeout.current = setTimeout(async () => {
@@ -601,6 +603,40 @@ export default function Workout() {
       }, 400)
     }
   }, [exSearch])
+
+  useEffect(() => {
+    if (!swapSearch) { setSwapResults([]); return }
+    const local = searchExercisesLocal(swapSearch)
+    setSwapResults(local.slice(0, 10))
+  }, [swapSearch])
+
+  function swapExercise(exIdx: number, newName: string) {
+    if (!live) return
+    setLive(prev => {
+      if (!prev) return prev
+      const exercises = prev.exercises.map((ex, i) => {
+        if (i !== exIdx) return ex
+        const pr = prs[newName]
+        const t = targetFor(newName, ex.repRange, ex.restSeconds, i, prev.exercises.length)
+        return {
+          ...ex,
+          name: newName,
+          prevBest: pr,
+          sets: ex.sets.map(s => ({
+            ...s,
+            weight_kg: s.done ? s.weight_kg : (t.weight_kg ?? s.weight_kg),
+            reps: s.done ? s.reps : (t.repsTarget ?? s.reps),
+          })),
+        }
+      })
+      return { ...prev, exercises }
+    })
+    showToast(`Swapped to ${newName}`)
+    setShowSwap(false)
+    setSwapExIdx(null)
+    setSwapSearch('')
+    setSwapResults([])
+  }
 
   const recentTitles = [...workouts].reverse().map(w => w.title)
   const nextDay = getNextDay(recentTitles)
@@ -1318,6 +1354,12 @@ export default function Workout() {
                         </div>
                       </button>
                       <button
+                        onClick={() => { setSwapExIdx(exIdx); setShowSwap(true); setSwapSearch(''); setSwapResults([]) }}
+                        aria-label="Swap exercise"
+                        title="Swap this exercise for another"
+                        style={{ background: 'var(--gray6)', border: 'none', borderRadius: 8, width: 32, height: 32, fontSize: 14, cursor: 'pointer', color: 'var(--label)' }}
+                      >⇄</button>
+                      <button
                         onClick={() => addSet(exIdx)}
                         aria-label="Add set"
                         style={{ background: 'var(--gray6)', border: 'none', borderRadius: 8, width: 32, height: 32, fontSize: 16, cursor: 'pointer', color: 'var(--label)' }}
@@ -1396,6 +1438,80 @@ export default function Workout() {
             </div>
           </div>
         )}
+
+        {/* Exercise swap sheet — pick a replacement for the selected exercise */}
+        {showSwap && swapExIdx !== null && (() => {
+          const currentEx = liveNonNull.exercises[swapExIdx]
+          const dbEx = findExercise(currentEx.name)
+          const sameGroup = dbEx
+            ? getExercisesByGroup()[dbEx.muscleGroup as MuscleGroup]?.filter(e => e.name !== currentEx.name) ?? []
+            : []
+          return (
+            <div
+              style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 500, display: 'flex', alignItems: 'flex-end' }}
+              onClick={e => { if (e.target === e.currentTarget) { setShowSwap(false); setSwapSearch(''); setSwapResults([]) } }}
+            >
+              <div style={{ background: 'var(--card)', borderRadius: '22px 22px 0 0', width: '100%', padding: '16px 20px calc(32px + var(--safe-bottom))', maxHeight: '90vh', overflowY: 'auto' }}>
+                <div style={{ width: 36, height: 5, background: 'var(--gray4)', borderRadius: 3, margin: '0 auto 16px' }} />
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                  <div>
+                    <div style={{ fontSize: 20, fontWeight: 700 }}>Swap exercise</div>
+                    <div style={{ fontSize: 12, color: 'var(--label2)', marginTop: 2 }}>replacing: {currentEx.name}</div>
+                  </div>
+                  <button onClick={() => { setShowSwap(false); setSwapSearch(''); setSwapResults([]) }} className="sheet-close">×</button>
+                </div>
+                <input
+                  className="input-field"
+                  placeholder="Search exercises…"
+                  value={swapSearch}
+                  onChange={e => setSwapSearch(e.target.value)}
+                  autoFocus
+                  style={{ marginBottom: 10 }}
+                />
+                {swapResults.length > 0 && (
+                  <div className="card" style={{ marginBottom: 10 }}>
+                    {swapResults.map((r, i) => (
+                      <button key={i} className="list-row" style={{ width: '100%', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left' }}
+                        onClick={() => swapExercise(swapExIdx, r)}>
+                        <span style={{ fontSize: 15 }}>{r}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {!swapSearch && sameGroup.length > 0 && (
+                  <div className="card" style={{ marginBottom: 10 }}>
+                    <div style={{ fontSize: 11, color: 'var(--label3)', fontWeight: 600, padding: '10px 14px 4px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                      Same muscle group{dbEx ? ` · ${dbEx.muscleGroup}` : ''}
+                    </div>
+                    {sameGroup.map(ex => (
+                      <button key={ex.name} className="list-row" style={{ width: '100%', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', gap: 8 }}
+                        onClick={() => swapExercise(swapExIdx, ex.name)}>
+                        <span style={{ width: 8, height: 8, borderRadius: 4, background: getExerciseAccent(ex.name), flexShrink: 0 }} />
+                        <span style={{ fontSize: 15, flex: 1 }}>{ex.name}</span>
+                        <span style={{ fontSize: 11, color: 'var(--label3)' }}>{ex.equipment}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {!swapSearch && (() => {
+                  const groups = getExercisesByGroup()
+                  return (Object.keys(groups) as MuscleGroup[]).map(group => (
+                    <div key={group} className="card" style={{ marginBottom: 8 }}>
+                      <div style={{ fontSize: 11, color: 'var(--label3)', fontWeight: 600, padding: '10px 14px 4px', textTransform: 'uppercase', letterSpacing: '0.06em' }}>{group}</div>
+                      {groups[group].map(ex => (
+                        <button key={ex.name} className="list-row" style={{ width: '100%', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', gap: 8, opacity: ex.name === currentEx.name ? 0.3 : 1 }}
+                          onClick={() => ex.name !== currentEx.name && swapExercise(swapExIdx, ex.name)}>
+                          <span style={{ fontSize: 15, flex: 1 }}>{ex.name}</span>
+                          <span style={{ fontSize: 11, color: 'var(--label3)' }}>{ex.equipment}</span>
+                        </button>
+                      ))}
+                    </div>
+                  ))
+                })()}
+              </div>
+            </div>
+          )
+        })()}
 
         {showCoach && <GymChatSheet onClose={() => setShowCoach(false)} />}
       </div>
