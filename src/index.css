@@ -46,6 +46,22 @@
   --safe-bottom: env(safe-area-inset-bottom, 0px);
 }
 
+:root[data-theme='light'] {
+  /* Alias dark-bento tokens to iOS-light palette so pages using --c-*
+     (Today, Nutrition, WeeklyReport) respect light mode. */
+  --c-bg: var(--bg);
+  --c-card: var(--card);
+  --c-border: var(--separator);
+  --c-label: var(--label);
+  --c-label-dim: var(--label2);
+  --c-label-faint: var(--label3);
+  --c-accent: var(--blue);
+  --c-accent-soft: var(--blue-light);
+  --c-green: var(--green);
+  --c-orange: var(--orange);
+  --c-red: var(--red);
+}
+
 :root[data-theme='dark'] {
   --tab-bar-bg: rgba(28,28,30,0.92);
   --tab-bar-border: rgba(84,84,88,0.45);
@@ -67,6 +83,18 @@
   --bg: #09090B;
   --card: #18181B;
   --separator: #27272A;
+  /* Keep bento tokens aligned with dark palette */
+  --c-bg: #09090B;
+  --c-card: #18181B;
+  --c-border: #27272A;
+  --c-label: #FAFAFA;
+  --c-label-dim: #A1A1AA;
+  --c-label-faint: #52525B;
+  --c-accent: #3B82F6;
+  --c-accent-soft: rgba(59,130,246,0.12);
+  --c-green: #10B981;
+  --c-orange: #F59E0B;
+  --c-red: #EF4444;
 }
 
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -80,7 +108,7 @@ body {
   color: var(--label);
   -webkit-font-smoothing: antialiased;
   letter-spacing: -0.15px;
-  line-height: 1.35;
+  line-height: 1.45;
 }
 
 input, textarea, button, select {
@@ -260,18 +288,6 @@ input, textarea, button, select {
   to { opacity: 0; transform: translateX(-50%) translateY(6px) scale(0.97); }
 }
 
-/* ── Skeleton shimmer ────────────────────────────────────────────────── */
-.skeleton {
-  background: linear-gradient(90deg, var(--gray5) 25%, var(--gray4) 50%, var(--gray5) 75%);
-  background-size: 200% 100%;
-  animation: skeletonShimmer 1.4s infinite;
-  border-radius: 8px;
-}
-@keyframes skeletonShimmer {
-  from { background-position: 200% center; }
-  to   { background-position: -200% center; }
-}
-
 /* ── AI-action feedback ─────────────────────────────────────────────── */
 /* One-shot bar pulse: brief brightness + scale boost when calorie bar
    updates from an AI-applied action. Triggered by remounting via key. */
@@ -399,18 +415,6 @@ input, textarea, button, select {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.75; }
 }
-
-/* ── Button spinner ─────────────────────────────────────────────────── */
-.btn-spinner {
-  display: inline-block;
-  width: 14px; height: 14px;
-  border: 2px solid rgba(255,255,255,0.35);
-  border-top-color: #fff;
-  border-radius: 50%;
-  animation: spinnerRot 0.65s linear infinite;
-  vertical-align: middle;
-}
-@keyframes spinnerRot { to { transform: rotate(360deg); } }
 
 /* ── Page transition ────────────────────────────────────────────────── */
 @keyframes pageEnter {

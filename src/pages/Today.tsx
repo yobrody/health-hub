@@ -278,7 +278,7 @@ function SleepCard() {
                   ? 'bg-[var(--c-accent)] border-[var(--c-accent)] text-white'
                   : 'bg-transparent border-[var(--c-border)] text-[var(--c-label-faint)]'
               }`}
-              style={{ WebkitTapHighlightColor: 'transparent', minWidth: 36, minHeight: 36 }}
+              style={{ WebkitTapHighlightColor: 'transparent', minWidth: 44, minHeight: 44 }}
             >
               {n}
             </button>
@@ -539,7 +539,8 @@ function WaterTracker() {
             className="rounded-lg border border-[var(--c-border)] hover:border-[#3F3F46] active:bg-[#1F1F23] transition-colors"
             style={{
               background: 'var(--c-bg)',
-              padding: '8px 4px',
+              padding: '12px 4px',
+              minHeight: 44,
               cursor: 'pointer',
               WebkitTapHighlightColor: 'transparent',
               textAlign: 'center',
@@ -553,7 +554,7 @@ function WaterTracker() {
 
       {/* Completion badge */}
       {progress >= 1 && (
-        <div style={{ marginTop: 8, fontSize: 12, fontWeight: 600, color: 'var(--c-green, #34C759)', textAlign: 'center' }}>
+        <div style={{ marginTop: 8, fontSize: 14, fontWeight: 600, color: 'var(--c-green, #34C759)', textAlign: 'center' }}>
           Goal reached!
         </div>
       )}
@@ -1346,13 +1347,15 @@ export default function Today({ onNavigate }: Props) {
               </div>
             </div>
           </div>
-          {/* Progress bar — fills smoothly, pulses on AI-applied actions */}
+          {/* Progress bar — fills smoothly, pulses on AI-applied actions.
+              Turns orange when over goal to signal overage at a glance. */}
           <div className="h-1 bg-[var(--c-border)] rounded-full overflow-hidden mb-3 relative">
             <div
               key={`bar-${barPulseKey}`}
-              className="h-full bg-[var(--c-accent)] rounded-full transition-[width] duration-700"
+              className="h-full rounded-full transition-[width,background-color] duration-700"
               style={{
                 width: `${Math.min(total / goals.calories, 1) * 100}%`,
+                background: total > goals.calories ? 'var(--c-orange)' : 'var(--c-accent)',
                 animation: barPulseKey > 0 ? 'barPulse 0.9s ease-out' : undefined,
               }}
             />

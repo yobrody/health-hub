@@ -108,7 +108,7 @@ export default function WeeklyReport() {
           background: 'var(--c-card)', border: '1px solid var(--c-border)', borderRadius: 14,
           padding: 16, marginBottom: 16,
         }}>
-          <div style={{ fontSize: 14, color: 'var(--c-label-dim)', lineHeight: 1.5 }}>{report.summary}</div>
+          <div style={{ fontSize: 14, color: 'var(--c-label-dim)', lineHeight: 1.5 }}>{report.summary || 'No summary available this week.'}</div>
         </div>
 
         {/* Calories + Protein progress */}
