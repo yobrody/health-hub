@@ -5,6 +5,7 @@ import { showToast } from '../toast'
 import { GymChatSheet } from '../components/GymChatSheet'
 import { PROGRAM, ROTATION, getNextDay, rirFor, seedLabel, RAMP_UP_SETS } from '../program'
 import type { DayName, ProgramDay, ExerciseSwap } from '../program'
+import type { ParsedSession } from '../api/client'
 import {
   isProperlyEating,
   predictNextWeight,
@@ -551,6 +552,11 @@ export default function Workout({ onOpenSkill }: { onOpenSkill?: () => void }) {
   const [importText, setImportText] = useState('')
   const [importBusy, setImportBusy] = useState(false)
   const [importPreview, setImportPreview] = useState<ParsedRoutine | null>(null)
+  // Describe a finished session in prose instead of tapping it in set by set.
+  const [showLog, setShowLog] = useState(false)
+  const [logText, setLogText] = useState('')
+  const [logBusy, setLogBusy] = useState(false)
+  const [logPreview, setLogPreview] = useState<ParsedSession | null>(null)
   const repsInputRef = useRef<HTMLInputElement>(null)
   const searchTimeout = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
@@ -941,6 +947,39 @@ export default function Workout({ onOpenSkill }: { onOpenSkill?: () => void }) {
     setShowSaveTemplate(false)
     setTemplateName('')
     showToast(`Template "${name.trim()}" saved`)
+  }
+
+  async function parseLoggedSession() {
+    if (!logText.trim() || logBusy) return
+    setLogBusy(true); setLogPreview(null)
+    try {
+      const r = await api.parseSession(logText)
+      if (r.ok && r.exercises.length) setLogPreview(r)
+      else showToast(r.error || 'No completed sets in that description', 'err')
+    } catch { showToast('Could not read that session', 'err') }
+    finally { setLogBusy(false) }
+  }
+
+  async function saveLoggedSession() {
+    if (!logPreview || logBusy) return
+    setLogBusy(true)
+    const end = new Date()
+    const start = new Date(end.getTime() - 60 * 60000)
+    try {
+      await api.saveWorkout({
+        title: logPreview.title,
+        start_time: start.toISOString(),
+        end_time: end.toISOString(),
+        exercises: logPreview.exercises.map(ex => ({ name: ex.name, sets: ex.sets })),
+      })
+      showToast('Session logged')
+      void api.getWorkouts(20).then(setWorkouts).catch(() => {})
+      void api.getPRs().then(setPRs).catch(() => {})
+    } catch {
+      showToast('Saved offline - will sync', 'err')
+    } finally {
+      setLogBusy(false); setShowLog(false); setLogPreview(null); setLogText('')
+    }
   }
 
   async function parseImport() {
@@ -1763,6 +1802,7 @@ export default function Workout({ onOpenSkill }: { onOpenSkill?: () => void }) {
               <SectionRow name="Skill block" sub="Home \u00b7 handstand ladder" onClick={onOpenSkill} />
             )}
             <SectionRow name="Custom workout" sub="Build it set by set" onClick={() => startWorkout()} />
+            <SectionRow name="Log a past session" sub="Describe it, I'll log the sets" onClick={() => { setShowLog(true); setLogPreview(null) }} />
             <SectionRow name="Paste a routine" sub="Text in, sets out" onClick={() => { setShowImport(true); setImportPreview(null) }} />
             <SectionRow name="Ask the coach" sub="One question about today" onClick={() => setShowCoach(true)} />
           </div>
@@ -1866,6 +1906,54 @@ export default function Workout({ onOpenSkill }: { onOpenSkill?: () => void }) {
       </div>
 
       {showCoach && <GymChatSheet onClose={() => setShowCoach(false)} />}
+
+      {showLog && (
+        <div style={{ position: 'fixed', inset: 0, zIndex: 240, background: 'var(--bg, #09090b)', display: 'flex', flexDirection: 'column', padding: 16, animation: 'hhImportIn 0.3s cubic-bezier(0.32,0.72,0,1)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+            <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--label)' }}>Log a past session</div>
+            <button onClick={() => { setShowLog(false); setLogPreview(null) }} style={{ background: 'var(--card)', border: '1px solid var(--separator)', color: 'var(--label)', borderRadius: 18, padding: '8px 16px', fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>Close</button>
+          </div>
+          <div style={{ fontSize: 13, color: 'var(--label2)', marginBottom: 10, lineHeight: 1.5 }}>
+            Describe it however it comes out. Walking a weight down, failing a rep, per-arm sets and swapped machines are all understood.
+          </div>
+          <textarea value={logText} onChange={e => setLogText(e.target.value)}
+            placeholder={'e.g.\nShoulder press, failed on 5 at 32kg, barely 4 on set 2, dropped to 27 for 5\nPec deck 45kg: 19, 16, 10\nCable lateral raise 3.4kg, 10 each arm then 19 then 12\nEnded with ab crunch 20 at 36kg then 15, 15 at 41kg'}
+            style={{ width: '100%', minHeight: 150, background: 'var(--card)', border: '1px solid var(--separator)', borderRadius: 12, padding: 12, fontSize: 14, color: 'var(--label)', resize: 'vertical', fontFamily: 'inherit', boxSizing: 'border-box', lineHeight: 1.5 }} />
+          <button onClick={parseLoggedSession} disabled={!logText.trim() || logBusy}
+            style={{ width: '100%', background: 'var(--blue)', border: 'none', color: '#fff', borderRadius: 12, padding: 14, fontSize: 15, fontWeight: 700, cursor: 'pointer', marginTop: 10, opacity: (!logText.trim() || logBusy) ? 0.5 : 1 }}>
+            {logBusy ? 'Reading...' : 'Read my session'}
+          </button>
+
+          {logPreview && (
+            <div style={{ marginTop: 16, flex: 1, overflowY: 'auto' }}>
+              <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--label)', marginBottom: 8 }}>
+                {logPreview.title} &middot; {logPreview.exercises.reduce((a, e) => a + e.sets.length, 0)} sets
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--label3)', marginBottom: 10, lineHeight: 1.4 }}>
+                Check these before saving &mdash; anything wrong here becomes wrong history, and the engine reasons from history.
+              </div>
+              {logPreview.exercises.map((ex, i) => (
+                <div key={i} style={{ background: 'var(--card)', border: '1px solid var(--separator)', borderRadius: 10, padding: '10px 12px', marginBottom: 6 }}>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: 'var(--label)' }}>{ex.name}</div>
+                  <div style={{ fontSize: 12, color: 'var(--label2)', marginTop: 3 }}>
+                    {ex.sets.map((s, j) => (
+                      <span key={j}>
+                        {j > 0 ? '  \u00b7  ' : ''}
+                        {s.weight_kg !== undefined ? s.weight_kg + 'kg \u00d7 ' : ''}{s.reps}
+                        {s.rir !== undefined ? ' (RIR ' + s.rir + ')' : ''}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ))}
+              <button onClick={saveLoggedSession} disabled={logBusy}
+                style={{ width: '100%', background: 'var(--green)', border: 'none', color: '#fff', borderRadius: 12, padding: 14, fontSize: 15, fontWeight: 700, cursor: 'pointer', marginTop: 8, marginBottom: 24, opacity: logBusy ? 0.5 : 1 }}>
+                {logBusy ? 'Saving...' : 'Log this session'}
+              </button>
+            </div>
+          )}
+        </div>
+      )}
 
       {showImport && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 240, background: 'var(--bg, #09090b)', display: 'flex', flexDirection: 'column', padding: 16, animation: 'hhImportIn 0.3s cubic-bezier(0.32,0.72,0,1)' }}>

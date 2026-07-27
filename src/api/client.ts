@@ -292,6 +292,10 @@ export const api = {
   parseRoutine: (text: string) =>
     request<ParsedRoutine>('/ai/parse-routine', { method: 'POST', body: JSON.stringify({ text }) }),
 
+  /** Freeform description of a FINISHED session -> logged sets. */
+  parseSession: (text: string) =>
+    request<ParsedSession>('/ai/parse-session', { method: 'POST', body: JSON.stringify({ text }) }),
+
   getMealSuggestions: () => request<{ meals: Meal[] }>('/ai/meals', { method: 'POST' }),
   // Detailed recipe + full macros for a single meal idea. Called on tap-to-expand
   // so we don't pay the recipe-generation token cost for ideas the user ignores.
@@ -788,6 +792,15 @@ export interface GymCoachSummaryResponse {
   offline?: boolean
 }
 // Returned by POST /api/ai/parse-routine — freeform routine text → structured.
+export interface ParsedSessionSet { weight_kg?: number; reps?: number; rir?: number }
+export interface ParsedSessionExercise { name: string; sets: ParsedSessionSet[] }
+export interface ParsedSession {
+  ok: boolean
+  title: string
+  exercises: ParsedSessionExercise[]
+  error?: string
+}
+
 export interface ParsedRoutineExercise { name: string; sets: number; repRange: string; restSeconds: number; rir: string }
 export interface ParsedRoutine {
   ok: boolean
