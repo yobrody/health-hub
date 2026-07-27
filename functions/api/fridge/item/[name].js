@@ -24,7 +24,7 @@ export async function onRequestOptions() {
 // when a more-specific route file exists, so DELETE needs its own handler
 // here that proxies directly to the VPS.
 
-const VPS_BASE = 'http://128-140-33-150.nip.io:8080'
+const VPS_BASE = 'https://hh-api.pestdispatch.co.uk'
 
 export async function onRequestDelete(context) {
   const url = new URL(context.request.url)

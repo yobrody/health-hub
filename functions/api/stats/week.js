@@ -9,7 +9,7 @@ const CORS = {
   'Access-Control-Allow-Methods': 'GET, OPTIONS',
   'Access-Control-Allow-Headers': 'Content-Type, X-Health-Key',
 }
-const VPS_BASE = 'http://128-140-33-150.nip.io:8080'
+const VPS_BASE = 'https://hh-api.pestdispatch.co.uk'
 
 function json(data, status = 200) {
   return new Response(JSON.stringify(data), { status, headers: CORS })

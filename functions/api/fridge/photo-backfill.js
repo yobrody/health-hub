@@ -22,7 +22,7 @@ const CORS = {
   'Access-Control-Allow-Headers': 'Content-Type, X-Health-Key',
 }
 
-const VPS_BASE = 'http://128-140-33-150.nip.io:8080'
+const VPS_BASE = 'https://hh-api.pestdispatch.co.uk'
 const UA = 'HealthHub/0.1 (https://health-hub-dwz.pages.dev)'
 
 const NEG_TTL_SECS = 14 * 24 * 60 * 60
