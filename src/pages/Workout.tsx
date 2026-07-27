@@ -21,6 +21,7 @@ import {
 } from '../lib/workout-flow'
 import { genericIncrement } from '../lib/gym-equipment'
 import { diagnoseProgress, type WeighIn, type LiftTrend } from '../lib/progress-diagnosis'
+import { useWakeLock } from '../lib/useWakeLock'
 import { Section, SectionRow } from '../components/Section'
 import { searchExerciseDB, getExercisesByGroup, findExercise } from '../lib/exercises'
 import type { MuscleGroup } from '../lib/exercises'
@@ -139,24 +140,49 @@ function ElapsedTimer({ startTime }: { startTime: string }) {
  * styling so it sits cleanly inside the rest card.
  */
 function RestTimerInline({ seconds, onComplete }: { seconds: number; onComplete: () => void }) {
+  // Deadline-based, NOT a decrementing counter. Browsers throttle timers hard
+  // in a backgrounded PWA and all but stop them when the screen is off, so
+  // subtracting 1 per tick loses real time: pocket the phone for 90s and a
+  // naive timer still shows a minute left. Wall-clock arithmetic is immune,
+  // and visibilitychange re-syncs the moment you look at it.
+  // Set in the [seconds] effect below - calling Date.now() during render is impure.
+  const deadlineRef = useRef(0)
   const [remaining, setRemaining] = useState(seconds)
   const onCompleteRef = useRef(onComplete)
+  const firedRef = useRef(false)
+  const lastBuzzRef = useRef<number | null>(null)
   useEffect(() => { onCompleteRef.current = onComplete }, [onComplete])
 
   useEffect(() => {
-    if (remaining <= 0) { onCompleteRef.current(); return }
-    if (remaining % 15 === 0 && remaining < seconds && navigator.vibrate) navigator.vibrate(30)
-    // Tick faster in the final 3 seconds for tension
-    const interval = remaining <= 3 ? 100 : 1000
-    const decrement = remaining <= 3 ? 0.1 : 1
-    const t = setTimeout(() => setRemaining(r => Math.max(0, parseFloat((r - decrement).toFixed(1)))), interval)
-    return () => clearTimeout(t)
-  }, [remaining, seconds])
+    deadlineRef.current = Date.now() + seconds * 1000
+    firedRef.current = false
+    lastBuzzRef.current = null
+  }, [seconds])
 
   useEffect(() => {
-    if (remaining === 0 && navigator.vibrate) navigator.vibrate([100, 50, 100, 50, 200])
-  }, [remaining])
-
+    const tick = () => {
+      const left = Math.max(0, (deadlineRef.current - Date.now()) / 1000)
+      setRemaining(left)
+      const bucket = Math.ceil(left)
+      if (left > 0 && bucket % 15 === 0 && bucket < seconds && bucket !== lastBuzzRef.current) {
+        lastBuzzRef.current = bucket
+        if (navigator.vibrate) navigator.vibrate(30)
+      }
+      if (left <= 0 && !firedRef.current) {
+        firedRef.current = true
+        if (navigator.vibrate) navigator.vibrate([100, 50, 100, 50, 200])
+        onCompleteRef.current()
+      }
+    }
+    tick()
+    const id = setInterval(tick, 200)
+    const onVis = () => { if (document.visibilityState === 'visible') tick() }
+    document.addEventListener('visibilitychange', onVis)
+    return () => {
+      clearInterval(id)
+      document.removeEventListener('visibilitychange', onVis)
+    }
+  }, [seconds])
   const displaySecs = Math.ceil(remaining)
   const mins = String(Math.floor(displaySecs / 60)).padStart(2, '0')
   const secs = String(displaySecs % 60).padStart(2, '0')
@@ -493,6 +519,8 @@ export default function Workout({ onOpenSkill }: { onOpenSkill?: () => void }) {
   const [openSection, setOpenSection] = useState<string | null>(null)
   const [prs, setPRs] = useState<Record<string, { weight_kg: number; reps: number; date: string }>>({})
   const [live, setLive] = useState<LiveWorkout | null>(null)
+  // Screen stays on while a session is running - roughly 20 unlocks saved.
+  useWakeLock(live !== null)
   const [restTimer, setRestTimer] = useState<{ seconds: number } | null>(null)
   const [exSearch, setExSearch] = useState('')
   const [exResults, setExResults] = useState<string[]>([])

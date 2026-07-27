@@ -335,6 +335,21 @@ export default defineConfig(({ mode }) => {
               handler: 'NetworkFirst',
               options: { cacheName: 'api-today', expiration: { maxAgeSeconds: 60 } },
             },
+            {
+              // Gym signal is unreliable. Without this the Workout tab opens
+              // empty underground: no history, no PRs, no bodyweight - and the
+              // engine silently falls back to seed weights instead of what you
+              // actually lifted. Long retention because last month's sessions
+              // are still the right answer when offline.
+              urlPattern: /\/api\/(workouts|stats|weight|goals|food)/,
+              handler: 'NetworkFirst',
+              options: {
+                cacheName: 'api-history',
+                networkTimeoutSeconds: 4,
+                expiration: { maxEntries: 80, maxAgeSeconds: 60 * 60 * 24 * 30 },
+                cacheableResponse: { statuses: [0, 200] },
+              },
+            },
           ],
         },
       }),
