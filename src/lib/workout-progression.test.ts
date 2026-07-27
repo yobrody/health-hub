@@ -174,6 +174,53 @@ describe('predictNextWeight: recalibrating seeds', () => {
   })
 })
 
+describe('predictNextWeight: anchors on the settled weight, not the PR', () => {
+  // Real session, 27 Jul 2026. Failed at 32kg twice, dropped to 27kg.
+  // A PR-anchored engine would prescribe 32kg again - the exact weight
+  // just demonstrated to be too heavy.
+  it('uses the weight you dropped down to, not the one you failed at', () => {
+    const r = predictNextWeight({
+      prevBest: { weight_kg: 32, reps: 4 },
+      prevSets: [
+        { weight_kg: 32, reps: 4 },
+        { weight_kg: 32, reps: 4 },
+        { weight_kg: 27, reps: 5 },
+      ],
+      repRange: '6-10',
+    })
+    expect(r.weight_kg).toBe(27)
+    expect(r.rationale).toBe('hold-build-reps')
+  })
+
+  // Overhead cable extension: walked 14.7 -> 7.9 -> 5.7 -> 3.4kg.
+  it('survives a long walk-down to the real working weight', () => {
+    const r = predictNextWeight({
+      prevBest: { weight_kg: 7.9, reps: 4 },
+      prevSets: [
+        { weight_kg: 7.9, reps: 4 },
+        { weight_kg: 5.7, reps: 4 },
+        { weight_kg: 3.4, reps: 10 },
+      ],
+      repRange: '12-15',
+    })
+    expect(r.weight_kg).toBe(3.4)
+  })
+
+  it('still uses the PR when there is no session history', () => {
+    const r = predictNextWeight({ prevBest: { weight_kg: 80, reps: 8 }, repRange: '8-12' })
+    expect(r.weight_kg).toBe(80)
+  })
+
+  it('ignores zero-rep failed attempts when finding the settled weight', () => {
+    const r = predictNextWeight({
+      prevBest: { weight_kg: 40, reps: 8 },
+      prevSets: [{ weight_kg: 30, reps: 10 }, { weight_kg: 40, reps: 0 }],
+      repRange: '8-12',
+    })
+    expect(r.weight_kg).toBe(30)
+  })
+})
+
 describe('isProperlyEating', () => {
   const goals = { calories: 2800, protein: 140 }
   it('false with no logged days', () => { expect(isProperlyEating([], goals)).toBe(false) })

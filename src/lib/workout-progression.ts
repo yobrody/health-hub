@@ -86,7 +86,25 @@ function allAtTop(sets: SetSummary[], r: RepRange): boolean {
  *   6. Inside the range       -> same weight, add a rep.
  */
 export function predictNextWeight(input: PredictInput): PredictResult {
+  // Anchor on where you SETTLED last session, not your all-time PR.
+  //
+  // A PR is the heaviest weight ever touched - which is often a failed
+  // attempt you immediately dropped down from. Real example: 32kg for 4,
+  // 32kg for 4, then 27kg for 5. The PR says 32kg, so a PR-anchored engine
+  // prescribes 32kg again and tells you to "chase the bottom of the range" -
+  // a weight you had just demonstrated you could not do. The final completed
+  // set is where you actually landed after any drop-downs, so it is the
+  // honest working weight. PR is kept only as a cold-start fallback.
+  const settled = (() => {
+    const done = completed(input.prevSets)
+    for (let i = done.length - 1; i >= 0; i--) {
+      const w = done[i].weight_kg
+      if (typeof w === 'number' && w > 0) return w
+    }
+    return undefined
+  })()
   const baseline =
+    settled ??
     input.prevBest?.weight_kg ??
     input.prevSets?.find(s => typeof s.weight_kg === 'number')?.weight_kg ??
     undefined
