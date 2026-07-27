@@ -4,6 +4,7 @@ import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.tsx'
 import { ErrorBoundary } from './components/ErrorBoundary'
+import { installGlobalErrorReporting, requestPersistentStorage } from './lib/resilience'
 
 // Auto-reload the page when a newly-installed service worker takes control.
 // Pairs with VitePWA's registerType:'autoUpdate' + skipWaiting + clientsClaim
@@ -26,6 +27,9 @@ if ('serviceWorker' in navigator) {
     window.location.reload()
   })
 }
+
+installGlobalErrorReporting()
+void requestPersistentStorage()
 
 export type Theme = 'light' | 'dark' | 'system'
 
