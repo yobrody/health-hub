@@ -90,6 +90,11 @@ export const PROGRESSION = {
   bumpAtOrBelowRIR: 1,
   /** Top of range but 2+ left in the tank → same weight, push harder. */
   holdAboveRIR: 2,
+  /** At or above this, "push harder" is not available: you are capped by the
+   * rep range rather than by strength, so the weight itself is too light.
+   * Without this threshold "Too easy" and "Just right" collapse to the same
+   * outcome, which makes one of the two buttons pointless. */
+  tooLightRIR: 3,
   /** Missed the bottom of the range twice running → drop this fraction. */
   stallDeloadPct: 0.15,
   /** Consecutive missed sessions before the deload fires. */

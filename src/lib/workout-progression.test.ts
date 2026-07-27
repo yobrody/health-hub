@@ -58,11 +58,11 @@ describe('predictNextWeight: RIR gates the jump', () => {
     })
     expect(r.rationale).toBe('bump-progressive-overload')
   })
-  it('top of range with 2+ RIR holds and says push harder', () => {
+  it('top of range with exactly 2 RIR holds and says push harder', () => {
     const r = predictNextWeight({
       prevBest: { weight_kg: 80, reps: 12 },
       prevSets: [{ weight_kg: 80, reps: 12 }, { weight_kg: 80, reps: 12 }],
-      repRange: '8-12', lastSessionRIR: 3, nextStackUp: 82.5,
+      repRange: '8-12', lastSessionRIR: 2, nextStackUp: 82.5,
     })
     expect(r).toMatchObject({ weight_kg: 80, rationale: 'hold-rir-slack' })
   })
@@ -160,7 +160,7 @@ describe('predictNextWeight: recalibrating seeds', () => {
     const r = predictNextWeight({
       prevBest: { weight_kg: 60, reps: 12 },
       prevSets: [{ weight_kg: 60, reps: 12 }],
-      repRange: '8-12', recalibrating: true, lastSessionRIR: 3,
+      repRange: '8-12', recalibrating: true, lastSessionRIR: 2,
     })
     expect(r.rationale).toBe('hold-rir-slack')
   })
@@ -218,6 +218,49 @@ describe('predictNextWeight: anchors on the settled weight, not the PR', () => {
       repRange: '8-12',
     })
     expect(r.weight_kg).toBe(30)
+  })
+})
+
+describe('predictNextWeight: the four effort tiers stay distinct', () => {
+  // Tier -> RIR mapping used by the rest screen: easy 4, good 2, hard 1, fail 0.
+  const atTop = {
+    prevBest: { weight_kg: 80, reps: 12 },
+    prevSets: [{ weight_kg: 80, reps: 12 }, { weight_kg: 80, reps: 12 }],
+    repRange: '8-12',
+    nextStackUp: 82.5,
+  }
+
+  it('Too easy (RIR 4) goes UP - the range is capping you, not your strength', () => {
+    const r = predictNextWeight({ ...atTop, lastSessionRIR: 4 })
+    expect(r.rationale).toBe('bump-too-light')
+    expect(r.weight_kg).toBe(82.5)
+  })
+
+  it('Just right (RIR 2) holds and asks for a harder effort', () => {
+    const r = predictNextWeight({ ...atTop, lastSessionRIR: 2 })
+    expect(r.rationale).toBe('hold-rir-slack')
+    expect(r.weight_kg).toBe(80)
+  })
+
+  it('Hard (RIR 1) earns the normal jump', () => {
+    const r = predictNextWeight({ ...atTop, lastSessionRIR: 1 })
+    expect(r.rationale).toBe('bump-progressive-overload')
+  })
+
+  it('Too easy and Just right must NOT produce the same weight', () => {
+    const easy = predictNextWeight({ ...atTop, lastSessionRIR: 4 })
+    const good = predictNextWeight({ ...atTop, lastSessionRIR: 2 })
+    expect(easy.weight_kg).not.toBe(good.weight_kg)
+  })
+
+  it('too-light still respects the 10% jump rule', () => {
+    // Bottom of an imperial cable stack: 3.4 -> 5.7kg is +68%.
+    const r = predictNextWeight({
+      prevBest: { weight_kg: 3.4, reps: 20 },
+      prevSets: [{ weight_kg: 3.4, reps: 20 }],
+      repRange: '12-20', nextStackUp: 5.7, lastSessionRIR: 4,
+    })
+    expect(r.rationale).toBe('hold-jump-too-big')
   })
 })
 

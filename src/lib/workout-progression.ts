@@ -45,7 +45,8 @@ export type PredictInput = {
 
 export type PredictRationale =
   | 'no-history' | 'baseline-pr' | 'baseline-last'
-  | 'bump-progressive-overload' | 'bump-recalibrating' | 'hold-build-reps' | 'hold-rir-slack'
+  | 'bump-progressive-overload' | 'bump-recalibrating' | 'bump-too-light'
+  | 'hold-build-reps' | 'hold-rir-slack'
   | 'hold-jump-too-big' | 'deload-stalled' | 'deload-layoff'
 
 export type PredictResult = {
@@ -146,7 +147,11 @@ export function predictNextWeight(input: PredictInput): PredictResult {
       }
     }
     if (allAtTop(last, range)) {
-      if (input.lastSessionRIR != null && input.lastSessionRIR >= PROGRESSION.holdAboveRIR) {
+      // 2 in reserve at the top of the range means the effort was soft - repeat
+      // it properly. 3+ means the RANGE is the limiter, not you, and 'push
+      // harder' is not available: the weight is simply too light.
+      const tooLight = input.lastSessionRIR != null && input.lastSessionRIR >= PROGRESSION.tooLightRIR
+      if (input.lastSessionRIR != null && input.lastSessionRIR >= PROGRESSION.holdAboveRIR && !tooLight) {
         return {
           weight_kg: baseline, reps: range.max, rationale: 'hold-rir-slack',
           note: 'Hit the top with ' + input.lastSessionRIR + ' left - same weight, push harder',
@@ -170,7 +175,10 @@ export function predictNextWeight(input: PredictInput): PredictResult {
       }
       return {
         weight_kg: roundKg(target), reps: range.max,
-        rationale: 'bump-progressive-overload', note: 'Earned it - smallest jump up',
+        rationale: tooLight ? 'bump-too-light' : 'bump-progressive-overload',
+        note: tooLight
+          ? 'Capped by the rep range, not by strength - going up'
+          : 'Earned it - smallest jump up',
       }
     }
   }

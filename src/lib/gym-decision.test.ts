@@ -72,8 +72,8 @@ describe('gym-decision: decideNextSet', () => {
     expect(wrecked.restSeconds).toBeGreaterThanOrEqual(rested.restSeconds)
   })
 
-  it('2+ RIR last session holds the weight', () => {
-    const r = decideNextSet({ ...baseInput, lastSessionRIR: 3 })
+  it('exactly 2 RIR last session holds the weight', () => {
+    const r = decideNextSet({ ...baseInput, lastSessionRIR: 2 })
     expect(r.rationale).toBe('hold-rir-slack')
     expect(r.weight_kg).toBe(35)
   })
