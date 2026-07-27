@@ -21,6 +21,7 @@ import {
 } from '../lib/workout-flow'
 import { genericIncrement } from '../lib/gym-equipment'
 import { diagnoseProgress, type WeighIn, type LiftTrend } from '../lib/progress-diagnosis'
+import { Section, SectionRow } from '../components/Section'
 import { searchExerciseDB, getExercisesByGroup, findExercise } from '../lib/exercises'
 import type { MuscleGroup } from '../lib/exercises'
 
@@ -263,12 +264,13 @@ function ActiveSetCard({
       </div>
 
       {isRamp && (
-        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1.2, color: 'var(--orange)', marginBottom: 10 }}>
-          WARM-UP &middot; DOESN&rsquo;T COUNT
+        <div style={{ border: '1px dashed var(--separator)', borderRadius: 18, padding: '12px 14px', marginBottom: 14 }}>
+          <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--label2)', lineHeight: 1.2 }}>Warm-up set</div>
+          <div style={{ fontSize: 13, color: 'var(--label3)', marginTop: 3 }}>Doesn&rsquo;t count toward progress</div>
         </div>
       )}
       {/* Weight pill — tap to expand +/- controls. Calm chips, no glass blur. */}
-      <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 18 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, marginBottom: 18 }}>
         {!showWeightEdit ? (
           <button
             onClick={() => setShowWeightEdit(true)}
@@ -292,10 +294,13 @@ function ActiveSetCard({
             <button onClick={() => setShowWeightEdit(false)} style={{ background: 'var(--blue)', color: '#fff', border: 'none', borderRadius: 16, padding: '6px 12px', fontSize: 13, fontWeight: 600, marginLeft: 2, cursor: 'pointer', height: 32 }}>Done</button>
           </div>
         )}
+        {!isDone && stackUp !== undefined && weight !== undefined && stackUp !== weight && (
+          <div style={{ fontSize: 12, color: 'var(--label3)' }}>next notch {stackUp}kg</div>
+        )}
       </div>
 
       {reason && !isDone && (
-        <div style={{ fontSize: 13, color: 'var(--label2)', textAlign: 'center', lineHeight: 1.45, margin: '-4px 0 16px', padding: '0 6px' }}>
+        <div style={{ fontSize: 16, color: 'var(--label)', lineHeight: 1.4, margin: '-2px 0 16px', textWrap: 'pretty' } as React.CSSProperties}>
           {reason}
         </div>
       )}
@@ -445,72 +450,6 @@ function ConsistencyCalendar({ workouts }: { workouts: WorkoutData[] }) {
   )
 }
 
-// Program day card for the idle screen
-function DayCard({ day, isNext, onStart, targets }: { day: ProgramDay; isNext: boolean; onStart: () => void; targets?: DecisionResult[] }) {
-  return (
-    <div style={{
-      background: isNext ? 'var(--blue)' : 'var(--card)',
-      borderRadius: 16, padding: '16px 16px 12px',
-      border: isNext ? 'none' : '1px solid var(--separator)',
-    }}>
-      <div style={{ marginBottom: 10 }}>
-        <div style={{ fontSize: 18, fontWeight: 700, color: isNext ? '#fff' : 'var(--label)' }}>{day.name}</div>
-        <div style={{ fontSize: 13, color: isNext ? 'rgba(255,255,255,0.75)' : 'var(--label2)', marginTop: 2 }}>{day.focus}</div>
-        {isNext && targets && targets.some(t => t.weight_kg != null) && (
-          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)', marginTop: 3 }}>↻ Weights &amp; reps tuned to your eating + recent sessions</div>
-        )}
-      </div>
-      {day.skill.length > 0 && (
-        <div style={{ fontSize: 12, color: isNext ? 'rgba(255,255,255,0.7)' : 'var(--label3)', marginBottom: 6, fontStyle: 'italic' }}>
-          Skill block first · {day.skill.map(s => s.name).join(' · ')}
-        </div>
-      )}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 3, marginBottom: isNext ? 12 : 0 }}>
-        {day.exercises.slice(0, 4).map((ex, i) => {
-          const t = targets?.[i]
-          return (
-            <div key={i} style={{ fontSize: 13, color: isNext ? 'rgba(255,255,255,0.8)' : 'var(--label2)' }}>
-              {ex.sets}×{ex.repRange} {ex.name}
-              {t?.weight_kg != null ? (
-                <span style={{ color: isNext ? 'rgba(255,255,255,0.55)' : 'var(--label3)', fontSize: 12 }}> · {t.weight_kg}kg{t.repsTarget != null ? ` × ${t.repsTarget}` : ''}</span>
-              ) : seedLabel(ex) ? (
-                <span style={{ color: isNext ? 'rgba(255,255,255,0.55)' : 'var(--label3)', fontSize: 12 }}> · {seedLabel(ex)}</span>
-              ) : null}
-            </div>
-          )
-        })}
-        {day.exercises.length > 4 && (
-          <div style={{ fontSize: 12, color: isNext ? 'rgba(255,255,255,0.55)' : 'var(--label3)', marginTop: 2 }}>
-            +{day.exercises.length - 4} more exercises
-          </div>
-        )}
-      </div>
-      {/* Begin button at thumb-bottom (audit P1-10). Was at top-right of the
-          card, far from the exercise list — eye flow on a phone read awkward. */}
-      {isNext && (
-        <button
-          onClick={onStart}
-          style={{
-            width: '100%', marginTop: 4,
-            background: 'rgba(255,255,255,0.95)',
-            color: 'var(--blue)', border: 'none', borderRadius: 12,
-            padding: '11px 0', fontSize: 15, fontWeight: 700, cursor: 'pointer',
-          }}
-        >Begin</button>
-      )}
-      {!isNext && (
-        <button
-          onClick={onStart}
-          style={{
-            background: 'none', color: 'var(--blue)', border: 'none',
-            padding: '6px 0 0 0', fontSize: 13, fontWeight: 600, cursor: 'pointer',
-            alignSelf: 'flex-start',
-          }}
-        >Start →</button>
-      )}
-    </div>
-  )
-}
 
 /** Workout template — saved to localStorage after completing a workout. */
 interface WorkoutTemplate {
@@ -546,6 +485,7 @@ function lastRirOf(sets?: Array<{ rir?: number }>): number | null {
 export default function Workout({ onOpenSkill }: { onOpenSkill?: () => void }) {
   const [workouts, setWorkouts] = useState<WorkoutData[]>([])
   const [weighIns, setWeighIns] = useState<WeighIn[]>([])
+  const [openSection, setOpenSection] = useState<string | null>(null)
   const [prs, setPRs] = useState<Record<string, { weight_kg: number; reps: number; date: string }>>({})
   const [live, setLive] = useState<LiveWorkout | null>(null)
   const [restTimer, setRestTimer] = useState<{ seconds: number } | null>(null)
@@ -1613,96 +1553,83 @@ export default function Workout({ onOpenSkill }: { onOpenSkill?: () => void }) {
       <div className="page-content">
         <div style={{ fontSize: 30, fontWeight: 700, marginBottom: 16 }}>Workout</div>
 
-        {/* Templates — saved workout templates */}
-        {templates.length > 0 && (
-          <>
-            <div className="section-label" style={{ marginTop: 0 }}>Templates</div>
-            <div style={{ display: 'flex', gap: 8, overflowX: 'auto', marginBottom: 16, paddingBottom: 4 }}>
-              {templates.map(tmpl => (
-                <div
-                  key={tmpl.id}
-                  style={{
-                    background: 'var(--card)', border: '1px solid var(--separator)',
-                    borderRadius: 14, padding: '12px 14px', minWidth: 140, flexShrink: 0,
-                    position: 'relative',
-                  }}
-                >
-                  <button
-                    onClick={() => startFromTemplate(tmpl)}
-                    style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, textAlign: 'left', color: 'inherit', width: '100%' }}
-                  >
-                    <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 4, paddingRight: 20 }}>{tmpl.name}</div>
-                    <div style={{ fontSize: 12, color: 'var(--label2)' }}>
-                      {tmpl.exercises.length} exercises
-                    </div>
-                    <div style={{ fontSize: 11, color: 'var(--label3)', marginTop: 2 }}>
-                      {tmpl.exercises.slice(0, 2).map(e => e.name).join(', ')}{tmpl.exercises.length > 2 ? '...' : ''}
-                    </div>
-                  </button>
-                  <button
-                    onClick={() => deleteTemplate(tmpl.id)}
-                    aria-label="Remove template"
-                    style={{
-                      position: 'absolute', top: 8, right: 8,
-                      background: 'none', border: 'none', color: 'var(--label3)',
-                      cursor: 'pointer', fontSize: 16, padding: '2px 4px',
-                    }}
-                  >x</button>
-                </div>
-              ))}
-            </div>
-          </>
-        )}
-
-        {/* Next up — big card */}
-        <div className="section-label" style={{ marginTop: 0 }}>Next up</div>
-        <DayCard
-          day={PROGRAM[displayDay]}
-          isNext={true}
-          onStart={() => startWorkout(PROGRAM[displayDay])}
-          targets={PROGRAM[displayDay].exercises.map((ex, i) => targetFor(ex.name, ex.repRange, ex.restSeconds, i, PROGRAM[displayDay].exercises.length, seedLabel(ex), ex.recalibrating))}
-        />
-
-        {/* Day picker */}
-        <div style={{ display: 'flex', gap: 8, margin: '12px 0 4px' }}>
-          {ROTATION.map(day => (
-            <button
-              key={day}
-              onClick={() => setSelectedDay(day === selectedDay ? null : day)}
-              style={{
-                flex: 1, padding: '8px 4px', borderRadius: 12, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 700,
-                background: displayDay === day ? 'var(--blue)' : 'var(--card)',
-                color: displayDay === day ? '#fff' : 'var(--label2)',
-                transition: 'background 0.15s, color 0.15s',
-              }}
-            >{day}</button>
-          ))}
+        {/* ── Today's session ──────────────────────────────────────────
+            One thing dominates this screen: starting today. Everything else
+            is collapsed behind disclosure. Previously eleven controls stacked
+            vertically, all competing for the same attention. */}
+        <div style={{ paddingTop: 2 }}>
+          <div style={{ fontSize: 28, fontWeight: 600, color: 'var(--label)', letterSpacing: '-0.02em', lineHeight: 1.1 }}>
+            Today is {displayDay.toLowerCase()} day
+          </div>
+          <div style={{ fontSize: 15, color: 'var(--label2)', marginTop: 4 }}>
+            {PROGRAM[displayDay].focus}
+          </div>
         </div>
 
-        {/* Other days preview (if not default) */}
-        {selectedDay && selectedDay !== nextDay && (
-          <div style={{ marginBottom: 4 }} />
-        )}
-
-        {/* Custom workout */}
-        <button
-          onClick={() => startWorkout()}
-          style={{ width: '100%', background: 'none', border: '1.5px dashed var(--gray4)', borderRadius: 14, padding: '13px', color: 'var(--label2)', fontSize: 15, fontWeight: 600, cursor: 'pointer', marginTop: 12, marginBottom: 8 }}
-        >+ Custom Workout</button>
-
-        <button
-          onClick={() => { setShowImport(true); setImportPreview(null) }}
-          style={{ width: '100%', background: 'none', border: '1.5px dashed var(--gray4)', borderRadius: 14, padding: '13px', color: 'var(--label2)', fontSize: 15, fontWeight: 600, cursor: 'pointer', marginBottom: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
-        >📋 Paste a routine</button>
-
         {(() => {
-          // Top working weight per exercise per session, newest first - the
-          // signal for "has this lift stopped moving?".
+          const day = PROGRAM[displayDay]
+          const targets = day.exercises.map((ex, i) =>
+            targetFor(ex.name, ex.repRange, ex.restSeconds, i, day.exercises.length, seedLabel(ex), ex.recalibrating))
+          const totalSets = day.exercises.reduce((a, ex) => a + ex.sets, 0)
+          // ~40s of working time per set on top of the prescribed rest.
+          const estMin = Math.round(
+            day.exercises.reduce((a, ex, i) => a + ex.sets * ((targets[i]?.restSeconds ?? 90) + 40), 0) / 60)
+          const firstLift = targets[0]?.weight_kg
+
+          return (
+            <div style={{
+              background: 'var(--card)', border: '1px solid var(--separator)', borderRadius: 18,
+              padding: 16, display: 'flex', flexDirection: 'column', gap: 14, marginTop: 14,
+            }}>
+              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+                <div style={{ minWidth: 0 }}>
+                  <div style={{ fontSize: 21, fontWeight: 600, color: 'var(--label)', lineHeight: 1.15 }}>{day.name}</div>
+                  <div style={{ fontSize: 14, color: 'var(--label2)', marginTop: 3, lineHeight: 1.35 }}>
+                    {day.exercises.slice(0, 4).map(e => e.name.replace(/ \(.*\)$/, '')).join(' \u00b7 ')}
+                  </div>
+                </div>
+                <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                  <div style={{ fontSize: 10, letterSpacing: '0.1em', color: 'var(--label3)', fontWeight: 600 }}>SETS</div>
+                  <div style={{ fontSize: 34, fontWeight: 600, color: 'var(--label)', fontVariantNumeric: 'tabular-nums', lineHeight: 1 }}>{totalSets}</div>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', gap: 8 }}>
+                <div style={{ flex: 1, background: 'var(--bg)', border: '1px solid var(--separator)', borderRadius: 14, padding: '10px 12px' }}>
+                  <div style={{ fontSize: 10, letterSpacing: '0.1em', color: 'var(--label3)', fontWeight: 600 }}>EST. TIME</div>
+                  <div style={{ fontSize: 19, fontWeight: 600, color: 'var(--label)', fontVariantNumeric: 'tabular-nums', lineHeight: 1.2 }}>{estMin} min</div>
+                </div>
+                <div style={{ flex: 1, background: 'var(--bg)', border: '1px solid var(--separator)', borderRadius: 14, padding: '10px 12px' }}>
+                  <div style={{ fontSize: 10, letterSpacing: '0.1em', color: 'var(--label3)', fontWeight: 600 }}>FIRST LIFT</div>
+                  <div style={{ fontSize: 19, fontWeight: 600, color: 'var(--label)', fontVariantNumeric: 'tabular-nums', lineHeight: 1.2 }}>
+                    {firstLift !== undefined ? firstLift + 'kg' : '\u2014'}
+                  </div>
+                </div>
+              </div>
+
+              <button
+                onClick={() => startWorkout(day)}
+                style={{
+                  height: 72, background: 'var(--blue)', border: 'none', borderRadius: 20,
+                  color: '#fff', fontSize: 21, fontWeight: 600, cursor: 'pointer', letterSpacing: '-0.01em',
+                }}
+              >Start {day.name}</button>
+
+              <button
+                onClick={() => setOpenSection(s => s === 'more' ? null : 'more')}
+                style={{ height: 44, background: 'transparent', border: 'none', color: 'var(--label2)', fontSize: 15, fontWeight: 600, cursor: 'pointer' }}
+              >Not today \u2014 pick something else</button>
+            </div>
+          )
+        })()}
+
+        {/* ── Progress ─────────────────────────────────────────────── */}
+        {(() => {
           const byLift: Record<string, number[]> = {}
           const newest = [...workouts].sort((a, b) => b.start_time.localeCompare(a.start_time))
           for (const w of newest) {
             for (const ex of w.exercises) {
-              const top = Math.max(0, ...ex.sets.map(s => s.weight_kg ?? 0))
+              const top = Math.max(0, ...ex.sets.filter(s => !s.ramp).map(s => s.weight_kg ?? 0))
               if (top <= 0) continue
               if (!byLift[ex.name]) byLift[ex.name] = []
               byLift[ex.name].push(top)
@@ -1710,60 +1637,98 @@ export default function Workout({ onOpenSkill }: { onOpenSkill?: () => void }) {
           }
           const trends: LiftTrend[] = Object.keys(byLift).map(name => ({ name, topWeights: byLift[name] }))
           const d = diagnoseProgress(weighIns, trends)
-          if (d.kind === 'need-data' && workouts.length === 0) return null
+          const strengthPRs = Object.entries(prs).filter(([, pr]) => pr.reps > 0 && pr.reps <= 12)
           const tone = (d.kind === 'eat-more' || d.kind === 'gaining-fast') ? 'var(--orange)' : 'var(--label)'
+
           return (
-            <>
-              <div className="section-label">Progress</div>
-              <div className="card" style={{ padding: '14px 16px', marginBottom: 16 }}>
-                <div style={{ fontSize: 15, fontWeight: 700, color: tone, marginBottom: 5 }}>{d.headline}</div>
-                <div style={{ fontSize: 13, color: 'var(--label2)', lineHeight: 1.5 }}>{d.detail}</div>
-              </div>
-            </>
+            <Section
+              title="Progress"
+              sub={d.headline}
+              open={openSection === 'progress'}
+              onToggle={() => setOpenSection(s => s === 'progress' ? null : 'progress')}
+            >
+              <div style={{ fontSize: 15, fontWeight: 600, color: tone, marginBottom: 5 }}>{d.headline}</div>
+              <div style={{ fontSize: 14, color: 'var(--label2)', lineHeight: 1.5, marginBottom: 14 }}>{d.detail}</div>
+              <ConsistencyCalendar workouts={workouts} />
+              {strengthPRs.length > 0 && (
+                <>
+                  <div style={{ fontSize: 10, letterSpacing: '0.1em', color: 'var(--label3)', fontWeight: 600, margin: '4px 0 8px' }}>PERSONAL RECORDS</div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    {strengthPRs.slice(0, 6).map(([ex, pr]) => (
+                      <div key={ex} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+                        <div style={{ fontSize: 16, color: 'var(--label)', minWidth: 0 }}>{ex}</div>
+                        <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--label2)', fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>
+                          {pr.weight_kg}kg \u00d7 {pr.reps}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+            </Section>
           )
         })()}
 
-        {/* Consistency calendar — last 8 weeks at a glance. Each cell is a day,
-            filled if a workout was logged. Reads from the loaded workouts list,
-            no extra fetch. Brody asked for "see your consistency". */}
-        <ConsistencyCalendar workouts={workouts} />
+        {/* ── Train something else ─────────────────────────────────── */}
+        <Section
+          title="Train something else"
+          sub="Skill block, custom, paste a routine"
+          open={openSection === 'more'}
+          onToggle={() => setOpenSection(s => s === 'more' ? null : 'more')}
+        >
+          <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+            {ROTATION.map(day => (
+              <button
+                key={day}
+                onClick={() => setSelectedDay(day === selectedDay ? null : day)}
+                style={{
+                  flex: 1, padding: '10px 4px', borderRadius: 12, border: 'none', cursor: 'pointer',
+                  fontSize: 13, fontWeight: 600,
+                  background: displayDay === day ? 'var(--blue)' : 'var(--bg)',
+                  color: displayDay === day ? '#fff' : 'var(--label2)',
+                }}
+              >{day}</button>
+            ))}
+          </div>
 
-        {onOpenSkill && (
-          <button
-            onClick={onOpenSkill}
-            style={{ width: '100%', background: 'var(--card)', border: '1px solid var(--separator)', borderRadius: 14, padding: '13px', color: 'var(--label)', fontSize: 15, fontWeight: 600, cursor: 'pointer', marginBottom: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}
-          >&#129496; Skill block</button>
-        )}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {onOpenSkill && (
+              <SectionRow name="Skill block" sub="Home \u00b7 handstand ladder" onClick={onOpenSkill} />
+            )}
+            <SectionRow name="Custom workout" sub="Build it set by set" onClick={() => startWorkout()} />
+            <SectionRow name="Paste a routine" sub="Text in, sets out" onClick={() => { setShowImport(true); setImportPreview(null) }} />
+            <SectionRow name="Ask the coach" sub="One question about today" onClick={() => setShowCoach(true)} />
+          </div>
 
-        {/* In-gym AI coach: ask about a machine, get it slotted into the program. */}
-        <button
-          onClick={() => setShowCoach(true)}
-          style={{ width: '100%', background: 'var(--card)', border: '1px solid var(--separator)', borderRadius: 14, padding: '13px', color: 'var(--label)', fontSize: 15, fontWeight: 600, cursor: 'pointer', marginTop: 12, marginBottom: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}
-        >🏋️ Ask the gym coach</button>
-
-        {/* PRs — strength PRs only (audit P2-5). Bodybuilding strength PRs
-            sit in the 1–12 rep range; over 15 reps is endurance not strength
-            and was previously shown as e.g. "20kg × 50" PR which read as a
-            mistake. We filter here rather than in the backend so the data
-            stays intact for future endurance/volume views. */}
-        {(() => {
-          const strengthPRs = Object.entries(prs).filter(([, pr]) => pr.reps > 0 && pr.reps <= 12)
-          if (strengthPRs.length === 0) return null
-          return (
+          {templates.length > 0 && (
             <>
-              <div className="section-label">Personal Records</div>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
-                {strengthPRs.slice(0, 6).map(([ex, pr]) => (
-                  <div key={ex} style={{ background: 'var(--card)', borderRadius: 12, padding: '10px 14px', minWidth: 140, flex: '1 1 140px' }}>
-                    <div style={{ fontSize: 12, color: 'var(--label2)', marginBottom: 4 }}>{ex}</div>
-                    <div style={{ fontSize: 18, fontWeight: 700 }}>{pr.weight_kg}kg <span style={{ fontSize: 14, fontWeight: 400 }}>× {pr.reps}</span></div>
-                    <div style={{ marginTop: 4, fontSize: 11, fontWeight: 700, color: '#B8860B', background: '#FFD70033', borderRadius: 8, padding: '2px 7px', display: 'inline-block' }}>PR</div>
+              <div style={{ fontSize: 10, letterSpacing: '0.1em', color: 'var(--label3)', fontWeight: 600, margin: '16px 0 8px' }}>TEMPLATES</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {templates.map(tmpl => (
+                  <div key={tmpl.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <button
+                      onClick={() => startFromTemplate(tmpl)}
+                      style={{
+                        flex: 1, height: 56, background: 'var(--bg)', border: '1px solid var(--separator)',
+                        borderRadius: 16, cursor: 'pointer', display: 'flex', alignItems: 'center',
+                        justifyContent: 'space-between', padding: '0 14px', textAlign: 'left', color: 'inherit',
+                      }}
+                    >
+                      <span style={{ fontSize: 16, fontWeight: 600, color: 'var(--label)' }}>{tmpl.name}</span>
+                      <span style={{ fontSize: 13, color: 'var(--label3)' }}>{tmpl.exercises.length} exercises</span>
+                    </button>
+                    <button
+                      onClick={() => deleteTemplate(tmpl.id)}
+                      aria-label="Remove template"
+                      style={{ background: 'none', border: 'none', color: 'var(--label3)', cursor: 'pointer', fontSize: 18, padding: '0 6px' }}
+                    >\u00d7</button>
                   </div>
                 ))}
               </div>
             </>
-          )
-        })()}
+          )}
+        </Section>
+
 
         {/* Recent workouts — only completed sessions (audit P0-5).
             Filter rules:
