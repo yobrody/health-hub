@@ -3,6 +3,7 @@ import { StrictMode, useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.tsx'
+import { ErrorBoundary } from './components/ErrorBoundary'
 
 // Auto-reload the page when a newly-installed service worker takes control.
 // Pairs with VitePWA's registerType:'autoUpdate' + skipWaiting + clientsClaim
@@ -75,6 +76,8 @@ function ThemeProvider() {
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
-    <ThemeProvider />
+    <ErrorBoundary>
+      <ThemeProvider />
+    </ErrorBoundary>
   </StrictMode>,
 )
