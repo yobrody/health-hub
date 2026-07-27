@@ -165,11 +165,11 @@ export const PROGRAM: Record<DayName, ProgramDay> = {
         ],
       },
       {
-        name: 'Incline Dumbbell Press', sets: 3, repRange: '8–12', restSeconds: 120,
-        lift: 'compound', startingWeightKg: 14,
-        notes: '16kg gave 10 then 5 — set 1 went to failure and burned set 2. Start 14kg and keep 1–2 in reserve.',
+        name: 'Incline Chest Press (machine)', sets: 3, repRange: '8–12', restSeconds: 120,
+        lift: 'compound', startingWeightKg: 35, recalibrating: true,
+        notes: 'Untested - only one machine and it was taken on session 1. 35kg is still a guess.',
         swaps: [
-          { name: 'Incline Chest Press (machine)' },
+          { name: 'Incline Dumbbell Press', startingWeightKg: 14, note: '16kg gave 10 then 5 - set 1 hit failure and burned set 2. Use 14kg with 1-2 in reserve.' },
           { name: 'Smith Incline Press' },
         ],
       },
@@ -182,7 +182,7 @@ export const PROGRAM: Record<DayName, ProgramDay> = {
       {
         name: 'Cable Lateral Raise', sets: 3, repRange: '12–20', restSeconds: 60,
         lift: 'isolation', startingWeightKg: 3.4,
-        notes: 'Per arm — logged as one set, not two. 7.9 and 5.7kg both failed; 3.4kg is the real starting load. Cut to 3 sets.',
+        notes: 'Per arm - logged as one set, not two. 7.9 and 5.7kg both failed. Session 1 set 1 (10/9) was familiarisation, not a real effort - true capacity is ~19. Next notch is 5.7kg (+68%), far outside the 10% rule, so push reps past 20 before ever adding weight.',
         swaps: [
           { name: 'Dumbbell Lateral Raise', startingWeightKg: 4 },
           { name: 'Machine Lateral Raise' },

@@ -502,6 +502,18 @@ function saveTemplates(templates: WorkoutTemplate[]) {
   try { localStorage.setItem('workout_templates', JSON.stringify(templates)) } catch { /* quota */ }
 }
 
+/** RIR from the last set of a session that actually reported one. The tier
+ * buttons ("Too easy" / "Just right" / ...) write this; before now it was
+ * collected and thrown away. */
+function lastRirOf(sets?: Array<{ rir?: number }>): number | null {
+  if (!sets || sets.length === 0) return null
+  for (let i = sets.length - 1; i >= 0; i--) {
+    const r = sets[i]?.rir
+    if (typeof r === 'number') return r
+  }
+  return null
+}
+
 export default function Workout() {
   const [workouts, setWorkouts] = useState<WorkoutData[]>([])
   const [prs, setPRs] = useState<Record<string, { weight_kg: number; reps: number; date: string }>>({})
@@ -515,9 +527,6 @@ export default function Workout() {
   // properlyEating gates the progressive-overload bump. Computed from the most
   // recent fully-logged day's calories + protein vs the user's goals.
   const [properlyEating, setProperlyEating] = useState(false)
-  // Real kcal-vs-goal signal for the decision engine. Undefined fields = no
-  // logged data → engine stays neutral (never penalises for not logging).
-  const [dietSignal, setDietSignal] = useState<{ lastDayKcalPct?: number; threeDayKcalPct?: number }>({})
   // Focus-mode pointer + phase. While `live` is set, the screen shows ONE
   // exercise/set at a time (active or rest), not the previous all-stacked view.
   // Editing-mode (live.editingId) skips the rest phase entirely so the user
@@ -559,23 +568,26 @@ export default function Workout() {
           logged: d.logged,
         }))
         setProperlyEating(isProperlyEating(totals, goalsResp.parsed))
-        // Compute real kcal-vs-goal percentages from logged days only. No
-        // logged day → leave undefined so the engine treats it as neutral.
-        const goalKcal = goalsResp.parsed.calories || 2200
-        const logged = totals.filter(t => t.logged && (t.total_kcal ?? 0) > 0)
-          .sort((a, b) => b.date.localeCompare(a.date))
-        const lastDayKcalPct = logged[0] ? logged[0].total_kcal / goalKcal : undefined
-        const recent = logged.slice(0, 3)
-        const threeDayKcalPct = recent.length
-          ? recent.reduce((s, t) => s + t.total_kcal, 0) / (recent.length * goalKcal)
-          : undefined
-        setDietSignal({ lastDayKcalPct, threeDayKcalPct })
       })
-      .catch(() => { setProperlyEating(false); setDietSignal({}) })
+      .catch(() => { setProperlyEating(false) })
   }, [])
 
   // Last-session sets per exercise — the "did all reps hit?" signal for predictNextWeight.
   // Walks the workouts list newest-first and records the first occurrence of each exercise.
+  // Per-exercise session history, newest first. Feeds two-session stall
+  // detection, the >10-day layoff rule, and last-session RIR.
+  const historyByExercise = useMemo(() => {
+    const map: Record<string, { sets: ExerciseSet[]; date: string }[]> = {}
+    const newest = [...workouts].sort((a, b) => b.start_time.localeCompare(a.start_time))
+    for (const w of newest) {
+      for (const ex of w.exercises) {
+        if (!map[ex.name]) map[ex.name] = []
+        map[ex.name].push({ sets: ex.sets, date: w.start_time })
+      }
+    }
+    return map
+  }, [workouts])
+
   const lastSetsByExercise = useMemo(() => {
     const map: Record<string, ExerciseSet[]> = {}
     const newestFirst = [...workouts].sort((a, b) => b.start_time.localeCompare(a.start_time))
@@ -648,7 +660,13 @@ export default function Workout() {
   // card and seeding a live workout, so the preview matches what you'll lift.
   function targetFor(exerciseName: string, repRange: string | null | undefined, restSeconds: number | undefined, positionInSession: number, totalExercises: number, startingWeight?: string): DecisionResult {
     const pr = prs[exerciseName]
-    const prevSets = lastSetsByExercise[exerciseName]
+    const hist = historyByExercise[exerciseName] ?? []
+    const prevSets = hist[0]?.sets
+    const priorSets = hist[1]?.sets
+    const daysSinceLast = hist[0]
+      ? Math.floor((Date.now() - new Date(hist[0].date).getTime()) / 86400000)
+      : null
+    const lastSessionRIR = lastRirOf(hist[0]?.sets)
     // No PR and no logged sets yet? Seed the engine with the program's starting
     // weight (at the bottom of the rep range, so it holds rather than bumps) —
     // this lets the number still adapt to EATING before any history exists.
@@ -665,7 +683,9 @@ export default function Workout() {
       programRestSeconds: restSeconds,
       lastSetRIR: null,
       sleepHours: null,
-      diet: { properlyEating, lastDayKcalPct: dietSignal.lastDayKcalPct, threeDayKcalPct: dietSignal.threeDayKcalPct },
+      priorSets,
+      lastSessionRIR,
+      daysSinceLast,
       session: { positionInSession, totalExercises, sessionVolumeSoFar: 0 },
       isFirstSet: true,
     })
@@ -708,7 +728,6 @@ export default function Workout() {
       prevBest: pr ? { weight_kg: pr.weight_kg, reps: pr.reps } : null,
       prevSets,
       // Custom-added exercises don't carry program rep range — predictor falls back to baseline.
-      properlyEating,
     })
     const defaultSets: LiveSet[] = [
       { weight_kg: predicted.weight_kg, reps: predicted.reps, done: false },
@@ -933,7 +952,6 @@ export default function Workout() {
       const predicted = predictNextWeight({
         prevBest: pr ? { weight_kg: pr.weight_kg, reps: pr.reps } : null,
         prevSets,
-        properlyEating,
       })
       const sets: LiveSet[] = Array.from({ length: ex.sets }, () => ({
         weight_kg: predicted.weight_kg ?? ex.weight_kg,

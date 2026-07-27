@@ -1,11 +1,17 @@
-// Pure helpers for workout weight prediction + nutrition gating.
-// Extracted so the rules are testable without rendering the Workout page.
+// Pure progression rules. No React, no food coupling.
+//
+// DELIBERATE: nothing in this file reads nutrition. Food and training are kept
+// independent so a break in one cannot take down the other. Earned progression
+// is never withheld because of a bad food day - food is a DIAGNOSTIC surfaced
+// elsewhere (two lifts stalled + bodyweight flat 3wk), never a gate.
+
+import { PROGRESSION } from '../program'
 
 export type RepRange = { min: number; max: number }
 
 export function parseRepRange(repRange?: string | null): RepRange | null {
   if (!repRange) return null
-  const m = repRange.match(/(\d+)\s*[-–—]\s*(\d+)/)
+  const m = repRange.match(/(\d+)\s*[-\u2013\u2014]\s*(\d+)/)
   if (!m) return null
   const min = parseInt(m[1], 10)
   const max = parseInt(m[2], 10)
@@ -16,34 +22,64 @@ export function parseRepRange(repRange?: string | null): RepRange | null {
 export type SetSummary = { weight_kg?: number | null; reps?: number | null }
 
 export type PredictInput = {
-  /** Personal best for this exercise — used as the baseline weight when there's no fresher data. */
   prevBest?: { weight_kg: number; reps: number } | null
-  /** Sets from the most recent workout containing this exercise (in order). Drives the "all reps hit?" check. */
+  /** Sets from the most recent session containing this exercise, in order. */
   prevSets?: SetSummary[]
-  /** Program prescribed rep range, e.g. "8-12". Drives the bump rule. */
+  /** Sets from the session BEFORE that. Drives two-session stall detection. */
+  priorSets?: SetSummary[]
   repRange?: string | null
-  /** True iff the user hit calorie + protein goals recently. When false, weight bumps are suppressed. */
-  properlyEating: boolean
+  /** RIR on the last set of the previous session. null = not reported, in
+   * which case hitting the top of the range alone earns the jump. */
+  lastSessionRIR?: number | null
+  /** Days since this exercise was last trained. Drives the layoff rule. */
+  daysSinceLast?: number | null
+  /** Next selectable weight above baseline, from the equipment catalog. This
+   * is what makes the 10% rule possible: at the bottom of an imperial cable
+   * stack the next notch can be +68%, which is a wall, not a progression. */
+  nextStackUp?: number
 }
 
+export type PredictRationale =
+  | 'no-history' | 'baseline-pr' | 'baseline-last'
+  | 'bump-progressive-overload' | 'hold-build-reps' | 'hold-rir-slack'
+  | 'hold-jump-too-big' | 'deload-stalled' | 'deload-layoff'
+
 export type PredictResult = {
-  /** Suggested starting weight in kg, or undefined when there's no signal at all. */
   weight_kg: number | undefined
-  /** Default reps to pre-fill — we offer the rep range max so the "tap ✓ to confirm" UX works. */
   reps: number | undefined
-  /** Why this weight was picked. Used for a tiny inline label so the user can trust the number. */
-  rationale: 'no-history' | 'baseline-pr' | 'baseline-last' | 'bump-progressive-overload' | 'hold-eat-more' | 'hold-build-reps'
+  rationale: PredictRationale
+  /** One-liner for the UI so the number is never mysterious. */
+  note?: string
 }
 
 const COMPOUND_THRESHOLD_KG = 40
 
+export function genericStep(currentKg: number): number {
+  return currentKg >= COMPOUND_THRESHOLD_KG ? 2.5 : 1.25
+}
+
+function roundKg(n: number): number { return Math.round(n * 4) / 4 }
+
+function completed(sets?: SetSummary[]): SetSummary[] {
+  return (sets ?? []).filter(s => typeof s.reps === 'number' && (s.reps ?? 0) > 0)
+}
+function allBelowMin(sets: SetSummary[], r: RepRange): boolean {
+  return sets.length > 0 && sets.every(s => (s.reps ?? 0) < r.min)
+}
+function allAtTop(sets: SetSummary[], r: RepRange): boolean {
+  return sets.length > 0 && sets.every(s => (s.reps ?? 0) >= r.max)
+}
+
 /**
- * Pick the next set's starting weight via a simple progressive-overload rule:
- *   1. If every set last session hit the rep-range top → bump (+2.5kg if base ≥ 40kg, else +1.25kg)
- *      — but only when the user is "properly eating"; otherwise hold (don't try to grow on under-fueled days).
- *   2. If every set last session was below the rep-range minimum → hold (build reps before adding weight).
- *   3. Otherwise hold.
- * Falls back to the user's PR weight, then to the last set's weight, then undefined.
+ * Next working weight, in priority order:
+ *   1. >10 days off           -> one session 10% lighter, then resume.
+ *   2. Missed bottom twice    -> drop 15% and rebuild.
+ *   3. Missed bottom once     -> same weight, no change.
+ *   4. Top of range, 2+ RIR   -> same weight, push harder.
+ *   5. Top of range, 0-1 RIR  -> smallest jump, unless that jump is >10% of
+ *                                current, in which case hold and add reps
+ *                                past the top of the range.
+ *   6. Inside the range       -> same weight, add a rep.
  */
 export function predictNextWeight(input: PredictInput): PredictResult {
   const baseline =
@@ -55,47 +91,70 @@ export function predictNextWeight(input: PredictInput): PredictResult {
   const repsBaseline =
     input.prevBest?.reps ??
     input.prevSets?.find(s => typeof s.reps === 'number')?.reps ??
-    range?.max ??
-    undefined
+    range?.max ?? undefined
 
   if (baseline === undefined) {
     return { weight_kg: undefined, reps: repsBaseline, rationale: 'no-history' }
   }
 
-  // Bump only when we have rep range AND last session's sets to evaluate.
-  const completedLast = (input.prevSets ?? []).filter(
-    s => typeof s.reps === 'number' && (s.reps ?? 0) > 0,
-  )
-  if (range && completedLast.length > 0) {
-    const allAtTop = completedLast.every(s => (s.reps ?? 0) >= range.max)
-    const allBelowMin = completedLast.every(s => (s.reps ?? 0) < range.min)
-    if (allAtTop) {
-      if (!input.properlyEating) {
-        return { weight_kg: baseline, reps: range.max, rationale: 'hold-eat-more' }
-      }
-      const bump = baseline >= COMPOUND_THRESHOLD_KG ? 2.5 : 1.25
-      return { weight_kg: roundToHalfKg(baseline + bump), reps: range.max, rationale: 'bump-progressive-overload' }
-    }
-    if (allBelowMin) {
-      return { weight_kg: baseline, reps: range.min, rationale: 'hold-build-reps' }
+  if (input.daysSinceLast != null && input.daysSinceLast > PROGRESSION.layoffDays) {
+    return {
+      weight_kg: roundKg(baseline * (1 - PROGRESSION.layoffBackoffPct)),
+      reps: range?.min ?? repsBaseline,
+      rationale: 'deload-layoff',
+      note: input.daysSinceLast + ' days off - 10% lighter for one session',
     }
   }
 
-  // No rep-range signal — fall back to baseline.
+  const last = completed(input.prevSets)
+  const prior = completed(input.priorSets)
+
+  if (range && last.length > 0) {
+    if (allBelowMin(last, range) && allBelowMin(prior, range)) {
+      return {
+        weight_kg: roundKg(baseline * (1 - PROGRESSION.stallDeloadPct)),
+        reps: range.min, rationale: 'deload-stalled',
+        note: 'Missed the bottom twice - dropping 15% to rebuild',
+      }
+    }
+    if (allBelowMin(last, range)) {
+      return {
+        weight_kg: baseline, reps: range.min, rationale: 'hold-build-reps',
+        note: 'Below the range - same weight, chase the bottom',
+      }
+    }
+    if (allAtTop(last, range)) {
+      if (input.lastSessionRIR != null && input.lastSessionRIR >= PROGRESSION.holdAboveRIR) {
+        return {
+          weight_kg: baseline, reps: range.max, rationale: 'hold-rir-slack',
+          note: 'Hit the top with ' + input.lastSessionRIR + ' left - same weight, push harder',
+        }
+      }
+      const target = input.nextStackUp ?? roundKg(baseline + genericStep(baseline))
+      const jumpPct = baseline > 0 ? (target - baseline) / baseline : 0
+      if (jumpPct > PROGRESSION.maxJumpPct) {
+        return {
+          weight_kg: baseline, reps: range.max + 1, rationale: 'hold-jump-too-big',
+          note: 'Next notch is +' + Math.round(jumpPct * 100) + '% - keep the weight, add reps past ' + range.max,
+        }
+      }
+      return {
+        weight_kg: roundKg(target), reps: range.max,
+        rationale: 'bump-progressive-overload', note: 'Earned it - smallest jump up',
+      }
+    }
+  }
+
   return {
-    weight_kg: baseline,
-    reps: repsBaseline,
+    weight_kg: baseline, reps: repsBaseline,
     rationale: input.prevBest ? 'baseline-pr' : 'baseline-last',
   }
 }
 
-/** 17.5 + 1.25 = 18.75 → 18.75 (already half). 102.5 + 2.5 = 105 → 105. Anything else → nearest 0.25kg. */
-function roundToHalfKg(n: number): number {
-  return Math.round(n * 4) / 4
-}
+// -- Food (diagnostic only - NOT wired into progression) ------------------
 
 export type DailyTotals = {
-  date: string // ISO YYYY-MM-DD
+  date: string
   total_kcal: number
   total_protein_g?: number
   logged: boolean
@@ -103,16 +162,8 @@ export type DailyTotals = {
 
 export type Goals = { calories: number; protein: number }
 
-/**
- * "Properly eating" = the most recent fully-logged day hit at least 95% of both
- * calorie and protein targets. Single bad day is enough to suppress a bump —
- * progressive overload on under-fueled muscle is just risk for no reward.
- *
- * The 95% threshold is permissive enough that a one-meal undershoot doesn't
- * cancel progress, but tight enough that "I had toast for dinner" does.
- */
+/** Informational badge only. Does NOT gate weight suggestions. */
 export function isProperlyEating(history: DailyTotals[], goals: Goals): boolean {
-  // Find the latest logged day (the user might not have logged today yet).
   const sorted = [...history].sort((a, b) => b.date.localeCompare(a.date))
   const lastLogged = sorted.find(d => d.logged)
   if (!lastLogged) return false
