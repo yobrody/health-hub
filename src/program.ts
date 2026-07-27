@@ -102,6 +102,13 @@ export const PROGRESSION = {
   /** Smallest available jump exceeding this fraction of current load → don't
    * jump. Keep adding reps past the top of the range until it doesn't. */
   maxJumpPct: 0.10,
+  /** Escape hatch for the rule above. The jump percentage only shrinks as the
+   * WEIGHT grows, so on any stack whose next notch exceeds 10% the lifter can
+   * never earn it - 27kg to 32kg on a 5kg machine is +18.5%, and 3.4kg to
+   * 5.7kg on an imperial cable is +68%. Left alone the rule deadlocks and
+   * prescribes an identical session forever. Reaching this multiple of the
+   * rep-range top earns the notch regardless, dropping back to range.min. */
+  repsOverrunMultiplier: 1.5,
   /** More than this many days off → one lighter session, then resume. */
   layoffDays: 10,
   /** How much to shave for that single return session. */

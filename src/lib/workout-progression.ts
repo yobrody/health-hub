@@ -45,7 +45,7 @@ export type PredictInput = {
 
 export type PredictRationale =
   | 'no-history' | 'baseline-pr' | 'baseline-last'
-  | 'bump-progressive-overload' | 'bump-recalibrating' | 'bump-too-light'
+  | 'bump-progressive-overload' | 'bump-recalibrating' | 'bump-too-light' | 'bump-overrun'
   | 'hold-build-reps' | 'hold-rir-slack'
   | 'hold-jump-too-big' | 'deload-stalled' | 'deload-layoff'
 
@@ -168,9 +168,20 @@ export function predictNextWeight(input: PredictInput): PredictResult {
       const target = input.nextStackUp ?? roundKg(baseline + genericStep(baseline))
       const jumpPct = baseline > 0 ? (target - baseline) / baseline : 0
       if (jumpPct > PROGRESSION.maxJumpPct) {
+        const achieved = Math.max(...last.map(s => s.reps ?? 0))
+        const jumpAt = Math.ceil(range.max * PROGRESSION.repsOverrunMultiplier)
+        // Enough extra reps at this weight earns the oversized notch.
+        if (achieved >= jumpAt) {
+          return {
+            weight_kg: roundKg(target), reps: range.min, rationale: 'bump-overrun',
+            note: achieved + ' reps at ' + baseline + 'kg earns the jump - restart at ' + range.min + ' reps',
+          }
+        }
+        // Otherwise climb from what was ACTUALLY done, not from the range
+        // top - a fixed target repeats the same session forever.
         return {
-          weight_kg: baseline, reps: range.max + 1, rationale: 'hold-jump-too-big',
-          note: 'Next notch is +' + Math.round(jumpPct * 100) + '% - keep the weight, add reps past ' + range.max,
+          weight_kg: baseline, reps: achieved + 1, rationale: 'hold-jump-too-big',
+          note: 'Next notch is +' + Math.round(jumpPct * 100) + '% - build to ' + jumpAt + ' reps here first (' + achieved + ' now)',
         }
       }
       return {

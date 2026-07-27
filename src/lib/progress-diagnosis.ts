@@ -18,16 +18,26 @@ export type LiftTrend = { name: string; topWeights: number[] }
  * reading from inventing a trend that is not there.
  */
 export function weeklyChangeKg(entries: WeighIn[]): number | null {
-  if (entries.length < 2) return null
-  const sorted = [...entries].sort((a, b) => a.date.localeCompare(b.date))
+  // Drop rows that cannot be reasoned about before doing any maths. The API
+  // has been seen storing a time ("09:00") where a date belongs, and an
+  // invalid date yields NaN days - which sails straight past a `days < 7`
+  // guard, because NaN < 7 is false. One bad row would then render
+  // "Gaining NaN lb/week" on screen.
+  const clean = entries.filter(e =>
+    e != null &&
+    Number.isFinite(e.kg) && e.kg > 0 &&
+    Number.isFinite(new Date(e.date).getTime()))
+  if (clean.length < 2) return null
+  const sorted = [...clean].sort((a, b) => a.date.localeCompare(b.date))
   const w = Math.min(BODYWEIGHT_TARGET.averageWindow, Math.floor(sorted.length / 2)) || 1
   const first = sorted.slice(0, w)
   const last = sorted.slice(-w)
   const avg = (xs: WeighIn[]) => xs.reduce((s, e) => s + e.kg, 0) / xs.length
   const days =
     (new Date(last[last.length - 1].date).getTime() - new Date(first[0].date).getTime()) / 86400000
-  if (days < 7) return null
-  return ((avg(last) - avg(first)) / days) * 7
+  if (!Number.isFinite(days) || days < 7) return null
+  const weekly = ((avg(last) - avg(first)) / days) * 7
+  return Number.isFinite(weekly) ? weekly : null
 }
 
 /** A lift is stalled when its top weight has not increased across recent sessions. */
