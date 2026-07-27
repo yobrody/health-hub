@@ -537,7 +537,7 @@ function lastRirOf(sets?: Array<{ rir?: number }>): number | null {
   return null
 }
 
-export default function Workout() {
+export default function Workout({ onOpenSkill }: { onOpenSkill?: () => void }) {
   const [workouts, setWorkouts] = useState<WorkoutData[]>([])
   const [weighIns, setWeighIns] = useState<WeighIn[]>([])
   const [prs, setPRs] = useState<Record<string, { weight_kg: number; reps: number; date: string }>>({})
@@ -1711,6 +1711,13 @@ export default function Workout() {
             filled if a workout was logged. Reads from the loaded workouts list,
             no extra fetch. Brody asked for "see your consistency". */}
         <ConsistencyCalendar workouts={workouts} />
+
+        {onOpenSkill && (
+          <button
+            onClick={onOpenSkill}
+            style={{ width: '100%', background: 'var(--card)', border: '1px solid var(--separator)', borderRadius: 14, padding: '13px', color: 'var(--label)', fontSize: 15, fontWeight: 600, cursor: 'pointer', marginBottom: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}
+          >&#129496; Skill block</button>
+        )}
 
         {/* In-gym AI coach: ask about a machine, get it slotted into the program. */}
         <button
