@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useRef } from 'react'
+import { useEffect, useMemo, useState, useRef, useCallback } from 'react'
 import { api } from '../api/client'
 import type { WorkoutData, ExerciseSet, ParsedRoutine } from '../api/client'
 import { showToast } from '../toast'
@@ -20,7 +20,7 @@ import {
   findNextIncompleteSet,
   findFirstIncompleteSet,
 } from '../lib/workout-flow'
-import { genericIncrement } from '../lib/gym-equipment'
+import { genericIncrement, learnFromLogs } from '../lib/gym-equipment'
 import { diagnoseProgress, type WeighIn, type LiftTrend } from '../lib/progress-diagnosis'
 import { useWakeLock } from '../lib/useWakeLock'
 import { analyzeWorkout, type WorkoutAnalysis } from '../lib/gym-analysis'
@@ -525,6 +525,17 @@ export default function Workout({ onOpenSkill }: { onOpenSkill?: () => void }) {
   const [live, setLive] = useState<LiveWorkout | null>(null)
   // Screen stays on while a session is running - roughly 20 unlocks saved.
   useWakeLock(live !== null)
+
+  // Every path that receives workout history goes through here. learnFromLogs
+  // teaches the equipment catalog which weights actually exist on these
+  // machines, inferred from what has genuinely been lifted - so a hardcoded
+  // guess gets corrected by reality instead of persisting forever. It writes
+  // to localStorage synchronously, so it must run BEFORE the state update that
+  // triggers the render reading it, not in an effect afterwards.
+  const applyWorkouts = useCallback((list: WorkoutData[]) => {
+    try { learnFromLogs(list) } catch { /* storage disabled - not fatal */ }
+    setWorkouts(list)
+  }, [])
   const [restTimer, setRestTimer] = useState<{ seconds: number } | null>(null)
   const [exSearch, setExSearch] = useState('')
   const [exResults, setExResults] = useState<string[]>([])
@@ -567,7 +578,7 @@ export default function Workout({ onOpenSkill }: { onOpenSkill?: () => void }) {
   const searchTimeout = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
   useEffect(() => {
-    api.getWorkouts(20).then(setWorkouts)
+    api.getWorkouts(20).then(applyWorkouts)
     api.getPRs().then(setPRs)
     api.getWeightLog(90).then(r => setWeighIns(r.entries ?? [])).catch(() => setWeighIns([]))
     // Fetch nutrition signal for the predicted-weight rule. Failure is silent —
@@ -903,7 +914,7 @@ export default function Workout({ onOpenSkill }: { onOpenSkill?: () => void }) {
       await api.saveWorkout(payload)
     }
     const [updated, updatedPRs] = await Promise.all([api.getWorkouts(20), api.getPRs()])
-    setWorkouts(updated)
+    applyWorkouts(updated)
     setPRs(updatedPRs)
     const savedId = live.editingId
     const saved = savedId ? updated.find(w => w.id === savedId) : updated[0]
@@ -1000,7 +1011,7 @@ export default function Workout({ onOpenSkill }: { onOpenSkill?: () => void }) {
         exercises: logPreview.exercises.map(ex => ({ name: ex.name, sets: ex.sets })),
       })
       showToast('Session logged')
-      void api.getWorkouts(20).then(setWorkouts).catch(() => {})
+      void api.getWorkouts(20).then(applyWorkouts).catch(() => {})
       void api.getPRs().then(setPRs).catch(() => {})
     } catch {
       showToast('Saved offline - will sync', 'err')
@@ -1081,7 +1092,7 @@ export default function Workout({ onOpenSkill }: { onOpenSkill?: () => void }) {
     try {
       await api.deleteWorkout(w.id)
       const [updated, updatedPRs] = await Promise.all([api.getWorkouts(20), api.getPRs()])
-      setWorkouts(updated)
+      applyWorkouts(updated)
       setPRs(updatedPRs)
       showToast('Workout deleted')
     } catch {
