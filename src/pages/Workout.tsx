@@ -20,6 +20,7 @@ import {
   findFirstIncompleteSet,
 } from '../lib/workout-flow'
 import { genericIncrement } from '../lib/gym-equipment'
+import { diagnoseProgress, type WeighIn, type LiftTrend } from '../lib/progress-diagnosis'
 import { searchExerciseDB, getExercisesByGroup, findExercise } from '../lib/exercises'
 import type { MuscleGroup } from '../lib/exercises'
 
@@ -538,6 +539,7 @@ function lastRirOf(sets?: Array<{ rir?: number }>): number | null {
 
 export default function Workout() {
   const [workouts, setWorkouts] = useState<WorkoutData[]>([])
+  const [weighIns, setWeighIns] = useState<WeighIn[]>([])
   const [prs, setPRs] = useState<Record<string, { weight_kg: number; reps: number; date: string }>>({})
   const [live, setLive] = useState<LiveWorkout | null>(null)
   const [restTimer, setRestTimer] = useState<{ seconds: number } | null>(null)
@@ -576,6 +578,7 @@ export default function Workout() {
   useEffect(() => {
     api.getWorkouts(20).then(setWorkouts)
     api.getPRs().then(setPRs)
+    api.getWeightLog(90).then(r => setWeighIns(r.entries ?? [])).catch(() => setWeighIns([]))
     // Fetch nutrition signal for the predicted-weight rule. Failure is silent —
     // we just default to "not properly eating" and weight bumps are suppressed,
     // which is the safer fallback than over-predicting on missing data.
@@ -1675,6 +1678,34 @@ export default function Workout() {
           onClick={() => { setShowImport(true); setImportPreview(null) }}
           style={{ width: '100%', background: 'none', border: '1.5px dashed var(--gray4)', borderRadius: 14, padding: '13px', color: 'var(--label2)', fontSize: 15, fontWeight: 600, cursor: 'pointer', marginBottom: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
         >📋 Paste a routine</button>
+
+        {(() => {
+          // Top working weight per exercise per session, newest first - the
+          // signal for "has this lift stopped moving?".
+          const byLift: Record<string, number[]> = {}
+          const newest = [...workouts].sort((a, b) => b.start_time.localeCompare(a.start_time))
+          for (const w of newest) {
+            for (const ex of w.exercises) {
+              const top = Math.max(0, ...ex.sets.map(s => s.weight_kg ?? 0))
+              if (top <= 0) continue
+              if (!byLift[ex.name]) byLift[ex.name] = []
+              byLift[ex.name].push(top)
+            }
+          }
+          const trends: LiftTrend[] = Object.keys(byLift).map(name => ({ name, topWeights: byLift[name] }))
+          const d = diagnoseProgress(weighIns, trends)
+          if (d.kind === 'need-data' && workouts.length === 0) return null
+          const tone = (d.kind === 'eat-more' || d.kind === 'gaining-fast') ? 'var(--orange)' : 'var(--label)'
+          return (
+            <>
+              <div className="section-label">Progress</div>
+              <div className="card" style={{ padding: '14px 16px', marginBottom: 16 }}>
+                <div style={{ fontSize: 15, fontWeight: 700, color: tone, marginBottom: 5 }}>{d.headline}</div>
+                <div style={{ fontSize: 13, color: 'var(--label2)', lineHeight: 1.5 }}>{d.detail}</div>
+              </div>
+            </>
+          )
+        })()}
 
         {/* Consistency calendar — last 8 weeks at a glance. Each cell is a day,
             filled if a workout was logged. Reads from the loaded workouts list,
