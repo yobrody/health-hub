@@ -1687,8 +1687,7 @@ export default function Workout({ onOpenSkill }: { onOpenSkill?: () => void }) {
               open={openSection === 'progress'}
               onToggle={() => setOpenSection(s => s === 'progress' ? null : 'progress')}
             >
-              <div style={{ fontSize: 15, fontWeight: 600, color: tone, marginBottom: 5 }}>{d.headline}</div>
-              <div style={{ fontSize: 14, color: 'var(--label2)', lineHeight: 1.5, marginBottom: 14 }}>{d.detail}</div>
+              <div style={{ fontSize: 14, color: tone === 'var(--label)' ? 'var(--label2)' : tone, lineHeight: 1.5, marginBottom: 14 }}>{d.detail}</div>
               <ConsistencyCalendar workouts={workouts} />
               {strengthPRs.length > 0 && (
                 <>
