@@ -23,7 +23,7 @@ dist-ssr
 *.sln
 *.sw?
 
-# Local env — never commit secrets
+# Local env â€” never commit secrets
 .env
 .env.local
 .env.*.local
@@ -41,3 +41,8 @@ scripts/.smoke/
 .edgeprofile/
 _*.bat
 scripts/_check.mjs
+# Wrangler build artifacts - generated, never source
+.wrangler/
+
+# Serena agent workspace
+.serena/
