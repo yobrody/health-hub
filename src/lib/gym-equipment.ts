@@ -58,7 +58,27 @@ export interface Equipment {
 
 const LF_STACK_5KG: StackSpec = { min: 5, max: 100, step: 5, addOns: [1.25, 2.5] }
 const LF_STACK_5KG_HEAVY: StackSpec = { min: 5, max: 130, step: 5, addOns: [1.25, 2.5] }
-const LF_CABLE_STACK_25: StackSpec = { min: 2.5, max: 80, step: 2.5 }
+// Cable columns at Paddington are IMPERIAL: 5lb plates on a 2.5lb offset.
+// Measured session 1 (27 Jul 2026): 3.4 / 5.7 / 7.9 / 14.7 / 17.0 kg are
+// exactly 7.5 / 12.5 / 17.5 / 32.5 / 37.5 lb. The previous metric 2.5kg model
+// generated weights that do not physically exist on these machines, which is
+// why every cable seed was unreachable and had to be walked down by hand.
+const LB_TO_KG = 0.45359237
+const CABLE_VALUES_LB: number[] = (() => {
+  const v: number[] = []
+  for (let lb = 2.5; lb <= 102.5; lb += 5) v.push(Math.round(lb * LB_TO_KG * 10) / 10)
+  return v
+})()
+const CABLE_STACK_LB: StackSpec = {
+  min: CABLE_VALUES_LB[0],
+  max: CABLE_VALUES_LB[CABLE_VALUES_LB.length - 1],
+  step: 2.3,
+  values: CABLE_VALUES_LB,
+}
+// Selectorised machines run 5kg steps but each carriage has its own offset —
+// measured, not assumed. Shoulder press is 22/27/32; ab crunch is 31/36/41.
+const SHOULDER_PRESS_STACK: StackSpec = { min: 7, max: 102, step: 5 }
+const AB_CRUNCH_STACK: StackSpec = { min: 6, max: 81, step: 5 }
 // Pin-loaded ab/glute machines often start at 2.5 and step in 2.5 up to 50
 const LF_ISO_STACK_25: StackSpec = { min: 2.5, max: 80, step: 2.5 }
 
@@ -113,7 +133,7 @@ export const SEED_PADDINGTON: Equipment[] = [
     aliases: ['chest press', 'flat machine chest press', 'machine chest press', 'iso chest press'] },
   { id: 'incline-press-machine', name: 'Incline Machine Press', type: 'stack', stack: LF_STACK_5KG, source: 'seed',
     aliases: ['incline machine press', 'incline chest press machine'] },
-  { id: 'shoulder-press-machine', name: 'Shoulder Press (machine)', type: 'stack', stack: LF_STACK_5KG, source: 'seed',
+  { id: 'shoulder-press-machine', name: 'Shoulder Press (machine)', type: 'stack', stack: SHOULDER_PRESS_STACK, source: 'seed',
     aliases: ['shoulder press machine', 'machine shoulder press', 'overhead press machine'] },
   { id: 'pec-deck', name: 'Pec Deck', type: 'stack', stack: LF_ISO_STACK_25, source: 'seed',
     aliases: ['pec deck', 'pec fly', 'chest fly machine'] },
@@ -127,22 +147,22 @@ export const SEED_PADDINGTON: Equipment[] = [
     aliases: ['standing calf raise', 'calf raise machine', 'seated calf raise'] },
   { id: 'glute-trainer', name: 'Glute Trainer', type: 'stack', stack: LF_STACK_5KG, source: 'seed',
     aliases: ['glute trainer', 'glute kickback machine', 'glute press'] },
-  { id: 'ab-crunch-machine', name: 'Abdominal Crunch (machine)', type: 'stack', stack: LF_ISO_STACK_25, source: 'seed',
+  { id: 'ab-crunch-machine', name: 'Abdominal Crunch (machine)', type: 'stack', stack: AB_CRUNCH_STACK, source: 'seed',
     aliases: ['ab crunch', 'abdominal crunch', 'crunch machine'] },
   { id: 'assisted-pullup', name: 'Assisted Pull-Up', type: 'stack', stack: LF_STACK_5KG, source: 'seed',
     aliases: ['assisted pull-up', 'assisted pullup', 'gravitron'],
     notes: 'Counterweight assists the user — heavier number means more help (less BW).' },
 
   // Cables
-  { id: 'cable-tricep', name: 'Cable Triceps Pushdown', type: 'cable', stack: LF_CABLE_STACK_25, source: 'seed',
+  { id: 'cable-tricep', name: 'Cable Triceps Pushdown', type: 'cable', stack: CABLE_STACK_LB, source: 'seed',
     aliases: ['cable tricep pushdown', 'tricep pushdown', 'rope pushdown', 'cable triceps extension'] },
-  { id: 'cable-curl', name: 'Cable Curl', type: 'cable', stack: LF_CABLE_STACK_25, source: 'seed',
+  { id: 'cable-curl', name: 'Cable Curl', type: 'cable', stack: CABLE_STACK_LB, source: 'seed',
     aliases: ['cable curl', 'cable bicep curl'] },
-  { id: 'cable-crunch', name: 'Cable Crunch', type: 'cable', stack: LF_CABLE_STACK_25, source: 'seed',
+  { id: 'cable-crunch', name: 'Cable Crunch', type: 'cable', stack: CABLE_STACK_LB, source: 'seed',
     aliases: ['cable crunch', 'kneeling cable crunch'] },
-  { id: 'cable-glute-kickback', name: 'Cable Glute-Ham Kickback', type: 'cable', stack: LF_CABLE_STACK_25, source: 'seed',
+  { id: 'cable-glute-kickback', name: 'Cable Glute-Ham Kickback', type: 'cable', stack: CABLE_STACK_LB, source: 'seed',
     aliases: ['cable glute kickback', 'cable kickback'] },
-  { id: 'cable-lateral-raise', name: 'Cable Lateral Raise', type: 'cable', stack: LF_CABLE_STACK_25, source: 'seed',
+  { id: 'cable-lateral-raise', name: 'Cable Lateral Raise', type: 'cable', stack: CABLE_STACK_LB, source: 'seed',
     aliases: ['cable lateral raise', 'cable lat raise'] },
 
   // Bodyweight

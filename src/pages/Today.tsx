@@ -673,7 +673,7 @@ export default function Today({ onNavigate }: Props) {
   // "Your usual" — ranked personal food memory for one-tap re-logging.
   const [usuals, setUsuals] = useState<FoodMemoryItem[]>([])
   const [usualLogging, setUsualLogging] = useState<string | null>(null)
-  const [nextWorkout, setNextWorkout] = useState<DayName>('Upper A')
+  const [nextWorkout, setNextWorkout] = useState<DayName>('Push')
   const [weekStats, setWeekStats] = useState<WeekStats | null>(null)
   const [fridgeData, setFridgeData] = useState<FridgeData | null>(null)
   const [agendaCount, setAgendaCount] = useState<{ open: number; total: number } | null>(null)

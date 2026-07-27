@@ -3,7 +3,7 @@ import { api } from '../api/client'
 import type { WorkoutData, ExerciseSet, ParsedRoutine } from '../api/client'
 import { showToast } from '../toast'
 import { GymChatSheet } from '../components/GymChatSheet'
-import { PROGRAM, ROTATION, getNextDay } from '../program'
+import { PROGRAM, ROTATION, getNextDay, rirFor, seedLabel } from '../program'
 import type { DayName, ProgramDay } from '../program'
 import {
   isProperlyEating,
@@ -431,9 +431,9 @@ function DayCard({ day, isNext, onStart, targets }: { day: ProgramDay; isNext: b
           <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)', marginTop: 3 }}>↻ Weights &amp; reps tuned to your eating + recent sessions</div>
         )}
       </div>
-      {day.warmup && (
+      {day.skill.length > 0 && (
         <div style={{ fontSize: 12, color: isNext ? 'rgba(255,255,255,0.7)' : 'var(--label3)', marginBottom: 6, fontStyle: 'italic' }}>
-          Warm-up: {day.warmup}
+          Skill block first · {day.skill.map(s => s.name).join(' · ')}
         </div>
       )}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 3, marginBottom: isNext ? 12 : 0 }}>
@@ -444,8 +444,8 @@ function DayCard({ day, isNext, onStart, targets }: { day: ProgramDay; isNext: b
               {ex.sets}×{ex.repRange} {ex.name}
               {t?.weight_kg != null ? (
                 <span style={{ color: isNext ? 'rgba(255,255,255,0.55)' : 'var(--label3)', fontSize: 12 }}> · {t.weight_kg}kg{t.repsTarget != null ? ` × ${t.repsTarget}` : ''}</span>
-              ) : ex.startingWeight ? (
-                <span style={{ color: isNext ? 'rgba(255,255,255,0.55)' : 'var(--label3)', fontSize: 12 }}> · {ex.startingWeight}</span>
+              ) : seedLabel(ex) ? (
+                <span style={{ color: isNext ? 'rgba(255,255,255,0.55)' : 'var(--label3)', fontSize: 12 }}> · {seedLabel(ex)}</span>
               ) : null}
             </div>
           )
@@ -679,13 +679,13 @@ export default function Workout() {
     if (day) {
       const exercises: LiveExercise[] = day.exercises.map((ex, i) => {
         const pr = prs[ex.name]
-        const t = targetFor(ex.name, ex.repRange, ex.restSeconds, i, day.exercises.length, ex.startingWeight)
+        const t = targetFor(ex.name, ex.repRange, ex.restSeconds, i, day.exercises.length, seedLabel(ex))
         const sets: LiveSet[] = Array.from({ length: ex.sets }, () => ({
           weight_kg: t.weight_kg,
           reps: t.repsTarget,
           done: false,
         }))
-        return { name: ex.name, sets, prevBest: pr, repRange: ex.repRange, rir: ex.rir, restSeconds: ex.restSeconds, notes: ex.notes }
+        return { name: ex.name, sets, prevBest: pr, repRange: ex.repRange, rir: rirFor(ex.lift), restSeconds: ex.restSeconds, notes: ex.notes }
       })
       setLive({ title, startTime: new Date().toISOString(), exercises })
     } else {
@@ -1571,7 +1571,7 @@ export default function Workout() {
           day={PROGRAM[displayDay]}
           isNext={true}
           onStart={() => startWorkout(PROGRAM[displayDay])}
-          targets={PROGRAM[displayDay].exercises.map((ex, i) => targetFor(ex.name, ex.repRange, ex.restSeconds, i, PROGRAM[displayDay].exercises.length, ex.startingWeight))}
+          targets={PROGRAM[displayDay].exercises.map((ex, i) => targetFor(ex.name, ex.repRange, ex.restSeconds, i, PROGRAM[displayDay].exercises.length, seedLabel(ex)))}
         />
 
         {/* Day picker */}

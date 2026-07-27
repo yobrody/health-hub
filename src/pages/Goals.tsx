@@ -3,7 +3,7 @@ import { api } from '../api/client'
 import { showToast } from '../toast'
 import { celebrate } from '../lib/celebrations'
 import type { WeekStats, Goals, GoalsUpdateInput, AdaptiveTDEEData } from '../api/client'
-import { MEAL_PLAN, DEFAULT_SCHEDULE, PROGRAM } from '../program'
+import { MEAL_PLAN, PROGRAM } from '../program'
 import { BUILD_SHA, BUILD_DATE } from '../build-info'
 import {
   analyzeWeightTrend,
@@ -14,7 +14,7 @@ import {
   type WeightEntry,
 } from '../lib/calorie-target'
 // suppress unused import warnings for things referenced elsewhere
-void MEAL_PLAN; void DEFAULT_SCHEDULE; void PROGRAM
+void MEAL_PLAN; void PROGRAM
 
 // Lazy so recharts only loads when the weight chart renders (off initial load).
 const WeightTrendChart = lazy(() => import('../components/WeightTrendChart'))
