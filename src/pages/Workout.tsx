@@ -43,6 +43,13 @@ interface LiveExercise {
   /** Curated same-muscle alternatives from the program, each with its own
    * starting load. Surfaced when the machine is occupied. */
   swaps?: ExerciseSwap[]
+  /** Why the engine chose this weight. Shown on the card - the number is
+   * useless if you cannot see the reasoning behind it. */
+  reason?: string
+  /** Real adjacent notches on this machine, so +/- cannot land on a weight
+   * that does not physically exist. */
+  stackUp?: number
+  stackDown?: number
 }
 interface LiveWorkout {
   title: string
@@ -174,7 +181,7 @@ function RestTimerInline({ seconds, onComplete }: { seconds: number; onComplete:
 function ActiveSetCard({
   accent, exerciseName, setNumber, totalSets,
   weight, reps, isDone,
-  onWeight, onReps, onSubmit, onSwipe, repsInputRef,
+  onWeight, onReps, onSubmit, onSwipe, repsInputRef, reason, stackUp, stackDown,
 }: {
   accent: string
   exerciseName: string
@@ -183,6 +190,9 @@ function ActiveSetCard({
   weight: number | undefined
   reps: number | undefined
   isDone: boolean
+  reason?: string
+  stackUp?: number
+  stackDown?: number
   onWeight: (v: number | undefined) => void
   onReps: (v: number | undefined) => void
   onSubmit: () => void
@@ -204,9 +214,13 @@ function ActiveSetCard({
     }
   }, [isDone, repsInputRef])
 
-  function bumpWeight(delta: number) {
-    const next = Math.max(0, Math.round(((weight ?? 0) + delta) * 4) / 4)
-    onWeight(next)
+  // Step to the next weight that actually exists on this machine. Falls back
+  // to a generic increment only when the catalog has nothing to say.
+  function stepWeight(dir: -1 | 1) {
+    if (dir > 0 && stackUp !== undefined) { onWeight(stackUp); return }
+    if (dir < 0 && stackDown !== undefined) { onWeight(stackDown); return }
+    const inc = (weight ?? 0) >= 40 ? 2.5 : 1.25
+    onWeight(Math.max(0, Math.round(((weight ?? 0) + dir * inc) * 4) / 4))
   }
 
   return (
@@ -259,7 +273,7 @@ function ActiveSetCard({
           >{weight !== undefined ? `${weight}kg` : 'Set weight'} ▾</button>
         ) : (
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'var(--gray6)', border: '1px solid var(--separator)', borderRadius: 22, padding: '4px 6px' }}>
-            <button onClick={() => bumpWeight(-2.5)} style={{ background: 'none', border: 'none', fontSize: 16, fontWeight: 600, cursor: 'pointer', color: 'var(--label)', width: 40, height: 32, borderRadius: 16 }} aria-label="Subtract 2.5kg">−2.5</button>
+            <button onClick={() => stepWeight(-1)} style={{ background: 'none', border: 'none', fontSize: 16, fontWeight: 600, cursor: 'pointer', color: 'var(--label)', width: 40, height: 32, borderRadius: 16 }} aria-label="Lighter">&minus;</button>
             <input
               type="number" inputMode="decimal"
               value={weight ?? ''}
@@ -267,12 +281,17 @@ function ActiveSetCard({
               style={{ width: 70, background: 'var(--card)', border: '1px solid var(--separator)', borderRadius: 14, outline: 'none', fontSize: 18, fontWeight: 700, textAlign: 'center', color: 'var(--label)', height: 32 }}
               placeholder="kg"
             />
-            <button onClick={() => bumpWeight(2.5)} style={{ background: 'none', border: 'none', fontSize: 16, fontWeight: 600, cursor: 'pointer', color: 'var(--label)', width: 40, height: 32, borderRadius: 16 }} aria-label="Add 2.5kg">+2.5</button>
+            <button onClick={() => stepWeight(1)} style={{ background: 'none', border: 'none', fontSize: 16, fontWeight: 600, cursor: 'pointer', color: 'var(--label)', width: 40, height: 32, borderRadius: 16 }} aria-label="Heavier">+</button>
             <button onClick={() => setShowWeightEdit(false)} style={{ background: 'var(--blue)', color: '#fff', border: 'none', borderRadius: 16, padding: '6px 12px', fontSize: 13, fontWeight: 600, marginLeft: 2, cursor: 'pointer', height: 32 }}>Done</button>
           </div>
         )}
       </div>
 
+      {reason && !isDone && (
+        <div style={{ fontSize: 13, color: 'var(--label2)', textAlign: 'center', lineHeight: 1.45, margin: '-4px 0 16px', padding: '0 6px' }}>
+          {reason}
+        </div>
+      )}
       {/* The one input the user actually fills in. Big numerals, on-card. */}
       <div style={{ background: 'var(--gray6)', borderRadius: 16, padding: '16px 14px 18px', marginBottom: 14 }}>
         <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--label2)', textAlign: 'center', letterSpacing: 1.5, marginBottom: 2 }}>REPS</div>
@@ -709,7 +728,7 @@ export default function Workout() {
           reps: t.repsTarget,
           done: false,
         }))
-        return { name: ex.name, sets, prevBest: pr, repRange: ex.repRange, rir: rirFor(ex.lift), restSeconds: ex.restSeconds, notes: ex.notes, swaps: ex.swaps }
+        return { name: ex.name, sets, prevBest: pr, repRange: ex.repRange, rir: rirFor(ex.lift), restSeconds: ex.restSeconds, notes: ex.notes, swaps: ex.swaps, reason: t.notes[0], stackUp: t.weightUp, stackDown: t.weightDown }
       })
       setLive({ title, startTime: new Date().toISOString(), exercises })
     } else {
@@ -1152,6 +1171,9 @@ export default function Workout() {
                   weight={focusSet.weight_kg}
                   reps={focusSet.reps}
                   isDone={isThisSetDone}
+                  reason={focusEx.reason}
+                  stackUp={focusEx.stackUp}
+                  stackDown={focusEx.stackDown}
                   onWeight={(v) => updateSet(focusExIdx, focusSetIdx, 'weight_kg', v)}
                   onReps={(v) => updateSet(focusExIdx, focusSetIdx, 'reps', v)}
                   onSubmit={submitCurrentSet}
