@@ -33,6 +33,10 @@ export type PredictInput = {
   lastSessionRIR?: number | null
   /** Days since this exercise was last trained. Drives the layoff rule. */
   daysSinceLast?: number | null
+  /** Seed is a carried-over guess, not measured on this machine. Permits an
+   * aggressive jump so the weight finds its real level in a session or two
+   * instead of crawling up one notch at a time. */
+  recalibrating?: boolean
   /** Next selectable weight above baseline, from the equipment catalog. This
    * is what makes the 10% rule possible: at the bottom of an imperial cable
    * stack the next notch can be +68%, which is a wall, not a progression. */
@@ -41,7 +45,7 @@ export type PredictInput = {
 
 export type PredictRationale =
   | 'no-history' | 'baseline-pr' | 'baseline-last'
-  | 'bump-progressive-overload' | 'hold-build-reps' | 'hold-rir-slack'
+  | 'bump-progressive-overload' | 'bump-recalibrating' | 'hold-build-reps' | 'hold-rir-slack'
   | 'hold-jump-too-big' | 'deload-stalled' | 'deload-layoff'
 
 export type PredictResult = {
@@ -128,6 +132,14 @@ export function predictNextWeight(input: PredictInput): PredictResult {
         return {
           weight_kg: baseline, reps: range.max, rationale: 'hold-rir-slack',
           note: 'Hit the top with ' + input.lastSessionRIR + ' left - same weight, push harder',
+        }
+      }
+      // Seed was a guess - stop crawling, go find the real weight.
+      if (input.recalibrating) {
+        return {
+          weight_kg: roundKg(baseline * 1.15), reps: range.max,
+          rationale: 'bump-recalibrating',
+          note: 'Seed was an estimate - jumping ~15% to find your real weight',
         }
       }
       const target = input.nextStackUp ?? roundKg(baseline + genericStep(baseline))

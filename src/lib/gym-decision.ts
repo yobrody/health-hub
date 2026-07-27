@@ -40,6 +40,8 @@ export interface DecisionInput {
   lastSessionRIR?: number | null
   /** Days since this exercise was last trained - drives the layoff rule. */
   daysSinceLast?: number | null
+  /** Seed is an unverified guess - allows an aggressive recalibration jump. */
+  recalibrating?: boolean
   sleepHours?: number | null
   session: SessionContext
   isFirstSet?: boolean
@@ -124,6 +126,7 @@ export function decideNextSet(input: DecisionInput): DecisionResult {
     repRange: input.repRange,
     lastSessionRIR: input.lastSessionRIR,
     daysSinceLast: input.daysSinceLast,
+    recalibrating: input.recalibrating,
     nextStackUp,
   })
 

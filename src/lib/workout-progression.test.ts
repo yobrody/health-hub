@@ -144,6 +144,36 @@ describe('predictNextWeight: stalls and layoffs', () => {
   })
 })
 
+describe('predictNextWeight: recalibrating seeds', () => {
+  // Leg press is seeded 60kg deliberately low. Normal rules would crawl it
+  // up 2.5kg a session; recalibration finds the real weight in one or two.
+  it('jumps ~15% instead of one notch', () => {
+    const r = predictNextWeight({
+      prevBest: { weight_kg: 60, reps: 12 },
+      prevSets: [{ weight_kg: 60, reps: 12 }, { weight_kg: 60, reps: 12 }],
+      repRange: '8-12', nextStackUp: 62.5, recalibrating: true,
+    })
+    expect(r.rationale).toBe('bump-recalibrating')
+    expect(r.weight_kg).toBe(69)
+  })
+  it('does NOT override the 2+ RIR hold', () => {
+    const r = predictNextWeight({
+      prevBest: { weight_kg: 60, reps: 12 },
+      prevSets: [{ weight_kg: 60, reps: 12 }],
+      repRange: '8-12', recalibrating: true, lastSessionRIR: 3,
+    })
+    expect(r.rationale).toBe('hold-rir-slack')
+  })
+  it('does NOT fire when reps are inside the range', () => {
+    const r = predictNextWeight({
+      prevBest: { weight_kg: 60, reps: 10 },
+      prevSets: [{ weight_kg: 60, reps: 10 }],
+      repRange: '8-12', recalibrating: true,
+    })
+    expect(r.rationale).not.toBe('bump-recalibrating')
+  })
+})
+
 describe('isProperlyEating', () => {
   const goals = { calories: 2800, protein: 140 }
   it('false with no logged days', () => { expect(isProperlyEating([], goals)).toBe(false) })

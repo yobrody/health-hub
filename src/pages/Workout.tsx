@@ -661,7 +661,7 @@ export default function Workout() {
   // weight + reps from eating (properlyEating) and training history (PRs + last
   // sets), snapping to real gym-stack increments. Used for BOTH the Next-Up
   // card and seeding a live workout, so the preview matches what you'll lift.
-  function targetFor(exerciseName: string, repRange: string | null | undefined, restSeconds: number | undefined, positionInSession: number, totalExercises: number, startingWeight?: string): DecisionResult {
+  function targetFor(exerciseName: string, repRange: string | null | undefined, restSeconds: number | undefined, positionInSession: number, totalExercises: number, startingWeight?: string, recalibrating?: boolean): DecisionResult {
     const pr = prs[exerciseName]
     const hist = historyByExercise[exerciseName] ?? []
     const prevSets = hist[0]?.sets
@@ -689,6 +689,7 @@ export default function Workout() {
       priorSets,
       lastSessionRIR,
       daysSinceLast,
+      recalibrating,
       session: { positionInSession, totalExercises, sessionVolumeSoFar: 0 },
       isFirstSet: true,
     })
@@ -702,7 +703,7 @@ export default function Workout() {
     if (day) {
       const exercises: LiveExercise[] = day.exercises.map((ex, i) => {
         const pr = prs[ex.name]
-        const t = targetFor(ex.name, ex.repRange, ex.restSeconds, i, day.exercises.length, seedLabel(ex))
+        const t = targetFor(ex.name, ex.repRange, ex.restSeconds, i, day.exercises.length, seedLabel(ex), ex.recalibrating)
         const sets: LiveSet[] = Array.from({ length: ex.sets }, () => ({
           weight_kg: t.weight_kg,
           reps: t.repsTarget,
@@ -1618,7 +1619,7 @@ export default function Workout() {
           day={PROGRAM[displayDay]}
           isNext={true}
           onStart={() => startWorkout(PROGRAM[displayDay])}
-          targets={PROGRAM[displayDay].exercises.map((ex, i) => targetFor(ex.name, ex.repRange, ex.restSeconds, i, PROGRAM[displayDay].exercises.length, seedLabel(ex)))}
+          targets={PROGRAM[displayDay].exercises.map((ex, i) => targetFor(ex.name, ex.repRange, ex.restSeconds, i, PROGRAM[displayDay].exercises.length, seedLabel(ex), ex.recalibrating))}
         />
 
         {/* Day picker */}
