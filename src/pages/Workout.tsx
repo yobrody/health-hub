@@ -33,6 +33,11 @@ const TIER_RIR: Record<'easy' | 'good' | 'hard' | 'fail', number> = { easy: 4, g
 const TIER_LABEL: Array<['easy' | 'good' | 'hard' | 'fail', string]> = [
   ['easy', 'Too easy'], ['good', 'Just right'], ['hard', 'Hard'], ['fail', "Couldn't finish"],
 ]
+// Consequence colours: blue = no change, green = on track, amber/red = backing off.
+const TIER_DOT: Record<'easy' | 'good' | 'hard' | 'fail', string> = {
+  easy: 'var(--blue)', good: 'var(--green)', hard: 'var(--orange)', fail: 'var(--red)',
+}
+
 interface LiveExercise {
   name: string
   sets: LiveSet[]
@@ -629,6 +634,27 @@ export default function Workout({ onOpenSkill }: { onOpenSkill?: () => void }) {
   // weight + reps from eating (properlyEating) and training history (PRs + last
   // sets), snapping to real gym-stack increments. Used for BOTH the Next-Up
   // card and seeding a live workout, so the preview matches what you'll lift.
+  // What next session becomes if you answer a given way. The effort question
+  // is trivial to ignore, and ignoring it makes the app worse - so show the
+  // consequence on the button rather than asking blind.
+  function projectNext(exIdx: number, rir: number): number | undefined {
+    const ex = live?.exercises[exIdx]
+    if (!ex) return undefined
+    const prevSets = ex.sets
+      .filter(s => s.done && !s.ramp && (s.reps ?? 0) > 0)
+      .map(s => ({ weight_kg: s.weight_kg, reps: s.reps }))
+    if (prevSets.length === 0) return undefined
+    return decideNextSet({
+      exerciseName: ex.name,
+      prevBest: ex.prevBest,
+      prevSets,
+      repRange: ex.repRange,
+      programRestSeconds: ex.restSeconds,
+      lastSessionRIR: rir,
+      session: { positionInSession: 0, totalExercises: 1, sessionVolumeSoFar: 0 },
+    }).weight_kg
+  }
+
   function targetFor(exerciseName: string, repRange: string | null | undefined, restSeconds: number | undefined, positionInSession: number, totalExercises: number, startingWeight?: string, recalibrating?: boolean): DecisionResult {
     const pr = prs[exerciseName]
     const hist = historyByExercise[exerciseName] ?? []
@@ -1226,7 +1252,7 @@ export default function Workout({ onOpenSkill }: { onOpenSkill?: () => void }) {
                     if (!doneSet) return null
                     return (
                       <div style={{ marginTop: 22, paddingTop: 18, borderTop: '1px solid var(--separator)', textAlign: 'left' }}>
-                        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--label)' }}>How did that set feel?</div>
+                        <div style={{ fontSize: 17, fontWeight: 600, color: 'var(--label)' }}>How did that feel?</div>
                         <div style={{ fontSize: 12, color: 'var(--label2)', marginBottom: 12 }}>{doneEx.name} · Set {fromSetIdx + 1}</div>
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 18, marginBottom: 14 }}>
                           <button onClick={() => adjustDoneReps(fromExIdx, fromSetIdx, -1)} style={{ width: 42, height: 42, borderRadius: 12, border: '1px solid var(--separator)', background: 'var(--card)', color: 'var(--label)', fontSize: 22, cursor: 'pointer' }}>−</button>
@@ -1236,13 +1262,27 @@ export default function Workout({ onOpenSkill }: { onOpenSkill?: () => void }) {
                           </div>
                           <button onClick={() => adjustDoneReps(fromExIdx, fromSetIdx, 1)} style={{ width: 42, height: 42, borderRadius: 12, border: '1px solid var(--separator)', background: 'var(--card)', color: 'var(--label)', fontSize: 22, cursor: 'pointer' }}>+</button>
                         </div>
-                        <div style={{ display: 'flex', gap: 6 }}>
-                          {TIER_LABEL.map(([k, label]) => (
-                            <button key={k} onClick={() => applySetFeedback(fromExIdx, fromSetIdx, k)}
-                              style={{ flex: 1, padding: '10px 2px', borderRadius: 10, border: '1px solid ' + (doneSet.rir === TIER_RIR[k] ? 'var(--blue)' : 'var(--separator)'), background: doneSet.rir === TIER_RIR[k] ? 'var(--blue)' : 'var(--card)', color: doneSet.rir === TIER_RIR[k] ? '#fff' : 'var(--label)', fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>{label}</button>
-                          ))}
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                          {TIER_LABEL.map(([k, label]) => {
+                            const sel = doneSet.rir === TIER_RIR[k]
+                            const proj = projectNext(fromExIdx, TIER_RIR[k])
+                            return (
+                              <button key={k} onClick={() => applySetFeedback(fromExIdx, fromSetIdx, k)}
+                                style={{ height: 58, background: sel ? 'var(--blue)' : 'var(--bg)', border: '1px solid ' + (sel ? 'var(--blue)' : 'var(--separator)'), borderRadius: 16, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 12, padding: '0 14px', textAlign: 'left' }}>
+                                <span style={{ width: 10, height: 10, borderRadius: 5, background: sel ? '#fff' : TIER_DOT[k], flexShrink: 0 }} />
+                                <span style={{ flex: 1, fontSize: 17, fontWeight: 600, color: sel ? '#fff' : 'var(--label)' }}>{label}</span>
+                                {proj !== undefined && (
+                                  <span style={{ fontSize: 14, fontWeight: 600, color: sel ? 'rgba(255,255,255,0.85)' : 'var(--label2)', whiteSpace: 'nowrap' }}>{proj}kg next</span>
+                                )}
+                              </button>
+                            )
+                          })}
                         </div>
-                        <div style={{ fontSize: 10.5, color: 'var(--label3)', marginTop: 8, textAlign: 'center', fontStyle: 'italic' }}>Aim to stop with ~2 good reps left in the tank.</div>
+                        {doneSet.rir === undefined && (
+                          <div style={{ fontSize: 13, color: 'var(--orange)', marginTop: 10, lineHeight: 1.35 }}>
+                            Skip this and the engine assumes you had ~2 left, and holds the weight.
+                          </div>
+                        )}
                       </div>
                     )
                   })()}
