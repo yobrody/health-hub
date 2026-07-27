@@ -953,7 +953,18 @@ export default function Workout({ onOpenSkill }: { onOpenSkill?: () => void }) {
     if (!logText.trim() || logBusy) return
     setLogBusy(true); setLogPreview(null)
     try {
-      const r = await api.parseSession(logText)
+      // Everything the programme knows about, including swap alternatives,
+      // so parsed names snap to what history is keyed by.
+      const known = new Set<string>()
+      for (const d of ROTATION) {
+        for (const ex of PROGRAM[d].exercises) {
+          known.add(ex.name)
+          for (const sw of ex.swaps ?? []) known.add(sw.name)
+        }
+        for (const sk of PROGRAM[d].skill) known.add(sk.name)
+      }
+      for (const n of Object.keys(prs)) known.add(n)
+      const r = await api.parseSession(logText, [...known])
       if (r.ok && r.exercises.length) setLogPreview(r)
       else showToast(r.error || 'No completed sets in that description', 'err')
     } catch { showToast('Could not read that session', 'err') }

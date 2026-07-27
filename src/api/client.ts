@@ -293,8 +293,8 @@ export const api = {
     request<ParsedRoutine>('/ai/parse-routine', { method: 'POST', body: JSON.stringify({ text }) }),
 
   /** Freeform description of a FINISHED session -> logged sets. */
-  parseSession: (text: string) =>
-    request<ParsedSession>('/ai/parse-session', { method: 'POST', body: JSON.stringify({ text }) }),
+  parseSession: (text: string, known?: string[]) =>
+    request<ParsedSession>('/ai/parse-session', { method: 'POST', body: JSON.stringify({ text, known }) }),
 
   getMealSuggestions: () => request<{ meals: Meal[] }>('/ai/meals', { method: 'POST' }),
   // Detailed recipe + full macros for a single meal idea. Called on tap-to-expand

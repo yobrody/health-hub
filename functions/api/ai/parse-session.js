@@ -34,10 +34,13 @@ export async function onRequestOptions() {
   return new Response(null, { status: 204, headers: CORS })
 }
 
-function num(v, min, max, round = 1) {
+function num(v, min, max, step = 1) {
   if (typeof v !== 'number' || !Number.isFinite(v)) return null
   const clamped = Math.max(min, Math.min(max, v))
-  return Math.round(clamped / round) * round
+  // Multiply-then-divide. Dividing first gives 3.4 -> 34 -> 3.4000000000000004,
+  // which would be written into history and rendered verbatim.
+  const f = 1 / step
+  return Math.round(clamped * f) / f
 }
 
 export async function onRequestPost(context) {
@@ -46,6 +49,12 @@ export async function onRequestPost(context) {
   catch { return json({ error: 'Invalid JSON' }, 400) }
 
   const text = String(body?.text || '').trim().slice(0, 6000)
+  // Exercise names the app already knows. History is keyed by EXACT name, so
+  // a parsed 'Tricep Pushdown' would never match the programme's 'Triceps
+  // Pushdown' and the session would be invisible to progression.
+  const known = Array.isArray(body?.known)
+    ? body.known.map(s => String(s).slice(0, 80)).filter(Boolean).slice(0, 120)
+    : []
   if (!text) return json({ error: 'text required', exercises: [] }, 400)
 
   const sysPrompt = `You convert a spoken or typed description of a workout the user has ALREADY
@@ -76,6 +85,13 @@ to kg (1 lb = 0.4536 kg) and round to one decimal.
 
 Ignore warm-up sets unless the user explicitly says they logged them.
 Ignore cardio, stretching, and any commentary that is not a working set.
+
+NAMING - this matters more than it looks. These are the exercise names the app
+already tracks:
+${known.length ? known.join(' | ') : '(none provided)'}
+If a described exercise is clearly one of those, return that name EXACTLY,
+character for character. Only invent a name when there is genuinely no match.
+History is matched by exact name, so a near-miss silently loses the session.
 
 Give the session a title. If it is clearly a push, pull or legs day, use
 exactly "Push", "Pull" or "Legs". If it is bodyweight skill work (handstands,
