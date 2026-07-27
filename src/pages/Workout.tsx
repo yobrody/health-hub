@@ -4,7 +4,7 @@ import type { WorkoutData, ExerciseSet, ParsedRoutine } from '../api/client'
 import { showToast } from '../toast'
 import { GymChatSheet } from '../components/GymChatSheet'
 import { PROGRAM, ROTATION, getNextDay, rirFor, seedLabel } from '../program'
-import type { DayName, ProgramDay } from '../program'
+import type { DayName, ProgramDay, ExerciseSwap } from '../program'
 import {
   isProperlyEating,
   predictNextWeight,
@@ -40,6 +40,9 @@ interface LiveExercise {
   rir?: string
   restSeconds?: number
   notes?: string
+  /** Curated same-muscle alternatives from the program, each with its own
+   * starting load. Surfaced when the machine is occupied. */
+  swaps?: ExerciseSwap[]
 }
 interface LiveWorkout {
   title: string
@@ -622,14 +625,14 @@ export default function Workout() {
     setSwapResults(local.slice(0, 10))
   }, [swapSearch])
 
-  function swapExercise(exIdx: number, newName: string) {
+  function swapExercise(exIdx: number, newName: string, seedKg?: number) {
     if (!live) return
     setLive(prev => {
       if (!prev) return prev
       const exercises = prev.exercises.map((ex, i) => {
         if (i !== exIdx) return ex
         const pr = prs[newName]
-        const t = targetFor(newName, ex.repRange, ex.restSeconds, i, prev.exercises.length)
+        const t = targetFor(newName, ex.repRange, ex.restSeconds, i, prev.exercises.length, seedKg !== undefined ? seedKg + 'kg' : undefined)
         return {
           ...ex,
           name: newName,
@@ -705,7 +708,7 @@ export default function Workout() {
           reps: t.repsTarget,
           done: false,
         }))
-        return { name: ex.name, sets, prevBest: pr, repRange: ex.repRange, rir: rirFor(ex.lift), restSeconds: ex.restSeconds, notes: ex.notes }
+        return { name: ex.name, sets, prevBest: pr, repRange: ex.repRange, rir: rirFor(ex.lift), restSeconds: ex.restSeconds, notes: ex.notes, swaps: ex.swaps }
       })
       setLive({ title, startTime: new Date().toISOString(), exercises })
     } else {
@@ -1093,7 +1096,14 @@ export default function Workout() {
                   onClick={skipToNextExercise}
                   title="Machine busy? Skip to the next exercise — you'll come back to this one"
                   style={{ background: 'var(--gray6)', border: 'none', borderRadius: 18, padding: '0 12px', height: 36, fontSize: 13, fontWeight: 600, cursor: 'pointer', color: 'var(--label)', display: 'flex', alignItems: 'center', gap: 5 }}
-                >⏭ Skip</button>
+                >&#9197; Skip</button>
+              )}
+              {phase !== 'done' && focusEx?.swaps && focusEx.swaps.length > 0 && (
+                <button
+                  onClick={() => { setSwapExIdx(focusExIdx); setShowSwap(true); setSwapSearch(''); setSwapResults([]) }}
+                  title="Machine taken? Swap to a program alternative"
+                  style={{ background: 'var(--gray6)', border: 'none', borderRadius: 18, padding: '0 12px', height: 36, fontSize: 13, fontWeight: 600, cursor: 'pointer', color: 'var(--label)', display: 'flex', alignItems: 'center', gap: 5 }}
+                >&#8646; Swap</button>
               )}
               <button
                 onClick={() => setShowCoach(true)}
@@ -1478,6 +1488,25 @@ export default function Workout() {
                   </div>
                   <button onClick={() => { setShowSwap(false); setSwapSearch(''); setSwapResults([]) }} className="sheet-close">×</button>
                 </div>
+                {currentEx.swaps && currentEx.swaps.length > 0 && (
+                  <>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--label3)', textTransform: 'uppercase', letterSpacing: '0.06em', margin: '2px 0 6px' }}>From your program</div>
+                    <div className="card" style={{ marginBottom: 12 }}>
+                      {currentEx.swaps.map((sw, i) => (
+                        <button key={i} className="list-row" style={{ width: '100%', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', gap: 8, display: 'flex', alignItems: 'center' }}
+                          onClick={() => swapExercise(swapExIdx, sw.name, sw.startingWeightKg)}>
+                          <div style={{ minWidth: 0 }}>
+                            <div style={{ fontSize: 15, fontWeight: 600 }}>{sw.name}</div>
+                            {sw.note && <div style={{ fontSize: 11, color: 'var(--label3)', marginTop: 2, lineHeight: 1.35 }}>{sw.note}</div>}
+                          </div>
+                          {sw.startingWeightKg !== undefined && (
+                            <span style={{ fontSize: 13, color: 'var(--label2)', marginLeft: 'auto', fontWeight: 700, flexShrink: 0 }}>{sw.startingWeightKg}kg</span>
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
                 <input
                   className="input-field"
                   placeholder="Search exercises…"
