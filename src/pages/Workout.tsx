@@ -597,7 +597,7 @@ export default function Workout({ onOpenSkill }: { onOpenSkill?: () => void }) {
         setProperlyEating(isProperlyEating(totals, goalsResp.parsed))
       })
       .catch(() => { setProperlyEating(false) })
-  }, [])
+  }, [applyWorkouts])
 
   // Last-session sets per exercise — the "did all reps hit?" signal for predictNextWeight.
   // Walks the workouts list newest-first and records the first occurrence of each exercise.
