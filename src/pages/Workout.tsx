@@ -23,6 +23,9 @@ import {
 import { genericIncrement } from '../lib/gym-equipment'
 import { diagnoseProgress, type WeighIn, type LiftTrend } from '../lib/progress-diagnosis'
 import { useWakeLock } from '../lib/useWakeLock'
+import { analyzeWorkout, type WorkoutAnalysis } from '../lib/gym-analysis'
+import { weeklyVolumeByMuscle, type MuscleVolume } from '../lib/gym-muscles'
+import { PostWorkoutSheet } from '../components/PostWorkoutSheet'
 import { Section, SectionRow } from '../components/Section'
 import { searchExerciseDB, getExercisesByGroup, findExercise } from '../lib/exercises'
 import type { MuscleGroup } from '../lib/exercises'
@@ -557,6 +560,9 @@ export default function Workout({ onOpenSkill }: { onOpenSkill?: () => void }) {
   const [logText, setLogText] = useState('')
   const [logBusy, setLogBusy] = useState(false)
   const [logPreview, setLogPreview] = useState<ParsedSession | null>(null)
+  // Scorecard shown once a session is saved: PRs hit, volume vs last time,
+  // muscle coverage. The component existed and was wired to nothing.
+  const [postWorkout, setPostWorkout] = useState<{ analysis: WorkoutAnalysis; weeklyVolume: MuscleVolume[] } | null>(null)
   const repsInputRef = useRef<HTMLInputElement>(null)
   const searchTimeout = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
@@ -875,6 +881,8 @@ export default function Workout({ onOpenSkill }: { onOpenSkill?: () => void }) {
   async function finishWorkout() {
     if (!live) return
     setFinishing(true)
+    // Snapshot the old PRs - analyzeWorkout diffs against them to find new ones.
+    const prevPRs = prs
     const endTime = live.editingEndTime ?? new Date().toISOString()
     const payload = {
       title: live.title,
@@ -897,6 +905,14 @@ export default function Workout({ onOpenSkill }: { onOpenSkill?: () => void }) {
     const [updated, updatedPRs] = await Promise.all([api.getWorkouts(20), api.getPRs()])
     setWorkouts(updated)
     setPRs(updatedPRs)
+    const savedId = live.editingId
+    const saved = savedId ? updated.find(w => w.id === savedId) : updated[0]
+    if (saved) {
+      setPostWorkout({
+        analysis: analyzeWorkout(saved, updated.filter(w => w.id !== saved.id), prevPRs),
+        weeklyVolume: weeklyVolumeByMuscle(updated, 7),
+      })
+    }
     if (!live.editingId) publishCoachFeed(live)
     setLive(null)
     setRestTimer(null)
@@ -1917,6 +1933,14 @@ export default function Workout({ onOpenSkill }: { onOpenSkill?: () => void }) {
       </div>
 
       {showCoach && <GymChatSheet onClose={() => setShowCoach(false)} />}
+
+      {postWorkout && (
+        <PostWorkoutSheet
+          analysis={postWorkout.analysis}
+          weeklyVolume={postWorkout.weeklyVolume}
+          onClose={() => setPostWorkout(null)}
+        />
+      )}
 
       {showLog && (
         <div style={{ position: 'fixed', inset: 0, zIndex: 240, background: 'var(--bg, #09090b)', display: 'flex', flexDirection: 'column', padding: 16, animation: 'hhImportIn 0.3s cubic-bezier(0.32,0.72,0,1)' }}>
