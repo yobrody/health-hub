@@ -100,6 +100,23 @@ describe('gym-analysis: analyzeWorkout', () => {
     expect(a.setsAtTopOfRange).toBeGreaterThanOrEqual(3)
   })
 
+  it('warm-up ramp sets never count toward volume', () => {
+    const withRamp: WorkoutData = {
+      id: 'r1', title: 'Push',
+      start_time: baseTime, end_time: endTime,
+      exercises: [{ name: 'Seated Shoulder Press (machine)', sets: [
+        { weight_kg: 13.5, reps: 8, ramp: true },
+        { weight_kg: 20, reps: 4, ramp: true },
+        { weight_kg: 27, reps: 6 },
+        { weight_kg: 27, reps: 6 },
+      ] }],
+    }
+    const a = analyzeWorkout(withRamp, [], {})
+    // Only the two working sets: 27x6 + 27x6 = 324. The ramp adds 188 if
+    // wrongly counted, which would also inflate every volume comparison.
+    expect(a.totalVolume).toBe(324)
+  })
+
   it('working time estimate is sane', () => {
     const a = analyzeWorkout(pullDay, [], {})
     expect(a.workingTimeMins).toBeGreaterThan(0)

@@ -831,7 +831,7 @@ export interface MealDetail {
   carbs_g: number
   fat_g: number
 }
-export interface ExerciseSet { weight_kg?: number; reps?: number; duration_seconds?: number; rir?: number }
+export interface ExerciseSet { weight_kg?: number; reps?: number; duration_seconds?: number; rir?: number; ramp?: boolean }
 export interface ExerciseData { name: string; sets: ExerciseSet[] }
 export interface WorkoutData { id: string; title: string; start_time: string; end_time: string; exercises: ExerciseData[] }
 export interface WorkoutInput { title: string; start_time: string; end_time: string; exercises: ExerciseData[] }

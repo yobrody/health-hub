@@ -3,7 +3,7 @@ import { api } from '../api/client'
 import type { WorkoutData, ExerciseSet, ParsedRoutine } from '../api/client'
 import { showToast } from '../toast'
 import { GymChatSheet } from '../components/GymChatSheet'
-import { PROGRAM, ROTATION, getNextDay, rirFor, seedLabel } from '../program'
+import { PROGRAM, ROTATION, getNextDay, rirFor, seedLabel, RAMP_UP_SETS } from '../program'
 import type { DayName, ProgramDay, ExerciseSwap } from '../program'
 import {
   isProperlyEating,
@@ -182,7 +182,7 @@ function RestTimerInline({ seconds, onComplete }: { seconds: number; onComplete:
 function ActiveSetCard({
   accent, exerciseName, setNumber, totalSets,
   weight, reps, isDone,
-  onWeight, onReps, onSubmit, onSwipe, repsInputRef, reason, stackUp, stackDown,
+  onWeight, onReps, onSubmit, onSwipe, repsInputRef, reason, stackUp, stackDown, isRamp,
 }: {
   accent: string
   exerciseName: string
@@ -192,6 +192,7 @@ function ActiveSetCard({
   reps: number | undefined
   isDone: boolean
   reason?: string
+  isRamp?: boolean
   stackUp?: number
   stackDown?: number
   onWeight: (v: number | undefined) => void
@@ -261,6 +262,11 @@ function ActiveSetCard({
         </div>
       </div>
 
+      {isRamp && (
+        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1.2, color: 'var(--orange)', marginBottom: 10 }}>
+          WARM-UP &middot; DOESN&rsquo;T COUNT
+        </div>
+      )}
       {/* Weight pill — tap to expand +/- controls. Calm chips, no glass blur. */}
       <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 18 }}>
         {!showWeightEdit ? (
@@ -686,12 +692,12 @@ export default function Workout({ onOpenSkill }: { onOpenSkill?: () => void }) {
   function targetFor(exerciseName: string, repRange: string | null | undefined, restSeconds: number | undefined, positionInSession: number, totalExercises: number, startingWeight?: string, recalibrating?: boolean): DecisionResult {
     const pr = prs[exerciseName]
     const hist = historyByExercise[exerciseName] ?? []
-    const prevSets = hist[0]?.sets
-    const priorSets = hist[1]?.sets
+    const prevSets = hist[0]?.sets.filter(s => !s.ramp)
+    const priorSets = hist[1]?.sets.filter(s => !s.ramp)
     const daysSinceLast = hist[0]
       ? Math.floor((Date.now() - new Date(hist[0].date).getTime()) / 86400000)
       : null
-    const lastSessionRIR = lastRirOf(hist[0]?.sets)
+    const lastSessionRIR = lastRirOf(hist[0]?.sets.filter(s => !s.ramp))
     // No PR and no logged sets yet? Seed the engine with the program's starting
     // weight (at the bottom of the rep range, so it holds rather than bumps) —
     // this lets the number still adapt to EATING before any history exists.
@@ -726,11 +732,20 @@ export default function Workout({ onOpenSkill }: { onOpenSkill?: () => void }) {
       const exercises: LiveExercise[] = day.exercises.map((ex, i) => {
         const pr = prs[ex.name]
         const t = targetFor(ex.name, ex.repRange, ex.restSeconds, i, day.exercises.length, seedLabel(ex), ex.recalibrating)
-        const sets: LiveSet[] = Array.from({ length: ex.sets }, () => ({
+        // 50% x 8 then 75% x 4 on the first compound only. Flagged so they are
+        // excluded from volume, PRs and - critically - progression evaluation.
+        const working = t.weight_kg
+        const rampSets: LiveSet[] = (ex.rampUp && working != null && working > 0)
+          ? RAMP_UP_SETS.map(r => ({
+              weight_kg: Math.round(working * r.pctOfWorking * 4) / 4,
+              reps: r.reps, done: false, ramp: true,
+            }))
+          : []
+        const sets: LiveSet[] = [...rampSets, ...Array.from({ length: ex.sets }, () => ({
           weight_kg: t.weight_kg,
           reps: t.repsTarget,
           done: false,
-        }))
+        }))]
         return { name: ex.name, sets, prevBest: pr, repRange: ex.repRange, rir: rirFor(ex.lift), restSeconds: ex.restSeconds, notes: ex.notes, swaps: ex.swaps, reason: t.notes[0], stackUp: t.weightUp, stackDown: t.weightDown }
       })
       setLive({ title, startTime: new Date().toISOString(), exercises })
@@ -1174,6 +1189,7 @@ export default function Workout({ onOpenSkill }: { onOpenSkill?: () => void }) {
                   weight={focusSet.weight_kg}
                   reps={focusSet.reps}
                   isDone={isThisSetDone}
+                  isRamp={focusSet.ramp}
                   reason={focusEx.reason}
                   stackUp={focusEx.stackUp}
                   stackDown={focusEx.stackDown}

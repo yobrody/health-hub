@@ -77,6 +77,7 @@ function totalVolume(exercises: ExerciseData[]): number {
   for (const ex of exercises) {
     for (const s of ex.sets) {
       if ((s.reps ?? 0) > 0 && (s.weight_kg ?? 0) > 0) {
+        if (s.ramp) continue // warm-up ramp - never counts toward volume
         v += (s.weight_kg ?? 0) * (s.reps ?? 0)
       }
     }
