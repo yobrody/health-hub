@@ -148,12 +148,12 @@ const PIKE_PUSHUPS: SkillExercise = {
   notes: 'Raise the feet to progress. Ladder: 5 → 10 → 12.',
 }
 const PULL_UPS: SkillExercise = {
-  name: 'Pull-ups (skill)', kind: 'reps', sets: 2, target: '2 easy sets', restSeconds: 60,
+  name: 'Pull-ups (skill)', kind: 'reps', sets: 2, target: 'easy reps', restSeconds: 60,
   location: 'gym',
   notes: 'Assisted counts. Leave plenty in the tank — this is skill, not a finisher.',
 }
 const DIPS: SkillExercise = {
-  name: 'Dips (skill)', kind: 'reps', sets: 2, target: '2 easy sets', restSeconds: 60,
+  name: 'Dips (skill)', kind: 'reps', sets: 2, target: 'easy reps', restSeconds: 60,
   location: 'gym',
   notes: 'Assisted counts. Leave plenty in the tank.',
 }

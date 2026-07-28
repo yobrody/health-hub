@@ -144,7 +144,7 @@ export default function SkillBlock({ onBack }: { onBack?: () => void }) {
               Skill block
             </div>
             <div style={{ fontSize: 15, color: 'var(--c-label-dim, #A1A1AA)', marginTop: 2 }}>
-              Home · 12 min{isFirstSession ? ' · first session' : ''}
+              12 min{isFirstSession ? ' · first session' : ''}
             </div>
           </div>
           {onBack && (
