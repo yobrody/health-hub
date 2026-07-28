@@ -69,6 +69,11 @@ CRITICAL CONVENTIONS - people describe sets loosely, so read carefully:
   four separate sets, in that order.
 - "same for set 2" / "same again" repeats the previous set exactly.
 - "x reps each arm" or "per arm" is ONE set - do not double it.
+- NEVER invent a rep count. If a weight is mentioned with no reps stated for
+  it, OMIT that set entirely - do not carry a number over from a neighbouring
+  set. "12kg was too heavy, dropped to 7 for 15" is ONE set: 7kg for 15 reps.
+  The 12kg attempt has no rep count and must not be recorded as one.
+  Likewise "tried 20kg, went down to 15kg for 10" is ONE set: 15kg for 10.
 - Bodyweight movements have no weight: omit weight_kg entirely.
 - Holds measured in seconds are not reps - omit them rather than guess.
 
