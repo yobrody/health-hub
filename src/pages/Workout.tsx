@@ -329,7 +329,7 @@ function ActiveSetCard({
             <button onClick={() => setShowWeightEdit(false)} style={{ background: 'var(--blue)', color: '#fff', border: 'none', borderRadius: 16, padding: '6px 12px', fontSize: 13, fontWeight: 600, marginLeft: 2, cursor: 'pointer', height: 32 }}>Done</button>
           </div>
         )}
-        {!isDone && stackUp !== undefined && weight !== undefined && stackUp !== weight && (
+        {!isDone && !isRamp && stackUp !== undefined && weight !== undefined && stackUp !== weight && (
           <div style={{ fontSize: 12, color: 'var(--label3)' }}>next notch {stackUp}kg</div>
         )}
       </div>
@@ -763,7 +763,7 @@ export default function Workout({ onOpenSkill }: { onOpenSkill?: () => void }) {
           reps: t.repsTarget,
           done: false,
         }))]
-        return { name: ex.name, sets, prevBest: pr, repRange: ex.repRange, rir: rirFor(ex.lift), restSeconds: ex.restSeconds, notes: ex.notes, swaps: ex.swaps, reason: t.notes[0], stackUp: t.weightUp, stackDown: t.weightDown }
+        return { name: ex.name, sets, prevBest: pr, repRange: ex.repRange, rir: rirFor(ex.lift), restSeconds: ex.restSeconds, notes: ex.notes, swaps: ex.swaps, reason: t.reasonNote, stackUp: t.weightUp, stackDown: t.weightDown }
       })
       setLive({ title, startTime: new Date().toISOString(), exercises })
     } else {
@@ -1715,7 +1715,10 @@ export default function Workout({ onOpenSkill }: { onOpenSkill?: () => void }) {
           const day = PROGRAM[displayDay]
           const targets = day.exercises.map((ex, i) =>
             targetFor(ex.name, ex.repRange, ex.restSeconds, i, day.exercises.length, seedLabel(ex), ex.recalibrating))
-          const totalSets = day.exercises.reduce((a, ex) => a + ex.sets, 0)
+          // Include the ramp sets - the live header counts them, so the estimate
+          // must too or the two screens disagree before you have lifted anything.
+          const rampCount = day.exercises.filter(ex => ex.rampUp).length * RAMP_UP_SETS.length
+          const totalSets = day.exercises.reduce((a, ex) => a + ex.sets, 0) + rampCount
           // ~40s of working time per set on top of the prescribed rest.
           const estMin = Math.round(
             day.exercises.reduce((a, ex, i) => a + ex.sets * ((targets[i]?.restSeconds ?? 90) + 40), 0) / 60)

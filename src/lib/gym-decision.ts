@@ -62,6 +62,12 @@ export interface DecisionResult {
   restSeconds: number
   weightSource: 'manual' | 'learned' | 'seed' | 'generic' | 'none'
   rationale: PredictResult['rationale']
+  /** WHY this weight - the progression rationale only. Kept apart from
+otes,
+   * which also carries rest-modifier chatter like 'First exercise - warm-up
+   * rest'. Showing notes[0] as the reason surfaced a rest note whenever a lift
+   * had no history and therefore no progression note. */
+  reasonNote?: string
   notes: string[]
   modifiers: ModifierBreakdown
 }
@@ -165,7 +171,7 @@ export function decideNextSet(input: DecisionInput): DecisionResult {
 
   return {
     weight_kg: snapped, weightDown, weightUp,
-    repsTarget: base.reps, restSeconds,
+    repsTarget: base.reps, restSeconds, reasonNote: base.note,
     weightSource: equipment.source, rationale: base.rationale, notes,
     modifiers: { sleep: modSleep.mult, load: modLoad.mult, rir: modRIR.mult, position: modPos.mult },
   }
