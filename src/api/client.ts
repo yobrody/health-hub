@@ -217,6 +217,12 @@ export const api = {
     request<{ name: string; kcal: number; protein_g: number; carbs_g: number; fat_g: number; grams?: number | null; confidence: string; note: string }>(
       '/food/recalculate', { method: 'POST', body: JSON.stringify({ name, original_name }) }
     ),
+  /** Per-item food history. /today ignores its date param and /timeline
+   * collapses a day to a meal count, so neither can answer what was actually
+   * eaten over a fortnight. */
+  getFoodLog: (days = 14) =>
+    request<{ days: number; count: number; entries: FoodLogRow[] }>(`/food/log?days=${days}`),
+
   getFoodHistory: (days = 7) =>
     request<HistoryDay[] | { value: HistoryDay[] }>(`/food/history?days=${days}`).then(unwrap),
 
@@ -644,6 +650,7 @@ export interface BarcodeLookupResult {
 export interface TodayData { date: string; entries: FoodEntry[]; total_kcal: number; goals: Goals }
 export interface FoodEntry { time: string; meal: string; items: string; kcal: number; protein_g?: number; carbs_g?: number; fat_g?: number; fiber_g?: number; sugar_g?: number; sodium_mg?: number; confidence?: string }
 export interface FoodEntryInput { meal: string; description: string; kcal: number; protein_g?: number; carbs_g?: number; fat_g?: number; fiber_g?: number; sugar_g?: number; sodium_mg?: number; confidence?: string; time?: string; date?: string }
+export interface FoodLogRow { date: string; time?: string; meal?: string; items?: string; kcal?: number; protein_g?: number; carbs_g?: number; fat_g?: number; fiber_g?: number; sugar_g?: number; sodium_mg?: number }
 export interface HistoryDay { date: string; total_kcal: number; logged: boolean }
 export interface Goals { calories: number; protein: number; gym_days: number }
 export interface GoalsResponse { content: string; parsed: Goals }

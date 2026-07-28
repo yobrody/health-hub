@@ -1,5 +1,7 @@
 import { useEffect, useState, useRef, lazy, Suspense } from 'react'
 import { NUTRITION_TARGETS } from '../program'
+import { analyseDiet } from '../lib/nutrition-gaps'
+import type { FoodLogRow } from '../api/client'
 import { api } from '../api/client'
 import { showToast } from '../toast'
 import { useSwipeDown } from '../hooks/useSwipeDown'
@@ -132,6 +134,8 @@ export default function Nutrition() {
   const [fiberG, setFiberG] = useState<number | undefined>()
   const [sugarG, setSugarG] = useState<number | undefined>()
   const [sodiumMg, setSodiumMg] = useState<number | undefined>()
+  // Fortnight of per-item history, for dietary pattern checks.
+  const [foodLog, setFoodLog] = useState<FoodLogRow[]>([])
   const [confidence, setConfidence] = useState<string | undefined>()
   // Smart estimate (POST /food/smart) — natural-language nutrition estimate with
   // clarifying chips. smartBase holds the user's original description so chip
@@ -172,6 +176,7 @@ export default function Nutrition() {
     const defaultMeal = hour < 11 ? 'Breakfast' : hour < 15 ? 'Lunch' : hour < 18 ? 'Snack' : 'Dinner'
     setMeal(defaultMeal)
     api.getToday().then(setData).catch(console.error).finally(() => setLoading(false))
+    api.getFoodLog(14).then(r => setFoodLog(r.entries ?? [])).catch(() => setFoodLog([]))
     api.getFoodHistory(14).then(setHistory).catch(console.error)
     const onFoodLogged = () => {
       api.getToday().then(setData).catch(() => {})
@@ -663,7 +668,25 @@ export default function Nutrition() {
               </Card>
             )}
 
-            {/* ── 3. MEAL TIMELINE CARDS ─────────────────────────────────────── */}
+            {(() => {
+              const flags = analyseDiet(foodLog, 14)
+              if (flags.length === 0) return null
+              return (
+                <Card style={{ marginBottom: 12, padding: '14px 16px' }}>
+                  <CardLabel>Diet pattern &middot; last 14 days</CardLabel>
+                  {flags.map((f, i) => (
+                    <div key={i} style={{ marginTop: i === 0 ? 8 : 12 }}>
+                      <div style={{ fontSize: 14, fontWeight: 600, color: f.kind === 'gap' ? 'var(--c-orange)' : f.kind === 'ok' ? 'var(--c-green)' : 'var(--c-label)' }}>
+                        {f.headline}
+                      </div>
+                      <div style={{ fontSize: 12.5, color: 'var(--c-label-dim)', lineHeight: 1.45, marginTop: 2 }}>{f.detail}</div>
+                    </div>
+                  ))}
+                </Card>
+              )
+            })()}
+
+            {/* 3. MEAL TIMELINE CARDS ─────────────────────────────────────── */}
             <div style={{ marginBottom: 12 }}>
               <CardLabel>Meals</CardLabel>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
