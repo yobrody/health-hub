@@ -1763,7 +1763,7 @@ export default function Workout({ onOpenSkill }: { onOpenSkill?: () => void }) {
               <button
                 onClick={() => setOpenSection(s => s === 'more' ? null : 'more')}
                 style={{ height: 44, background: 'transparent', border: 'none', color: 'var(--label2)', fontSize: 15, fontWeight: 600, cursor: 'pointer' }}
-              >Not today \u2014 pick something else</button>
+              >Not today — pick something else</button>
             </div>
           )
         })()}
@@ -1837,7 +1837,7 @@ export default function Workout({ onOpenSkill }: { onOpenSkill?: () => void }) {
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {onOpenSkill && (
-              <SectionRow name="Skill block" sub="Home \u00b7 handstand ladder" onClick={onOpenSkill} />
+              <SectionRow name="Skill block" sub="Home · handstand ladder" onClick={onOpenSkill} />
             )}
             <SectionRow name="Custom workout" sub="Build it set by set" onClick={() => startWorkout()} />
             <SectionRow name="Log a past session" sub="Describe it, I'll log the sets" onClick={() => { setShowLog(true); setLogPreview(null) }} />
@@ -1866,7 +1866,7 @@ export default function Workout({ onOpenSkill }: { onOpenSkill?: () => void }) {
                       onClick={() => deleteTemplate(tmpl.id)}
                       aria-label="Remove template"
                       style={{ background: 'none', border: 'none', color: 'var(--label3)', cursor: 'pointer', fontSize: 18, padding: '0 6px' }}
-                    >\u00d7</button>
+                    >×</button>
                   </div>
                 ))}
               </div>

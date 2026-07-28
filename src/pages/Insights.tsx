@@ -81,7 +81,7 @@ export default function Insights() {
             background: 'var(--c-card, var(--card))',
             borderRadius: 16, border: '1px solid var(--c-border, var(--separator))',
           }}>
-            <div style={{ fontSize: 40, marginBottom: 12 }}>{"\\uD83D\\uDD2C"}</div>
+            <div style={{ fontSize: 40, marginBottom: 12 }}>{'🔬'}</div>
             <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 6 }}>Not enough data yet</div>
             <div style={{ fontSize: 14 }}>
               Keep logging food, workouts, and sleep. Insights appear after a few days of data.
