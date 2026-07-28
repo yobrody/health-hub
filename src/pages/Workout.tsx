@@ -557,6 +557,10 @@ export default function Workout({ onOpenSkill }: { onOpenSkill?: () => void }) {
   const [swapExIdx, setSwapExIdx] = useState<number | null>(null)
   const [swapSearch, setSwapSearch] = useState('')
   const [swapResults, setSwapResults] = useState<string[]>([])
+  // The full catalogue is ~200 rows across every body part, down to foam
+  // rolling. Fine as a fallback, wrong as a default when someone is waiting
+  // for the machine - so it hides behind a tap until asked for.
+  const [showAllEx, setShowAllEx] = useState(false)
   const [templates, setTemplates] = useState<WorkoutTemplate[]>(loadTemplates)
   const [showSaveTemplate, setShowSaveTemplate] = useState(false)
   const [templateName, setTemplateName] = useState('')
@@ -1209,7 +1213,7 @@ export default function Workout({ onOpenSkill }: { onOpenSkill?: () => void }) {
               )}
               {phase !== 'done' && focusEx?.swaps && focusEx.swaps.length > 0 && (
                 <button
-                  onClick={() => { setSwapExIdx(focusExIdx); setShowSwap(true); setSwapSearch(''); setSwapResults([]) }}
+                  onClick={() => { setSwapExIdx(focusExIdx); setShowSwap(true); setSwapSearch(''); setSwapResults([]); setShowAllEx(false) }}
                   title="Machine taken? Swap to a program alternative"
                   style={{ background: 'var(--gray6)', border: 'none', borderRadius: 18, padding: '0 12px', height: 36, fontSize: 13, fontWeight: 600, cursor: 'pointer', color: 'var(--label)', display: 'flex', alignItems: 'center', gap: 5 }}
                 >&#8646; Swap</button>
@@ -1509,7 +1513,7 @@ export default function Workout({ onOpenSkill }: { onOpenSkill?: () => void }) {
                         </div>
                       </button>
                       <button
-                        onClick={() => { setSwapExIdx(exIdx); setShowSwap(true); setSwapSearch(''); setSwapResults([]) }}
+                        onClick={() => { setSwapExIdx(exIdx); setShowSwap(true); setSwapSearch(''); setSwapResults([]); setShowAllEx(false) }}
                         aria-label="Swap exercise"
                         title="Swap this exercise for another"
                         style={{ background: 'var(--gray6)', border: 'none', borderRadius: 8, width: 32, height: 32, fontSize: 14, cursor: 'pointer', color: 'var(--label)' }}
@@ -1613,7 +1617,7 @@ export default function Workout({ onOpenSkill }: { onOpenSkill?: () => void }) {
                     <div style={{ fontSize: 20, fontWeight: 700 }}>Swap exercise</div>
                     <div style={{ fontSize: 12, color: 'var(--label2)', marginTop: 2 }}>replacing: {currentEx.name}</div>
                   </div>
-                  <button onClick={() => { setShowSwap(false); setSwapSearch(''); setSwapResults([]) }} className="sheet-close">×</button>
+                  <button onClick={() => { setShowSwap(false); setSwapSearch(''); setSwapResults([]); setShowAllEx(false) }} className="sheet-close">×</button>
                 </div>
                 {currentEx.swaps && currentEx.swaps.length > 0 && (
                   <>
@@ -1667,7 +1671,13 @@ export default function Workout({ onOpenSkill }: { onOpenSkill?: () => void }) {
                     ))}
                   </div>
                 )}
-                {!swapSearch && (() => {
+                {!swapSearch && !showAllEx && (
+                  <button onClick={() => setShowAllEx(true)}
+                    style={{ width: '100%', background: 'var(--card)', border: '1px solid var(--separator)', borderRadius: 12, padding: '13px', color: 'var(--label2)', fontSize: 14, fontWeight: 600, cursor: 'pointer', marginTop: 2 }}>
+                    Browse all exercises
+                  </button>
+                )}
+                {!swapSearch && showAllEx && (() => {
                   const groups = getExercisesByGroup()
                   return (Object.keys(groups) as MuscleGroup[]).map(group => (
                     <div key={group} className="card" style={{ marginBottom: 8 }}>
