@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef, lazy, Suspense } from 'react'
+import { NUTRITION_TARGETS } from '../program'
 import { api } from '../api/client'
 import { showToast } from '../toast'
 import { useSwipeDown } from '../hooks/useSwipeDown'
@@ -617,7 +618,7 @@ export default function Nutrition() {
                       ? 'Carbs & fat from logged items'
                       : hasRealMacros
                         ? 'Mostly tracked · some items estimated'
-                        : 'Estimated from calories'}
+                        : 'All three inferred from calories alone — not measured'}
                   </div>
                 )}
               </Card>
@@ -626,11 +627,11 @@ export default function Nutrition() {
             {/* ── 2b. MICRONUTRIENT BARS ───────────────────────────────────── */}
             {total > 0 && (
               <Card style={{ marginBottom: 12, padding: '14px 16px' }}>
-                <CardLabel>Micros</CardLabel>
+                <CardLabel>Fibre, sugar &amp; salt</CardLabel>
                 {[
-                  { label: 'Fiber', current: hasRealMacros ? Math.round(totalFiber) : Math.round(total * 0.012), goal: 30, unit: 'g', color: 'var(--c-green)' },
-                  { label: 'Sugar', current: totalSugar > 0 ? Math.round(totalSugar) : Math.round(total * 0.08 / 4), goal: 30, unit: 'g', color: 'var(--c-orange)', isLimit: true },
-                  { label: 'Sodium', current: totalSodium > 0 ? Math.round(totalSodium) : Math.round(total * 0.9), goal: 2300, unit: 'mg', color: 'var(--c-red)', isLimit: true },
+                  { label: 'Fiber', current: hasRealMacros ? Math.round(totalFiber) : Math.round(total * 0.012), goal: NUTRITION_TARGETS.fibreG, unit: 'g', color: 'var(--c-green)' },
+                  { label: 'Sugar', current: totalSugar > 0 ? Math.round(totalSugar) : Math.round(total * 0.08 / 4), goal: NUTRITION_TARGETS.freeSugarsMaxG, unit: 'g', color: 'var(--c-orange)', isLimit: true },
+                  { label: 'Sodium', current: totalSodium > 0 ? Math.round(totalSodium) : Math.round(total * 0.9), goal: NUTRITION_TARGETS.sodiumMaxMg, unit: 'mg', color: 'var(--c-red)', isLimit: true },
                 ].map(micro => {
                   const pctFill = Math.min(micro.current / micro.goal, 1.3)
                   const isOver = micro.isLimit && micro.current > micro.goal
@@ -657,7 +658,7 @@ export default function Nutrition() {
                 <div style={{ fontSize: 10, color: 'var(--c-label-faint)', marginTop: 4, fontStyle: 'italic' }}>
                   {hasRealMacros
                     ? (totalSugar > 0 && totalSodium > 0 ? 'From logged item data' : 'Fiber tracked · sugar & sodium estimated')
-                    : 'Estimated from calories'}
+                    : 'All three inferred from calories alone — not measured'}
                 </div>
               </Card>
             )}

@@ -113,7 +113,7 @@ the items individually if they want detail.
 Available action types:
 1. log_food — log eaten food to the calorie/protein log
    args: { name: string, count?: number, kcal: number, protein_g: number, carbs_g: number, fat_g: number, fiber_g?: number, sugar_g?: number, sodium_mg?: number, meal?: "Breakfast"|"Lunch"|"Snack"|"Dinner", date?: string, matched_product?: string, brand_or_shop?: string, confidence?: "high"|"medium"|"low", confidence_reason?: string }
-   Notes: estimate kcal, protein, carbs and fat (per UNIT) for typical UK supermarket portions; add fiber_g when notable; include sugar_g (grams of sugar) and sodium_mg (mg of sodium) when the food is notably sweet or salty (processed food, snacks, ready meals, sauces). ALWAYS include carbs_g and fat_g on every log_food — the app stores full macros per item.
+   Notes: estimate kcal, protein, carbs and fat (per UNIT) for typical UK supermarket portions. ALWAYS include carbs_g, fat_g AND fiber_g on every log_food - fibre is not a "notable foods only" field: oats, bananas, rice, bread, potatoes, beans, vegetables, nuts and wholegrains all carry meaningful fibre, and omitting it from ordinary foods under-counts the daily total by roughly half. Use fiber_g: 0 only for genuinely fibre-free foods (meat, fish, eggs, dairy, oils, sugar). Include sugar_g (grams of sugar) and sodium_mg (mg of sodium) whenever the food plausibly contains them - fruit, dairy, sauces, bread and processed food all do, not only sweets and crisps — the app stores full macros per item.
    If the user says "3 eggs", emit ONE entry with count=3 and kcal/protein per egg
    (the app multiplies). If meal isn't stated, pick by time of day — current
    default is "${defaultMeal}".

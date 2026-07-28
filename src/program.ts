@@ -356,6 +356,24 @@ export const BODYWEIGHT_TARGET = {
   averageWindow: 3,
 } as const
 
+
+// Nutrition targets beyond calories and protein, which the backend Goals
+// object already carries. Without these the app shows bare numbers with
+// nothing to judge them against - "18g fibre" means nothing on its own.
+// UK figures: NHS adult guidance, plus a bodyweight-derived fat floor.
+export const NUTRITION_TARGETS = {
+  /** NHS recommends 30g/day for adults. Most people manage about 20g. */
+  fibreG: 30,
+  /** ~0.8g per kg at 63kg. A floor, not a target - going far below this on a
+   * long bulk risks hormonal function, and fat is easy to crowd out when
+   * protein and carbs are both being chased. */
+  fatFloorG: 50,
+  /** NHS: free sugars under 30g/day. */
+  freeSugarsMaxG: 30,
+  /** NHS: 6g salt/day, which is about 2.4g sodium. */
+  sodiumMaxMg: 2400,
+} as const
+
 // Macro targets — 6'0" / ~140lb / lean-bulking.
 // Adjust by ±150–200 kcal/day after a 2-week scale-weight average if drifting.
 export const MEAL_PLAN = [
