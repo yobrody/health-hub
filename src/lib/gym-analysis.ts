@@ -171,7 +171,12 @@ export function analyzeWorkout(
 ): WorkoutAnalysis {
   const start = new Date(workout.start_time).getTime()
   const end = new Date(workout.end_time).getTime()
-  const durationMins = Math.max(0, Math.round((end - start) / 60000))
+  // A malformed timestamp gives NaN, and Math.max(0, NaN) is ALSO NaN - which
+  // reaches the post-workout card and renders as "NaN min" at the exact moment
+  // a session is saved. Not theoretical: the API has been seen storing a time
+  // ("09:00") where a date belongs.
+  const spanMs = (Number.isFinite(start) && Number.isFinite(end)) ? end - start : 0
+  const durationMins = Math.max(0, Math.round(spanMs / 60000))
 
   const { total: totalSets, completed: completedSets } = totalSetCount(workout.exercises)
   const expected = expectedSetsForTitle(workout.title) || totalSets
@@ -226,7 +231,10 @@ export function analyzeWorkout(
   // Working time estimate
   const workingTimeMins = Math.round((completedSets * SECONDS_PER_SET) / 60)
   const restMins = Math.max(0, durationMins - workingTimeMins)
-  const workToRestRatio = restMins > 0 ? workingTimeMins / restMins : Infinity
+  // Infinity in a field typed `number` is a landmine for any consumer that
+  // formats it. Zero rest means all work - represent that as a large finite
+  // number rather than something that prints as "Infinity".
+  const workToRestRatio = restMins > 0 ? workingTimeMins / restMins : (workingTimeMins > 0 ? 99 : 0)
 
   // Headline
   const headlineParts: string[] = []
