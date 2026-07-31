@@ -165,6 +165,8 @@ export function predictNextWeight(input: PredictInput): PredictResult {
           note: 'Seed was an estimate - jumping ~15% to find your real weight',
         }
       }
+      // Already a real notch when the catalog supplied it; already rounded when
+      // we derived it. Rounding again is what corrupted it.
       const target = input.nextStackUp ?? roundKg(baseline + genericStep(baseline))
       const jumpPct = baseline > 0 ? (target - baseline) / baseline : 0
       if (jumpPct > PROGRESSION.maxJumpPct) {
@@ -173,7 +175,7 @@ export function predictNextWeight(input: PredictInput): PredictResult {
         // Enough extra reps at this weight earns the oversized notch.
         if (achieved >= jumpAt) {
           return {
-            weight_kg: roundKg(target), reps: range.min, rationale: 'bump-overrun',
+            weight_kg: target, reps: range.min, rationale: 'bump-overrun',
             note: achieved + ' reps at ' + baseline + 'kg earns the jump - restart at ' + range.min + ' reps',
           }
         }
@@ -185,7 +187,7 @@ export function predictNextWeight(input: PredictInput): PredictResult {
         }
       }
       return {
-        weight_kg: roundKg(target), reps: range.max,
+        weight_kg: target, reps: range.max,
         rationale: tooLight ? 'bump-too-light' : 'bump-progressive-overload',
         note: tooLight
           ? 'Capped by the rep range, not by strength - going up'
