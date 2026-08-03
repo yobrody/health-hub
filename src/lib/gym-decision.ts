@@ -146,6 +146,14 @@ export function decideNextSet(input: DecisionInput): DecisionResult {
   if (base.weight_kg !== undefined) {
     if (equipment.effectiveStack) {
       snapped = snapToStack(equipment.effectiveStack, base.weight_kg)
+      // Coarse-stack deload guard: a 10-15% backoff on a 15lb-step machine
+      // often rounds back UP to the weight you were trying to leave (28.8kg
+      // snaps to 32). A deload must actually go DOWN — floor to the next real
+      // notch below the baseline so "lighter" means lighter.
+      const isDeload = base.rationale === 'deload-layoff' || base.rationale === 'deload-stalled'
+      if (isDeload && baseline !== undefined && snapped >= baseline) {
+        snapped = nextDownWeight(equipment.effectiveStack, baseline)
+      }
       weightDown = nextDownWeight(equipment.effectiveStack, snapped)
       weightUp = nextUpWeight(equipment.effectiveStack, snapped)
     } else {

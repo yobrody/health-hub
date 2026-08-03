@@ -56,8 +56,6 @@ export interface Equipment {
 
 // ── Stack specs ──────────────────────────────────────────────────────────
 
-const LF_STACK_5KG: StackSpec = { min: 5, max: 100, step: 5, addOns: [1.25, 2.5] }
-const LF_STACK_5KG_HEAVY: StackSpec = { min: 5, max: 130, step: 5, addOns: [1.25, 2.5] }
 // Cable columns at Paddington are IMPERIAL: 5lb plates on a 2.5lb offset.
 // Measured session 1 (27 Jul 2026): 3.4 / 5.7 / 7.9 / 14.7 / 17.0 kg are
 // exactly 7.5 / 12.5 / 17.5 / 32.5 / 37.5 lb. The previous metric 2.5kg model
@@ -75,12 +73,32 @@ const CABLE_STACK_LB: StackSpec = {
   step: 2.3,
   values: CABLE_VALUES_LB,
 }
-// Selectorised machines run 5kg steps but each carriage has its own offset —
-// measured, not assumed. Shoulder press is 22/27/32; ab crunch is 31/36/41.
-const SHOULDER_PRESS_STACK: StackSpec = { min: 7, max: 102, step: 5 }
-const AB_CRUNCH_STACK: StackSpec = { min: 6, max: 81, step: 5 }
-// Pin-loaded ab/glute machines often start at 2.5 and step in 2.5 up to 50
-const LF_ISO_STACK_25: StackSpec = { min: 2.5, max: 80, step: 2.5 }
+// The Gym Group Paddington's selectorised stacks are IMPERIAL, shown rounded to
+// whole kg — confirmed from Brody's logged notches (session 2026-08-03):
+//   Seated Cable Row  = 32 / 39 / 45   → 70 / 85 / 100 lb  (15 lb steps)
+//   Rear Delt Fly     = 25 / 32 / 39   → 55 / 70 / 85 lb   (15 lb steps)
+//   Calf Raise        = 66             → 145 lb            (15 lb step family)
+//   Leg Extension     = 52             → 115 lb            (15 lb step family)
+//   Shoulder Press    = 23 / 27 / 32   → 50 / 60 / 70 lb   (10 lb steps)
+//   Abdominal Crunch  = 41             → 90 lb             (10 lb step family)
+//   Leg Curl          = 36             → 80 lb             (10 lb step family)
+// The old metric 5kg / 2.5kg guesses produced weights that don't exist on the
+// machine (32.5kg, 36kg) — which is exactly what Brody hit. Model the real
+// notches so snap / next-up / next-down land on selectable plates.
+function imperialSelectorStack(startLb: number, stepLb: number, endLb: number): StackSpec {
+  const values: number[] = []
+  for (let lb = startLb; lb <= endLb + 1e-6; lb += stepLb) values.push(Math.round(lb * LB_TO_KG))
+  const uniq = Array.from(new Set(values)).sort((a, b) => a - b)
+  return { min: uniq[0], max: uniq[uniq.length - 1], step: stepLb === 15 ? 7 : 5, values: uniq }
+}
+// 15lb family: iso / back / legs — 11,18,25,32,39,45,52,59,66,73,79,86,93,100…
+const STACK_15LB: StackSpec = imperialSelectorStack(25, 15, 250)
+// 10lb family: pressing / crunch / curl — 9,14,18,23,27,32,36,41,45,50,54,59…
+const STACK_10LB: StackSpec = imperialSelectorStack(20, 10, 220)
+// Back-compat aliases (names referenced elsewhere) → the real imperial families.
+const SHOULDER_PRESS_STACK: StackSpec = STACK_10LB
+const AB_CRUNCH_STACK: StackSpec = STACK_10LB
+const LF_ISO_STACK_25: StackSpec = STACK_15LB
 
 const DUMBBELL_VALUES: number[] = (() => {
   const v: number[] = []
@@ -125,31 +143,31 @@ export const SEED_PADDINGTON: Equipment[] = [
     aliases: ['hack squat'] },
 
   // Selectorised stacks — Life Fitness Insignia
-  { id: 'lat-pulldown', name: 'Lat Pulldown', type: 'stack', stack: LF_STACK_5KG_HEAVY, source: 'seed',
+  { id: 'lat-pulldown', name: 'Lat Pulldown', type: 'stack', stack: STACK_15LB, source: 'seed',
     aliases: ['lat pulldown', 'lat pull down', 'pulldown'] },
-  { id: 'seated-row', name: 'Seated Cable Row', type: 'stack', stack: LF_STACK_5KG_HEAVY, source: 'seed',
+  { id: 'seated-row', name: 'Seated Cable Row', type: 'stack', stack: STACK_15LB, source: 'seed',
     aliases: ['seated row', 'seated cable row', 'cable row', 'low row'] },
-  { id: 'chest-press-machine', name: 'Flat Machine Chest Press', type: 'stack', stack: LF_STACK_5KG, source: 'seed',
+  { id: 'chest-press-machine', name: 'Flat Machine Chest Press', type: 'stack', stack: STACK_10LB, source: 'seed',
     aliases: ['chest press', 'flat machine chest press', 'machine chest press', 'iso chest press'] },
-  { id: 'incline-press-machine', name: 'Incline Machine Press', type: 'stack', stack: LF_STACK_5KG, source: 'seed',
+  { id: 'incline-press-machine', name: 'Incline Machine Press', type: 'stack', stack: STACK_10LB, source: 'seed',
     aliases: ['incline machine press', 'incline chest press machine'] },
   { id: 'shoulder-press-machine', name: 'Shoulder Press (machine)', type: 'stack', stack: SHOULDER_PRESS_STACK, source: 'seed',
-    aliases: ['shoulder press machine', 'machine shoulder press', 'overhead press machine'] },
+    aliases: ['shoulder press machine', 'machine shoulder press', 'overhead press machine', 'converging shoulder press', 'converging press'] },
   { id: 'pec-deck', name: 'Pec Deck', type: 'stack', stack: LF_ISO_STACK_25, source: 'seed',
     aliases: ['pec deck', 'pec fly', 'chest fly machine'] },
   { id: 'rear-delt-machine', name: 'Rear Delt Fly (machine)', type: 'stack', stack: LF_ISO_STACK_25, source: 'seed',
     aliases: ['rear delt fly', 'rear delt machine', 'reverse pec deck'] },
-  { id: 'leg-extension', name: 'Leg Extension', type: 'stack', stack: LF_STACK_5KG, source: 'seed',
+  { id: 'leg-extension', name: 'Leg Extension', type: 'stack', stack: STACK_15LB, source: 'seed',
     aliases: ['leg extension', 'quad extension'] },
-  { id: 'leg-curl', name: 'Leg Curl', type: 'stack', stack: LF_STACK_5KG, source: 'seed',
+  { id: 'leg-curl', name: 'Leg Curl', type: 'stack', stack: STACK_10LB, source: 'seed',
     aliases: ['leg curl', 'lying leg curl', 'seated leg curl', 'hamstring curl'] },
-  { id: 'calf-raise-machine', name: 'Standing Calf Raise (machine)', type: 'stack', stack: LF_STACK_5KG_HEAVY, source: 'seed',
+  { id: 'calf-raise-machine', name: 'Standing Calf Raise (machine)', type: 'stack', stack: STACK_15LB, source: 'seed',
     aliases: ['standing calf raise', 'calf raise machine', 'seated calf raise'] },
-  { id: 'glute-trainer', name: 'Glute Trainer', type: 'stack', stack: LF_STACK_5KG, source: 'seed',
+  { id: 'glute-trainer', name: 'Glute Trainer', type: 'stack', stack: STACK_10LB, source: 'seed',
     aliases: ['glute trainer', 'glute kickback machine', 'glute press'] },
   { id: 'ab-crunch-machine', name: 'Abdominal Crunch (machine)', type: 'stack', stack: AB_CRUNCH_STACK, source: 'seed',
     aliases: ['ab crunch', 'abdominal crunch', 'crunch machine'] },
-  { id: 'assisted-pullup', name: 'Assisted Pull-Up', type: 'stack', stack: LF_STACK_5KG, source: 'seed',
+  { id: 'assisted-pullup', name: 'Assisted Pull-Up', type: 'stack', stack: STACK_10LB, source: 'seed',
     aliases: ['assisted pull-up', 'assisted pullup', 'gravitron'],
     notes: 'Counterweight assists the user — heavier number means more help (less BW).' },
 
@@ -306,18 +324,24 @@ export function resolveEquipment(
   const seed = findSeedEquipment(exerciseName)
   const learnedEntry = learned[exerciseName]
 
-  if (seed && learnedEntry?.inferredStep && learnedEntry.inferredStep > 0) {
-    // Refine seed bounds with observed data — keep step from seed (more reliable
-    // than a 1-or-2-sample inference) but widen min/max to accommodate observations.
-    const stack = seed.stack
-    if (stack) {
-      const refined: StackSpec = {
-        ...stack,
-        min: Math.min(stack.min, learnedEntry.inferredMin ?? stack.min),
-        max: Math.max(stack.max, learnedEntry.inferredMax ?? stack.max),
-      }
-      return { equipment: seed, effectiveStack: refined, source: 'seed' }
+  if (seed?.stack && learnedEntry?.observedWeights?.length) {
+    // Self-correcting notches: union the weights Brody has ACTUALLY selected on
+    // this machine into the seed's value list. Even if the seed family is a
+    // touch off for a given machine, every weight he's logged becomes a real
+    // notch, so snap / +/- land on plates that exist. Fixes the "impossible
+    // weight" class (32.5kg, 36kg) permanently as he logs.
+    const seedVals = enumerateStack(seed.stack)
+    const merged = Array.from(new Set([
+      ...seedVals,
+      ...learnedEntry.observedWeights.filter(w => w > 0),
+    ])).sort((a, b) => a - b)
+    const refined: StackSpec = {
+      min: merged[0],
+      max: merged[merged.length - 1],
+      step: seed.stack.step,
+      values: merged,
     }
+    return { equipment: seed, effectiveStack: refined, source: 'seed' }
   }
   if (seed) return { equipment: seed, effectiveStack: seed.stack ?? null, source: 'seed' }
   if (learnedEntry && learnedEntry.observedWeights.length > 0) {

@@ -20,7 +20,7 @@ import {
   findNextIncompleteSet,
   findFirstIncompleteSet,
 } from '../lib/workout-flow'
-import { genericIncrement, learnFromLogs } from '../lib/gym-equipment'
+import { genericIncrement, learnFromLogs, resolveEquipment, nextUpWeight, nextDownWeight } from '../lib/gym-equipment'
 import { diagnoseProgress, type WeighIn, type LiftTrend } from '../lib/progress-diagnosis'
 import { useWakeLock } from '../lib/useWakeLock'
 import { analyzeWorkout, type WorkoutAnalysis } from '../lib/gym-analysis'
@@ -30,7 +30,7 @@ import { Section, SectionRow } from '../components/Section'
 import { searchExerciseDB, getExercisesByGroup, findExercise } from '../lib/exercises'
 import type { MuscleGroup } from '../lib/exercises'
 
-interface LiveSet extends ExerciseSet { done: boolean; rir?: number }
+interface LiveSet extends ExerciseSet { done: boolean; rir?: number; drop?: boolean }
 
 // Effort tiers the user taps during rest → reps-in-reserve. Beginner-friendly:
 // they report how it FELT, not what's "correct".
@@ -528,6 +528,10 @@ export default function Workout({ onOpenSkill }: { onOpenSkill?: () => void }) {
   // triggers the render reading it, not in an effect afterwards.
   const applyWorkouts = useCallback((list: WorkoutData[]) => {
     try { learnFromLogs(list) } catch { /* storage disabled - not fatal */ }
+    // Cache history so a mid-session network drop still leaves the adaptive
+    // engine with weights/RIR to work from, instead of collapsing to the
+    // static program template (issue #8: "went offline, adaptation broke").
+    try { localStorage.setItem('gym_workouts_cache', JSON.stringify(list)) } catch { /* quota */ }
     setWorkouts(list)
   }, [])
   const [restTimer, setRestTimer] = useState<{ seconds: number } | null>(null)
@@ -577,8 +581,17 @@ export default function Workout({ onOpenSkill }: { onOpenSkill?: () => void }) {
   const searchTimeout = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
 
   useEffect(() => {
-    api.getWorkouts(20).then(applyWorkouts)
-    api.getPRs().then(setPRs)
+    // Seed instantly from the last-known cache so the engine always has history
+    // to adapt from — even offline — before the network answers.
+    try {
+      const wc = localStorage.getItem('gym_workouts_cache')
+      if (wc) { const list = JSON.parse(wc) as WorkoutData[]; if (Array.isArray(list) && list.length) applyWorkouts(list) }
+      const pc = localStorage.getItem('gym_prs_cache')
+      if (pc) setPRs(JSON.parse(pc))
+    } catch { /* corrupt cache — ignore */ }
+    api.getWorkouts(20).then(applyWorkouts).catch(() => { /* offline: cache already seeded */ })
+    api.getPRs().then(p => { setPRs(p); try { localStorage.setItem('gym_prs_cache', JSON.stringify(p)) } catch { /* quota */ } })
+      .catch(() => { /* offline: cache already seeded */ })
     api.getWeightLog(90).then(r => setWeighIns(r.entries ?? [])).catch(() => setWeighIns([]))
     // Fetch nutrition signal for the predicted-weight rule. Failure is silent —
     // we just default to "not properly eating" and weight bumps are suppressed,
@@ -889,11 +902,16 @@ export default function Workout({ onOpenSkill }: { onOpenSkill?: () => void }) {
     })
   }
 
-  // Record how a set felt, then SELF-CORRECT the remaining sets of this
-  // exercise: too easy → nudge weight up; couldn't finish → ease it down. The
-  // reps you log also feed next session's progression. No expertise needed —
-  // you just say how it felt.
+  // Record how a set felt, then SELF-CORRECT the remaining sets AND the rest
+  // timer. Every tier now does something (before, 'good' and 'hard' were inert,
+  // which is why picking "hard" felt like it changed nothing). On this gym's
+  // coarse imperial stacks a notch is a big jump, so:
+  //   easy → up a real notch      good → hold        (both keep normal rest)
+  //   hard → hold + more rest      fail → down a real notch (+ drop-set cue)
+  // Adjustments use the machine's real stack, never a phantom 1.25kg step.
   function applySetFeedback(exIdx: number, setIdx: number, tier: 'easy' | 'good' | 'hard' | 'fail') {
+    const exName = live?.exercises[exIdx]?.name ?? ''
+    const eq = resolveEquipment(exName)
     setLive(w => {
       if (!w) return w
       const exercises = w.exercises.map((ex, ei) => {
@@ -901,10 +919,17 @@ export default function Workout({ onOpenSkill }: { onOpenSkill?: () => void }) {
         const sets = ex.sets.map((s, si) => si === setIdx ? { ...s, rir: TIER_RIR[tier] } : s)
         const doneWeight = sets[setIdx].weight_kg
         if (doneWeight != null && doneWeight > 0 && (tier === 'easy' || tier === 'fail')) {
-          const inc = genericIncrement(doneWeight)
-          const adj = tier === 'easy'
-            ? Math.round((doneWeight + inc) * 100) / 100
-            : Math.max(0, Math.round((doneWeight - inc) * 100) / 100)
+          let adj = doneWeight
+          if (eq.effectiveStack) {
+            adj = tier === 'easy'
+              ? nextUpWeight(eq.effectiveStack, doneWeight)
+              : nextDownWeight(eq.effectiveStack, doneWeight)
+          } else {
+            const inc = genericIncrement(doneWeight)
+            adj = tier === 'easy'
+              ? Math.round((doneWeight + inc) * 100) / 100
+              : Math.max(0, Math.round((doneWeight - inc) * 100) / 100)
+          }
           for (let si = setIdx + 1; si < sets.length; si++) {
             if (!sets[si].done) sets[si] = { ...sets[si], weight_kg: adj }
           }
@@ -913,9 +938,50 @@ export default function Workout({ onOpenSkill }: { onOpenSkill?: () => void }) {
       })
       return { ...w, exercises }
     })
+    // Adaptive rest — size the break to how that set actually felt, not a flat
+    // 2 minutes. Near-failure earns more recovery; an easy set, less.
+    if (!live?.editingId) {
+      const baseRest = live?.exercises[exIdx]?.restSeconds ?? 90
+      const factor = tier === 'easy' ? 0.8 : tier === 'good' ? 1.0 : tier === 'hard' ? 1.2 : 1.3
+      setRestTimer({ seconds: Math.max(30, Math.round(baseRest * factor / 5) * 5) })
+    }
     if (navigator.vibrate) navigator.vibrate(12)
-    if (tier === 'easy') showToast('Nudged the next sets up a touch 💪')
-    else if (tier === 'fail') showToast('Eased the next sets down — keep good form')
+    if (tier === 'easy') showToast('Up a notch next set 💪')
+    else if (tier === 'good') showToast('Held the weight — dialled in')
+    else if (tier === 'hard') showToast('Holding the weight, giving you more rest')
+    else showToast('Down a notch next set — or drop & keep going')
+  }
+
+  // Drop set: you couldn't finish at this weight, so log what you DID, then
+  // drop to the next notch down and keep going as part of the same effort.
+  // Research-backed (rest-pause / drop sets ≈ straight sets for growth) — and
+  // it's what you naturally did on rear delt fly. Splits the current set into
+  // "done reps @ this weight" + a fresh lighter set inserted right after.
+  function dropAndContinue(exIdx: number, setIdx: number) {
+    const exName = live?.exercises[exIdx]?.name ?? ''
+    const eq = resolveEquipment(exName)
+    setLive(w => {
+      if (!w) return w
+      const exercises = w.exercises.map((ex, ei) => {
+        if (ei !== exIdx) return ex
+        const cur = ex.sets[setIdx]
+        const curW = cur.weight_kg
+        const lighter = curW != null && curW > 0
+          ? (eq.effectiveStack ? nextDownWeight(eq.effectiveStack, curW) : Math.max(0, Math.round((curW - genericIncrement(curW)) * 100) / 100))
+          : curW
+        const dropped: LiveSet = { weight_kg: lighter, reps: undefined, done: false, drop: true }
+        const sets = [...ex.sets.slice(0, setIdx + 1), dropped, ...ex.sets.slice(setIdx + 1)]
+        return { ...ex, sets }
+      })
+      return { ...w, exercises }
+    })
+    // Jump straight to the lighter continuation set, no rest.
+    setRestTimer(null)
+    setPhase('active')
+    setFocusExIdx(exIdx)
+    setFocusSetIdx(setIdx + 1)
+    if (navigator.vibrate) navigator.vibrate(10)
+    showToast('Dropped a notch — keep going')
   }
 
   function addSet(exIdx: number) {
@@ -954,8 +1020,8 @@ export default function Workout({ onOpenSkill }: { onOpenSkill?: () => void }) {
       exercises: live.exercises.map(ex => ({
         name: ex.name,
         sets: ex.sets.filter(s => s.done).map(s => {
-          const { done, ...rest } = s
-          void done
+          const { done, drop, ...rest } = s
+          void done; void drop  // client-only UI flags — not persisted
           return rest
         }),
       })),
@@ -1463,6 +1529,12 @@ export default function Workout({ onOpenSkill }: { onOpenSkill?: () => void }) {
                           <div style={{ fontSize: 13, color: 'var(--orange)', marginTop: 10, lineHeight: 1.35 }}>
                             Skip this and the engine assumes you had ~2 left, and holds the weight.
                           </div>
+                        )}
+                        {(doneSet.weight_kg ?? 0) > 0 && (
+                          <button
+                            onClick={() => dropAndContinue(fromExIdx, fromSetIdx)}
+                            style={{ width: '100%', marginTop: 12, background: 'var(--bg)', border: '1px dashed var(--separator)', borderRadius: 14, padding: '12px', fontSize: 14, fontWeight: 600, color: 'var(--label)', cursor: 'pointer' }}
+                          >Couldn&rsquo;t finish? Drop a notch &amp; keep going ↓</button>
                         )}
                       </div>
                     )

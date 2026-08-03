@@ -40,17 +40,28 @@ describe('gym-decision: decideNextSet', () => {
 
   const baseInput: DecisionInput = {
     exerciseName: 'Lat Pulldown',
-    prevBest: { weight_kg: 35, reps: 10 },
-    prevSets: [{ weight_kg: 35, reps: 12 }, { weight_kg: 35, reps: 12 }, { weight_kg: 35, reps: 12 }],
+    prevBest: { weight_kg: 32, reps: 10 },
+    prevSets: [{ weight_kg: 32, reps: 12 }, { weight_kg: 32, reps: 12 }, { weight_kg: 32, reps: 12 }],
     repRange: '8-12',
     programRestSeconds: 90,
     session: { positionInSession: 2, totalExercises: 9, sessionVolumeSoFar: 1500, avgSessionVolume: 6000 },
   }
 
-  it('all sets at top -> bumps and snaps to a real stack value', () => {
+  it('top of range on a coarse imperial stack holds and builds reps (jump too big)', () => {
+    // 32->39kg is +22% (the smallest real notch), which exceeds the 10% cap,
+    // so 12 reps isn't enough — the engine holds and tells you to add reps.
     const r = decideNextSet(baseInput)
-    expect(r.rationale).toBe('bump-progressive-overload')
-    expect(r.weight_kg).toBeGreaterThan(35)
+    expect(r.rationale).toBe('hold-jump-too-big')
+    expect(r.weight_kg).toBe(32)
+  })
+
+  it('enough rep-overrun earns the big notch and lands on a real weight', () => {
+    const r = decideNextSet({ ...baseInput,
+      prevBest: { weight_kg: 32, reps: 18 },
+      prevSets: [{ weight_kg: 32, reps: 18 }, { weight_kg: 32, reps: 18 }, { weight_kg: 32, reps: 18 }] })
+    expect(r.rationale).toBe('bump-overrun')
+    expect(r.weight_kg).toBeGreaterThan(32)
+    expect([39, 45]).toContain(r.weight_kg)  // a real stack notch, never 36 / 32.5
   })
 
   it('weightUp and weightDown bracket the chosen weight', () => {
@@ -75,13 +86,14 @@ describe('gym-decision: decideNextSet', () => {
   it('exactly 2 RIR last session holds the weight', () => {
     const r = decideNextSet({ ...baseInput, lastSessionRIR: 2 })
     expect(r.rationale).toBe('hold-rir-slack')
-    expect(r.weight_kg).toBe(35)
+    expect(r.weight_kg).toBe(32)
   })
 
-  it('long layoff comes back lighter', () => {
+  it('long layoff comes back lighter — a real notch down, not rounded back up', () => {
     const r = decideNextSet({ ...baseInput, daysSinceLast: 30 })
     expect(r.rationale).toBe('deload-layoff')
-    expect(r.weight_kg).toBeLessThan(35)
+    expect(r.weight_kg).toBeLessThan(32)
+    expect(r.weight_kg).toBe(25)  // next real notch below 32 on the 15lb stack
   })
 
   it('RIR 0 -> longer rest than RIR 3', () => {

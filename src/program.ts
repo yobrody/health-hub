@@ -227,7 +227,7 @@ export const PROGRAM: Record<DayName, ProgramDay> = {
     skill: [WRIST_PREP, HANDSTAND_HOLD, PIKE_PUSHUPS, DIPS],
     exercises: [
       {
-        name: 'Lat Pulldown', sets: 4, repRange: '6–10', restSeconds: 120,
+        name: 'Lat Pulldown', sets: 3, repRange: '6–10', restSeconds: 120,
         lift: 'compound', startingWeightKg: 38, rampUp: true, recalibrating: true,
         swaps: [{ name: 'Assisted Pull-Up Machine' }, { name: 'Pull-Ups (rig)' }],
       },
@@ -247,12 +247,7 @@ export const PROGRAM: Record<DayName, ProgramDay> = {
       {
         name: 'Rear Delt Fly (machine)', sets: 4, repRange: '15–20', restSeconds: 60,
         lift: 'isolation', startingWeightKg: 32,
-        swaps: [{ name: 'Cable Rear Delt Fly' }, { name: 'Bent-Over Dumbbell Fly', startingWeightKg: 6 }],
-      },
-      {
-        name: 'Cable Face Pull', sets: 3, repRange: '15–20', restSeconds: 60,
-        lift: 'isolation', startingWeightKg: 12,
-        swaps: [{ name: 'Rear Delt Machine' }, { name: 'Band Pull-Apart' }],
+        swaps: [{ name: 'Cable Face Pull', startingWeightKg: 12 }, { name: 'Cable Rear Delt Fly' }, { name: 'Bent-Over Dumbbell Fly', startingWeightKg: 6 }],
       },
       {
         name: 'Cable Curl', sets: 3, repRange: '10–15', restSeconds: 60,
