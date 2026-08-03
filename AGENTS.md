@@ -15,11 +15,11 @@ Personal health tracking PWA. React 19 + TypeScript + Vite 7. Brody's daily-use 
 
 | Component | Path |
 |---|---|
-| Frontend (PWA) | `D:\Development\health-hub\pwa\` |
+| Frontend (PWA) | `D:\Development\health-hub\` (repo root — src/, functions/) |
 | Frontend deploy | Cloudflare Pages, project `health-hub`, live at `https://health-hub-dwz.pages.dev` |
 | Backend API | VPS: `~/health-hub/api/` (FastAPI, port 8080) |
-| API auth | header `X-Health-Key: brody-health-hub-2026` |
-| CF Pages function | `pwa/functions/api/[[path]].js` proxies `/api/*` → VPS |
+| API auth | header `X-Health-Key: <see vault>` — value lives in `C:\Users\brody\.secrets\vault.md` + CF Pages env |
+| CF Pages function | `functions/api/[[path]].js` proxies `/api/*` → VPS; `functions/_middleware.js` gates the whole /api surface |
 | GitHub | github.com/yobrody/health-hub |
 
 ## Conventions
@@ -31,6 +31,6 @@ Personal health tracking PWA. React 19 + TypeScript + Vite 7. Brody's daily-use 
 
 ## Things to not do
 
-- Do not commit `.env`, `vault.md`, or anything containing the `brody-health-hub-2026` key in plaintext (it's fine in CF Pages env, not in repo).
+- Do not commit `.env`, `vault.md`, or the health key in plaintext anywhere (it lives in CF Pages env + the vault, not in the repo).
 - Do not break the offline / PWA install flow — Brody installs this on his phone home screen.
 - Do not run a local dev server without first checking nothing's already on the port.

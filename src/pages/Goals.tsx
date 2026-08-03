@@ -2,8 +2,7 @@ import { useEffect, useState, useRef, lazy, Suspense } from 'react'
 import { api } from '../api/client'
 import { showToast } from '../toast'
 import { celebrate } from '../lib/celebrations'
-import type { WeekStats, Goals, GoalsUpdateInput, AdaptiveTDEEData } from '../api/client'
-import { MEAL_PLAN, PROGRAM } from '../program'
+import type { WeekStats, Goals, GoalsUpdateInput, AdaptiveTDEEData, HistoryDay } from '../api/client'
 import { BUILD_SHA, BUILD_DATE } from '../build-info'
 import {
   analyzeWeightTrend,
@@ -13,9 +12,6 @@ import {
   type Direction,
   type WeightEntry,
 } from '../lib/calorie-target'
-// suppress unused import warnings for things referenced elsewhere
-void MEAL_PLAN; void PROGRAM
-
 // Lazy so recharts only loads when the weight chart renders (off initial load).
 const WeightTrendChart = lazy(() => import('../components/WeightTrendChart'))
 
@@ -111,11 +107,31 @@ export default function GoalsPage() {
   const [showWeightInput, setShowWeightInput] = useState(false)
   const [direction, setDirection] = useState<Direction>(() => loadDirection(localStorage))
   const [adaptiveTDEE, setAdaptiveTDEE] = useState<AdaptiveTDEEData | null>(null)
+  // Real 7-day protein average (the protein MiniBar used to be avgKcal x 15%
+  // — a fabricated number). /food/history now returns total_protein_g.
+  const [avgProtein, setAvgProtein] = useState(0)
+  // Body profile behind the TDEE math (PUT /tdee/profile). Until this editor
+  // existed, both TDEE cards ran on hardcoded 80kg/180cm/25y/male defaults.
+  const [bodyProfile, setBodyProfile] = useState<{ height_cm?: number; age?: number; sex?: string; activity_level?: string }>({})
+  const [savingProfile, setSavingProfile] = useState(false)
 
   useEffect(() => {
     api.getWeekStats().then(s => setStats(s)).catch(() => setStats(null))
     api.getGoals().then(g => setGoals(g.parsed)).catch(() => {})
     api.getAdaptiveTDEE().then(setAdaptiveTDEE).catch(() => {})
+    api.getFoodHistory(7).then((days: HistoryDay[]) => {
+      const logged = days.filter(d => d.logged && (d.total_protein_g ?? 0) > 0)
+      if (logged.length) setAvgProtein(Math.round(logged.reduce((a, d) => a + (d.total_protein_g ?? 0), 0) / logged.length))
+    }).catch(() => {})
+    api.getProfile().then(p => {
+      const rec = p as unknown as Record<string, unknown>
+      setBodyProfile({
+        height_cm: typeof rec.height_cm === 'number' ? rec.height_cm : undefined,
+        age: typeof rec.age === 'number' ? rec.age : undefined,
+        sex: typeof rec.sex === 'string' ? rec.sex : undefined,
+        activity_level: typeof rec.activity_level === 'string' ? rec.activity_level : undefined,
+      })
+    }).catch(() => {})
     // Pull authoritative weight log from VPS, refresh local cache.
     api.getWeightLog(60).then(r => {
       const fresh = r.entries.map(e => ({ date: e.date, kg: e.kg }))
@@ -468,7 +484,7 @@ export default function GoalsPage() {
                 <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--orange)' }}>{goals.protein}g</div>
               )}
             </div>
-            <MiniBar value={Math.round(avgKcal * 0.15 / 4)} goal={goals.protein} color="var(--orange)" />
+            <MiniBar value={avgProtein} goal={goals.protein} color="var(--orange)" />
           </div>
         </div>
 
@@ -479,7 +495,7 @@ export default function GoalsPage() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div>
                 <div style={{ fontSize: 16, fontWeight: 600 }}>Gym Days / Week</div>
-                <div style={{ fontSize: 13, color: 'var(--label2)' }}>Upper/Lower split</div>
+                <div style={{ fontSize: 13, color: 'var(--label2)' }}>Push/Pull/Legs rotation</div>
               </div>
               {editing ? (
                 <input type="number"
@@ -494,6 +510,64 @@ export default function GoalsPage() {
             </div>
             <MiniBar value={workoutCount} goal={goals.gym_days} color="var(--green)" />
           </div>
+        </div>
+
+        {/* Body profile — feeds the TDEE calculators on the Body page */}
+        <div className="section-label">Body profile</div>
+        <div className="card" style={{ marginBottom: 20, padding: 16 }}>
+          <div style={{ fontSize: 13, color: 'var(--label2)', marginBottom: 12 }}>
+            Used by the TDEE + adaptive-TDEE math. Weight comes from your weigh-ins automatically.
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 12 }}>
+            <label style={{ fontSize: 13, color: 'var(--label2)' }}>
+              Height (cm)
+              <input type="number" inputMode="numeric" value={bodyProfile.height_cm ?? ''}
+                onChange={e => setBodyProfile(b => ({ ...b, height_cm: e.target.value ? parseFloat(e.target.value) : undefined }))}
+                style={{ width: '100%', marginTop: 4, background: 'var(--gray6)', border: 'none', borderRadius: 10, padding: '8px 12px', fontSize: 16, fontWeight: 600, outline: 'none' }} />
+            </label>
+            <label style={{ fontSize: 13, color: 'var(--label2)' }}>
+              Age
+              <input type="number" inputMode="numeric" value={bodyProfile.age ?? ''}
+                onChange={e => setBodyProfile(b => ({ ...b, age: e.target.value ? parseInt(e.target.value) : undefined }))}
+                style={{ width: '100%', marginTop: 4, background: 'var(--gray6)', border: 'none', borderRadius: 10, padding: '8px 12px', fontSize: 16, fontWeight: 600, outline: 'none' }} />
+            </label>
+            <label style={{ fontSize: 13, color: 'var(--label2)' }}>
+              Sex
+              <select value={bodyProfile.sex ?? ''}
+                onChange={e => setBodyProfile(b => ({ ...b, sex: e.target.value || undefined }))}
+                style={{ width: '100%', marginTop: 4, background: 'var(--gray6)', border: 'none', borderRadius: 10, padding: '8px 12px', fontSize: 16, fontWeight: 600, outline: 'none' }}>
+                <option value="">—</option>
+                <option value="male">Male</option>
+                <option value="female">Female</option>
+              </select>
+            </label>
+            <label style={{ fontSize: 13, color: 'var(--label2)' }}>
+              Activity
+              <select value={bodyProfile.activity_level ?? ''}
+                onChange={e => setBodyProfile(b => ({ ...b, activity_level: e.target.value || undefined }))}
+                style={{ width: '100%', marginTop: 4, background: 'var(--gray6)', border: 'none', borderRadius: 10, padding: '8px 12px', fontSize: 16, fontWeight: 600, outline: 'none' }}>
+                <option value="">—</option>
+                <option value="sedentary">Sedentary</option>
+                <option value="light">Light</option>
+                <option value="moderate">Moderate</option>
+                <option value="active">Active</option>
+                <option value="very_active">Very active</option>
+              </select>
+            </label>
+          </div>
+          <button
+            onClick={async () => {
+              setSavingProfile(true)
+              try {
+                await api.updateTdeeProfile(bodyProfile)
+                showToast('Body profile saved', 'ok')
+              } catch { showToast('Could not save profile', 'err') }
+              setSavingProfile(false)
+            }}
+            disabled={savingProfile}
+            style={{ width: '100%', padding: '10px 0', borderRadius: 12, border: 'none', background: 'var(--blue)', color: '#fff', fontSize: 15, fontWeight: 600, opacity: savingProfile ? 0.6 : 1 }}>
+            {savingProfile ? 'Saving…' : 'Save body profile'}
+          </button>
         </div>
 
         {/* Build info + force-refresh — escape hatch when an iOS PWA gets

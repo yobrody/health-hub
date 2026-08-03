@@ -28,7 +28,7 @@ const VPS_BASE = 'https://hh-api.pestdispatch.co.uk'
 
 export async function onRequestDelete(context) {
   const url = new URL(context.request.url)
-  const apiKey = context.env.HEALTH_API_KEY || 'brody-health-hub-2026'
+  const apiKey = context.env.HEALTH_API_KEY  // no literal fallback — key lives in CF Pages env only (audit B-9)
   // Forward query string verbatim (the ?contains=true fallback path used by
   // the frontend's exact-then-substring two-step delete). The VPS endpoint
   // already enforces exact-match-by-default with optional substring opt-in.
@@ -54,7 +54,7 @@ export async function onRequestGet(context) {
   if (!name) return json({ error: 'name required' }, 400)
 
   const kv = context.env.FRIDGE_META
-  const apiKey = context.env.HEALTH_API_KEY || 'brody-health-hub-2026'
+  const apiKey = context.env.HEALTH_API_KEY  // no literal fallback — key lives in CF Pages env only (audit B-9)
 
   // Fetch fridge data + slots in parallel from the proxy itself, so KV merge
   // logic in [[path]].js applies for the /fridge call.

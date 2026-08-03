@@ -95,7 +95,7 @@ async function searchOFF(name) {
 }
 
 export async function onRequestPost(context) {
-  const expected = context.env.HEALTH_API_KEY || 'brody-health-hub-2026'
+  const expected = context.env.HEALTH_API_KEY  // no literal fallback — key lives in CF Pages env only (audit B-9)
   const kv = context.env.FRIDGE_META
   // ?force=1 bypasses the negative cache so the previous backfill's stale
   // "miss" entries from when OFF was overloaded get retried. Hits are still

@@ -76,21 +76,6 @@ interface LiveWorkout {
   editingEndTime?: string
 }
 
-function publishCoachFeed(live: LiveWorkout) {
-  const doneSets = live.exercises.flatMap(ex => ex.sets.filter(s => s.done))
-  const hardSets = doneSets.length
-  const proteinTarget = Math.min(60, Math.max(20, Math.round(hardSets * 1.8)))
-  const grocery = ['greek yogurt', 'eggs', 'chicken breast', 'bananas', 'oats']
-  const payload = {
-    date: new Date().toISOString(),
-    title: live.title,
-    hardSets,
-    proteinTarget,
-    grocery,
-  }
-  try { localStorage.setItem('coach_feed', JSON.stringify(payload)) } catch { /* ignore quota errors */ }
-}
-
 // Subtle muscle-group accent. One desaturated colour per group, no rainbow
 // gradients. Used as a thin top-stripe on the active card, not as a full
 // background — the gym view should feel calm, not a workout app from 2014.
@@ -218,7 +203,7 @@ function RestTimerInline({ seconds, onComplete }: { seconds: number; onComplete:
 function ActiveSetCard({
   accent, exerciseName, setNumber, totalSets,
   weight, reps, isDone,
-  onWeight, onReps, onSubmit, onSwipe, repsInputRef, reason, stackUp, stackDown, isRamp,
+  onWeight, onReps, onSubmit, onSwipe, onUncomplete, repsInputRef, reason, stackUp, stackDown, isRamp,
 }: {
   accent: string
   exerciseName: string
@@ -235,6 +220,7 @@ function ActiveSetCard({
   onReps: (v: number | undefined) => void
   onSubmit: () => void
   onSwipe: (dx: number) => void
+  onUncomplete?: () => void
   repsInputRef: React.RefObject<HTMLInputElement | null>
 }) {
   const [showWeightEdit, setShowWeightEdit] = useState(false)
@@ -361,10 +347,18 @@ function ActiveSetCard({
 
       {/* Big submit. Disabled until reps > 0; isDone path shows a green confirm. */}
       {isDone ? (
-        <div style={{
-          background: 'rgba(52,199,89,0.12)', color: 'var(--green)',
-          borderRadius: 16, padding: '14px', textAlign: 'center', fontSize: 15, fontWeight: 700,
-        }}>Logged · rest now</div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <div style={{
+            flex: 1, background: 'rgba(52,199,89,0.12)', color: 'var(--green)',
+            borderRadius: 16, padding: '14px', textAlign: 'center', fontSize: 15, fontWeight: 700,
+          }}>Logged</div>
+          {onUncomplete && (
+            <button
+              onClick={onUncomplete}
+              style={{ background: 'var(--gray6)', border: '1px solid var(--separator)', borderRadius: 16, padding: '0 16px', fontSize: 14, fontWeight: 600, color: 'var(--label)', cursor: 'pointer' }}
+            >Edit set</button>
+          )}
+        </div>
       ) : (
         <button
           onClick={onSubmit}
@@ -541,6 +535,7 @@ export default function Workout({ onOpenSkill }: { onOpenSkill?: () => void }) {
   const [exResults, setExResults] = useState<string[]>([])
   const [showExSearch, setShowExSearch] = useState(false)
   const [finishing, setFinishing] = useState(false)
+  const [cancelArmed, setCancelArmed] = useState(false)
   const [selectedDay, setSelectedDay] = useState<DayName | null>(null)
   // properlyEating gates the progressive-overload bump. Computed from the most
   // recent fully-logged day's calories + protein vs the user's goals.
@@ -593,9 +588,9 @@ export default function Workout({ onOpenSkill }: { onOpenSkill?: () => void }) {
         const totals: DailyTotals[] = (history ?? []).map(d => ({
           date: d.date,
           total_kcal: d.total_kcal,
-          // Note: HistoryDay doesn't currently expose protein totals — when the
-          // backend adds it, isProperlyEating will start gating on protein too.
-          total_protein_g: undefined,
+          // /food/history now returns total_protein_g, so the eating gate
+          // considers protein as well as calories.
+          total_protein_g: d.total_protein_g,
           logged: d.logged,
         }))
         setProperlyEating(isProperlyEating(totals, goalsResp.parsed))
@@ -814,6 +809,55 @@ export default function Workout({ onOpenSkill }: { onOpenSkill?: () => void }) {
     })
   }
 
+  // Un-complete a logged set so its reps become editable again. The edit-mode
+  // hydration comment always promised this ("the user can untoggle to
+  // re-edit a set") but no handler ever existed — reps were uneditable.
+  function uncompleteSet(exIdx: number, setIdx: number) {
+    setLive(w => {
+      if (!w) return w
+      const exercises = [...w.exercises]
+      const sets = [...exercises[exIdx].sets]
+      sets[setIdx] = { ...sets[setIdx], done: false }
+      exercises[exIdx] = { ...exercises[exIdx], sets }
+      return { ...w, exercises }
+    })
+    setRestTimer(null)
+    setPhase('active')
+    setFocusExIdx(exIdx)
+    setFocusSetIdx(setIdx)
+  }
+
+  // Remove the LAST set of an exercise if it isn't logged yet — the undo for
+  // a mis-tapped "+" (which used to be permanent for the session).
+  function removeSet(exIdx: number) {
+    const ex = live?.exercises[exIdx]
+    if (!ex || ex.sets.length <= 1) { showToast('Only one set left', 'info'); return }
+    if (ex.sets.at(-1)?.done) { showToast('Last set is already logged — un-log it first', 'info'); return }
+    setLive(w => {
+      if (!w) return w
+      const exercises = [...w.exercises]
+      exercises[exIdx] = { ...exercises[exIdx], sets: exercises[exIdx].sets.slice(0, -1) }
+      return { ...w, exercises }
+    })
+    if (focusExIdx === exIdx && focusSetIdx >= (ex.sets.length - 1)) setFocusSetIdx(Math.max(0, ex.sets.length - 2))
+  }
+
+  // Remove an exercise outright, as long as nothing is logged on it (logged
+  // sets shouldn't silently vanish — un-log them first if you really mean it).
+  function removeExercise(exIdx: number) {
+    const ex = live?.exercises[exIdx]
+    if (!ex) return
+    if (ex.sets.some(st => st.done)) { showToast('Has logged sets — un-log them first', 'info'); return }
+    if ((live?.exercises.length ?? 0) <= 1) { showToast('Last exercise — finish or cancel instead', 'info'); return }
+    setLive(w => {
+      if (!w) return w
+      const exercises = w.exercises.filter((_, i) => i !== exIdx)
+      return { ...w, exercises }
+    })
+    if (focusExIdx >= exIdx) { setFocusExIdx(Math.max(0, focusExIdx - 1)); setFocusSetIdx(0) }
+    showToast(`Removed ${ex.name}`)
+  }
+
   function completeSet(exIdx: number, setIdx: number) {
     setLive(w => {
       if (!w) return w
@@ -823,8 +867,12 @@ export default function Workout({ onOpenSkill }: { onOpenSkill?: () => void }) {
       exercises[exIdx] = { ...exercises[exIdx], sets }
       return { ...w, exercises }
     })
-    const restSecs = live?.exercises[exIdx]?.restSeconds ?? 90
-    setRestTimer({ seconds: restSecs })
+    // Editing a saved workout skips the rest phase entirely (free navigation,
+    // no timer) — documented behaviour that was never actually implemented.
+    if (!live?.editingId) {
+      const restSecs = live?.exercises[exIdx]?.restSeconds ?? 90
+      setRestTimer({ seconds: restSecs })
+    }
     if (navigator.vibrate) navigator.vibrate([10, 10, 30])
   }
 
@@ -912,14 +960,28 @@ export default function Workout({ onOpenSkill }: { onOpenSkill?: () => void }) {
         }),
       })),
     }
-    if (live.editingId) {
-      await api.updateWorkout(live.editingId, payload)
-    } else {
-      await api.saveWorkout(payload)
+    // Guarded save — this used to have NO error handling: a network blip on
+    // Finish left the button permanently stuck on "…" and lost the session.
+    try {
+      if (live.editingId) {
+        await api.updateWorkout(live.editingId, payload)
+      } else {
+        await api.saveWorkout(payload)
+      }
+    } catch {
+      setFinishing(false)
+      showToast('Could not save — check connection and tap Finish again', 'err')
+      return
     }
-    const [updated, updatedPRs] = await Promise.all([api.getWorkouts(20), api.getPRs()])
-    applyWorkouts(updated)
-    setPRs(updatedPRs)
+    // Post-save refresh is best-effort: the workout IS saved at this point,
+    // so a refresh failure must not resurrect the session or lose the save.
+    let updated: WorkoutData[] = []
+    try {
+      const [u, updatedPRs] = await Promise.all([api.getWorkouts(20), api.getPRs()])
+      updated = u
+      applyWorkouts(u)
+      setPRs(updatedPRs)
+    } catch { /* saved fine; scorecard just won't show */ }
     const savedId = live.editingId
     const saved = savedId ? updated.find(w => w.id === savedId) : updated[0]
     if (saved) {
@@ -928,7 +990,6 @@ export default function Workout({ onOpenSkill }: { onOpenSkill?: () => void }) {
         weeklyVolume: weeklyVolumeByMuscle(updated, 7),
       })
     }
-    if (!live.editingId) publishCoachFeed(live)
     setLive(null)
     setRestTimer(null)
     setFinishing(false)
@@ -1148,7 +1209,7 @@ export default function Workout({ onOpenSkill }: { onOpenSkill?: () => void }) {
       if (next) {
         setFocusExIdx(next.exerciseIdx)
         setFocusSetIdx(next.setIdx)
-        setPhase('rest')
+        setPhase(liveNonNull.editingId ? 'active' : 'rest')
         // Auto-scroll to the active exercise card after advancing
         setTimeout(() => document.getElementById('active-exercise')?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 100)
       } else {
@@ -1231,9 +1292,19 @@ export default function Workout({ onOpenSkill }: { onOpenSkill?: () => void }) {
               >☰</button>
               {isEditing && (
                 <button
-                  onClick={() => { setLive(null); setRestTimer(null); setPhase('active') }}
-                  style={{ background: 'var(--gray6)', border: 'none', borderRadius: 18, padding: '0 14px', height: 36, fontSize: 13, fontWeight: 600, cursor: 'pointer', color: 'var(--label)' }}
-                >Cancel</button>
+                  onClick={() => {
+                    // Two-tap: first tap arms, second within 3s discards. A
+                    // single mis-tap used to throw away every edit instantly.
+                    if (!cancelArmed) {
+                      setCancelArmed(true)
+                      showToast('Tap Cancel again to discard changes', 'info')
+                      window.setTimeout(() => setCancelArmed(false), 3000)
+                      return
+                    }
+                    setLive(null); setRestTimer(null); setPhase('active'); setCancelArmed(false)
+                  }}
+                  style={{ background: cancelArmed ? 'rgba(229,72,77,0.15)' : 'var(--gray6)', border: 'none', borderRadius: 18, padding: '0 14px', height: 36, fontSize: 13, fontWeight: 600, cursor: 'pointer', color: cancelArmed ? 'var(--red, #e5484d)' : 'var(--label)' }}
+                >{cancelArmed ? 'Discard?' : 'Cancel'}</button>
               )}
               <button
                 onClick={finishWorkout}
@@ -1272,6 +1343,7 @@ export default function Workout({ onOpenSkill }: { onOpenSkill?: () => void }) {
                   onReps={(v) => updateSet(focusExIdx, focusSetIdx, 'reps', v)}
                   onSubmit={submitCurrentSet}
                   onSwipe={handleSwipe}
+                  onUncomplete={() => uncompleteSet(focusExIdx, focusSetIdx)}
                   repsInputRef={repsInputRef}
                 />
                 {/* Exercise form description + muscle tags from the DB */}
@@ -1523,6 +1595,18 @@ export default function Workout({ onOpenSkill }: { onOpenSkill?: () => void }) {
                         aria-label="Add set"
                         style={{ background: 'var(--gray6)', border: 'none', borderRadius: 8, width: 32, height: 32, fontSize: 16, cursor: 'pointer', color: 'var(--label)' }}
                       >+</button>
+                      <button
+                        onClick={() => removeSet(exIdx)}
+                        aria-label="Remove last set"
+                        title="Remove the last (unlogged) set"
+                        style={{ background: 'var(--gray6)', border: 'none', borderRadius: 8, width: 32, height: 32, fontSize: 16, cursor: 'pointer', color: 'var(--label)' }}
+                      >&minus;</button>
+                      <button
+                        onClick={() => removeExercise(exIdx)}
+                        aria-label="Remove exercise"
+                        title="Remove this exercise (only when nothing is logged on it)"
+                        style={{ background: 'var(--gray6)', border: 'none', borderRadius: 8, width: 32, height: 32, fontSize: 14, cursor: 'pointer', color: 'var(--red, #e5484d)' }}
+                      >🗑</button>
                       {liveNonNull.exercises.length > 1 && (
                         <>
                           <button
@@ -1815,7 +1899,7 @@ export default function Workout({ onOpenSkill }: { onOpenSkill?: () => void }) {
                       <div key={ex} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
                         <div style={{ fontSize: 16, color: 'var(--label)', minWidth: 0 }}>{ex}</div>
                         <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--label2)', fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>
-                          {pr.weight_kg}kg \u00d7 {pr.reps}
+                          {pr.weight_kg}kg {'\u00d7'} {pr.reps}
                         </div>
                       </div>
                     ))}

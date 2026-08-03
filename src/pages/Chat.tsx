@@ -168,7 +168,10 @@ export default function Chat() {
           log_weight: 'Log weight',
           log_sleep: 'Log sleep',
           add_list_item: 'Add to list',
-          meal_suggestion: 'View suggestions',
+          // meal_suggestion intentionally has no button — executeAction never
+          // supported it, so the button was a permanent no-op. Suggestions
+          // live on the Fridge page.
+          meal_suggestion: '',
           weekly_summary: '',
         }
         const label = labelMap[data.action] || ''

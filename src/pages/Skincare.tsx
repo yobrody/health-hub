@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { api } from '../api/client'
 import { getStreak, type DayLog } from '../lib/streaks'
 import {
   daysRemaining,
@@ -113,6 +114,17 @@ export default function Skincare() {
     setLocalLog(next)
     setLog(next)
     if (navigator.vibrate) navigator.vibrate(8)
+
+    // Sync to the backend routine record the rest of the app reads
+    // (Streaks heatmap, Today's streak strip, the 9pm evening nudge all
+    // query `morning-skincare` / `evening-skincare` on the VPS — until now
+    // nothing ever logged them, so skincare could never light those up).
+    // Logged once per period per day, when the period's checklist completes;
+    // the endpoint itself is idempotent per day.
+    const nextDone = nextRow[period]
+    if (!has && nextDone.length >= steps.length) {
+      api.logRoutine(`${period}-skincare`).catch(() => { /* offline-queued or lost — checklist state is local anyway */ })
+    }
 
     // Mark-as-done decrements the active product for the step. Mark-as-undone
     // is intentionally not symmetric — re-incrementing on un-toggle would

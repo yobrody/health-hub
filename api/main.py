@@ -14,11 +14,19 @@ from dotenv import load_dotenv
 
 load_dotenv(Path(__file__).parent / ".env")
 
-API_KEY = os.getenv("HEALTH_API_KEY", "change-me")
+API_KEY = os.getenv("HEALTH_API_KEY", "")  # empty => all requests refused (503)
 GEMINI_KEY = os.getenv("GEMINI_API_KEY", "")
-WORKSPACE = Path("/home/lucky/.openclaw/workspace/health")
+WORKSPACE = Path(os.getenv("HEALTH_WORKSPACE", "/home/lucky/.openclaw/workspace/health"))
 DATA_DIR = Path(__file__).parent / "data"
 DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+def atomic_write_text(p: Path, text: str):
+    """Write via tmp-then-rename so a crash mid-write can't corrupt the file.
+    Audit B (2026-08): most JSON/markdown stores were plain write_text."""
+    p.parent.mkdir(parents=True, exist_ok=True)
+    tmp = p.with_name(p.name + ".tmp")
+    tmp.write_text(text)
+    tmp.replace(p)
 
 app = FastAPI(title="Health Hub", version="1.0.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
@@ -61,6 +69,10 @@ async def rate_limit_middleware(request, call_next):
 api_key_header = APIKeyHeader(name="X-Health-Key", auto_error=False)
 
 def require_key(key: str = Depends(api_key_header)):
+    # Refuse everything when the key was never configured — previously this
+    # fell back to the literal "change-me", which accepted a guessable key.
+    if not API_KEY:
+        raise HTTPException(status_code=503, detail="HEALTH_API_KEY not configured")
     if key != API_KEY:
         raise HTTPException(status_code=401, detail="Invalid API key")
     return key
@@ -200,7 +212,7 @@ def _read_fridge_meta() -> dict:
         return {}
 
 def _write_fridge_meta(meta: dict):
-    _fridge_meta_path().write_text(json.dumps(meta, indent=2))
+    atomic_write_text(_fridge_meta_path(), json.dumps(meta, indent=2))
 
 def _meta_key(name: str) -> str:
     return name.strip().lower()
@@ -306,7 +318,7 @@ def write_fridge(data: dict):
         else:
             lines.append("_(empty)_")
         lines.append("")
-    p.write_text("\n".join(lines))
+    atomic_write_text(p, "\n".join(lines))
     if new_meta:
         _write_fridge_meta(new_meta)
     elif _fridge_meta_path().exists():
@@ -356,7 +368,7 @@ def add_food(entry: FoodEntry, key=Depends(require_key)):
             pass
     p = food_file(target_date)
     if not p.exists():
-        p.write_text(f"# Food Log — {target_date}\n\n")
+        atomic_write_text(p, f"# Food Log — {target_date}\n\n")
     content = p.read_text()
     protein_str = f", ~{entry.protein_g} g protein" if entry.protein_g else ""
     # Extended macros stored as metadata comment for richer detail views
@@ -379,7 +391,7 @@ def add_food(entry: FoodEntry, key=Depends(require_key)):
     content += block
     total = sum(e["kcal"] for e in parse_entries(content))
     content += "\n---\n**Daily Total: ~" + str(total) + " kcal**\n"
-    p.write_text(content)
+    atomic_write_text(p, content)
     return {"ok": True, "total_kcal": total, "entry": {"time": t, "meal": entry.meal, "description": entry.description, "kcal": entry.kcal, "protein_g": entry.protein_g or 0}}
 
 
@@ -387,6 +399,9 @@ class FoodDelete(BaseModel):
     time: str           # HH:MM
     meal: str           # case-insensitive
     date: Optional[str] = None  # YYYY-MM-DD; defaults to today
+    # Optional item-text disambiguator: when two entries share (time, meal),
+    # the block whose items contain this substring is the one removed.
+    description: Optional[str] = None
 
 @app.post("/food/delete")
 def delete_food(payload: FoodDelete, key=Depends(require_key)):
@@ -417,14 +432,22 @@ def delete_food(payload: FoodDelete, key=Depends(require_key)):
         r"### " + re.escape(payload.time) + r" — " +
         re.escape(payload.meal) + r"\n(?:- .+\n)+(?:\*\*Subtotal[^\n]*\n)?"
     )
-    new_content, n = re.subn(pattern, "", content, count=1, flags=re.IGNORECASE)
-    if n == 0:
+    matches = list(re.finditer(pattern, content, flags=re.IGNORECASE))
+    if not matches:
         raise HTTPException(status_code=404, detail="entry not found")
+    target = matches[0]
+    if payload.description and len(matches) > 1:
+        want = payload.description.lower()
+        for m2 in matches:
+            if want in m2.group(0).lower():
+                target = m2
+                break
+    new_content = content[:target.start()] + content[target.end():]
     # Recompute Daily Total from what's left.
     new_content = re.sub(r"\n---\n\*\*Daily Total.*", "", new_content)
     total = sum(e["kcal"] for e in parse_entries(new_content))
     new_content += "\n---\n**Daily Total: ~" + str(total) + " kcal**\n"
-    fp.write_text(new_content)
+    atomic_write_text(fp, new_content)
     return {"ok": True, "date": target_date, "total_kcal": total}
 
 @app.get("/food/history")
@@ -432,10 +455,33 @@ def food_history(days: int = 7, key=Depends(require_key)):
     result = []
     for i in range(days):
         d = (date.today() - timedelta(days=i)).isoformat()
+        entries = parse_entries(read_food_file(d))
         content = read_food_file(d)
-        total = sum(e["kcal"] for e in parse_entries(content))
-        result.append({"date": d, "total_kcal": total, "logged": bool(content.strip())})
+        result.append({
+            "date": d,
+            "total_kcal": sum(e["kcal"] for e in entries),
+            # Lets the gym engine gate progressive overload on protein, not
+            # just calories (Workout.tsx was hardcoding undefined here).
+            "total_protein_g": sum(e.get("protein_g", 0) for e in entries),
+            "logged": bool(content.strip()),
+        })
     return result
+
+@app.get("/food/log")
+def food_log(days: int = 14, key=Depends(require_key)):
+    """Per-item food log across the last N days, newest day first.
+
+    The frontend's diet-pattern card (Nutrition.tsx -> analyseDiet) has been
+    calling this since it shipped; the endpoint never existed, so the card was
+    silently empty forever. Shape matches client.ts FoodLogRow.
+    """
+    days = max(1, min(days, 60))
+    entries = []
+    for i in range(days):
+        d = (date.today() - timedelta(days=i)).isoformat()
+        for e in parse_entries(read_food_file(d)):
+            entries.append({"date": d, **e})
+    return {"days": days, "count": len(entries), "entries": entries}
 
 # ── FRIDGE ────────────────────────────────────────────────────────────
 SLOT_FILE = DATA_DIR / "slot_memory.json"
@@ -684,19 +730,28 @@ def consume_fridge_item(name: str, input: ConsumeInput, key=Depends(require_key)
     data = read_fridge()
     name_lower = name.lower()
     consumed = None
-    for section in data:
-        for item in data[section]:
-            if name_lower in item["name"].lower():
-                if input.grams is not None and "quantity_g" in item:
-                    item["quantity_g"] = max(0.0, item["quantity_g"] - input.grams)
-                if input.count is not None and "quantity_count" in item:
-                    item["quantity_count"] = max(0, item["quantity_count"] - input.count)
-                consumed = {
-                    "name": item["name"],
-                    "section": section,
-                    "quantity_g": item.get("quantity_g"),
-                    "quantity_count": item.get("quantity_count"),
-                }
+    # Exact case-insensitive match wins; substring is only a fallback so
+    # "milk" can no longer decrement "coconut milk" when a real "milk"
+    # exists (same bug class as the audited B-2 DELETE fix).
+    def _match_passes():
+        yield lambda item: item["name"].lower() == name_lower
+        yield lambda item: name_lower in item["name"].lower()
+    for matches in _match_passes():
+        for section in data:
+            for item in data[section]:
+                if matches(item):
+                    if input.grams is not None and "quantity_g" in item:
+                        item["quantity_g"] = max(0.0, item["quantity_g"] - input.grams)
+                    if input.count is not None and "quantity_count" in item:
+                        item["quantity_count"] = max(0, item["quantity_count"] - input.count)
+                    consumed = {
+                        "name": item["name"],
+                        "section": section,
+                        "quantity_g": item.get("quantity_g"),
+                        "quantity_count": item.get("quantity_count"),
+                    }
+                    break
+            if consumed:
                 break
         if consumed:
             break
@@ -983,7 +1038,7 @@ def load_meal_plans() -> dict:
     return {}
 
 def save_meal_plans(plans: dict):
-    MEAL_PLAN_FILE.write_text(json.dumps(plans, indent=2))
+    atomic_write_text(MEAL_PLAN_FILE, json.dumps(plans, indent=2))
 
 @app.post("/ai/meal-plan")
 async def meal_plan(body: dict = Body(...), key=Depends(require_key)):
@@ -1121,7 +1176,7 @@ async def use_meal_plan(body: dict = Body(...), key=Depends(require_key)):
             lines.append(f"<!-- {' '.join(meta_parts)} -->")
 
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text("\n".join(lines))
+    atomic_write_text(p, "\n".join(lines))
     return {"ok": True, "date": plan_date, "meals_added": len(meals)}
 
 # ── RECIPE CALCULATOR ─────────────────────────────────────────────────
@@ -1166,7 +1221,7 @@ def _read_water(d: str = None) -> dict:
 
 def _write_water(data: dict):
     p = _water_file(data.get("date"))
-    p.write_text(json.dumps(data, indent=2))
+    atomic_write_text(p, json.dumps(data, indent=2))
 
 @app.get("/water")
 def get_water(d: str = None, key=Depends(require_key)):
@@ -1200,7 +1255,7 @@ def load_workouts() -> list:
     return []
 
 def save_workouts(workouts: list):
-    WORKOUTS_FILE.write_text(json.dumps(workouts, indent=2))
+    atomic_write_text(WORKOUTS_FILE, json.dumps(workouts, indent=2))
 
 class ExerciseSet(BaseModel):
     weight_kg: Optional[float] = None
@@ -1304,7 +1359,7 @@ _Last updated: {now}_
 ## Notes
 {update.notes or "(not set)"}
 """
-    p.write_text(content)
+    atomic_write_text(p, content)
     return {"ok": True, "goals": goals}
 
 # ── STATS ─────────────────────────────────────────────────────────────
@@ -1351,13 +1406,17 @@ class UserProfileIn(BaseModel):
 def get_profile(key=Depends(require_key)):
     goals = read_goals()
     name = "Brody"
+    body = {}
     if PROFILE_FILE.exists():
         try:
             data = json.loads(PROFILE_FILE.read_text())
             name = data.get("name", name)
+            # Body profile behind the TDEE math — exposed so the Goals page
+            # can prefill its editor (PUT /tdee/profile writes these).
+            body = {k: data.get(k) for k in ("height_cm", "age", "sex", "activity_level") if k in data}
         except Exception:
             pass
-    return {"name": name, "calories": goals["calories"], "protein": goals["protein"]}
+    return {"name": name, "calories": goals["calories"], "protein": goals["protein"], **body}
 
 @app.post("/users/profile")
 def save_profile(profile: UserProfileIn, key=Depends(require_key)):
@@ -1369,7 +1428,7 @@ def save_profile(profile: UserProfileIn, key=Depends(require_key)):
         except Exception:
             pass
     existing["name"] = profile.name.strip() or "Brody"
-    PROFILE_FILE.write_text(json.dumps(existing))
+    atomic_write_text(PROFILE_FILE, json.dumps(existing))
 
     # If calories/protein provided, also update goals.md
     if profile.calories or profile.protein:
@@ -1380,7 +1439,7 @@ def save_profile(profile: UserProfileIn, key=Depends(require_key)):
             goals["protein"] = profile.protein
         now = datetime.now().strftime("%Y-%m-%d %H:%M")
         p = WORKSPACE / "goals.md"
-        p.write_text(f"""# Health Goals\n_Last updated: {now}_\n\n## Nutrition\n- Daily calories: ~{goals['calories']} kcal\n- Protein: ~{goals['protein']}g/day\n\n## Fitness\n- Gym: {goals['gym_days']}x per week minimum\n""")
+        atomic_write_text(p, f"""# Health Goals\n_Last updated: {now}_\n\n## Nutrition\n- Daily calories: ~{goals['calories']} kcal\n- Protein: ~{goals['protein']}g/day\n\n## Fitness\n- Gym: {goals['gym_days']}x per week minimum\n""")
 
     return {"ok": True, "name": existing["name"]}
 
@@ -1394,7 +1453,7 @@ def load_lists() -> dict:
     return {}
 
 def save_lists(data: dict):
-    LISTS_FILE.write_text(json.dumps(data, indent=2))
+    atomic_write_text(LISTS_FILE, json.dumps(data, indent=2))
 
 class ListItem(BaseModel):
     text: str
@@ -1450,7 +1509,7 @@ def load_routines() -> dict:
     return {}
 
 def save_routines(data: dict):
-    ROUTINES_FILE.write_text(json.dumps(data, indent=2))
+    atomic_write_text(ROUTINES_FILE, json.dumps(data, indent=2))
 
 @app.get("/routines/{name}")
 def get_routine(name: str, key=Depends(require_key)):
@@ -1568,7 +1627,7 @@ def load_agenda() -> list:
     return []
 
 def save_agenda(items: list):
-    AGENDA_FILE.write_text(json.dumps(items, indent=2))
+    atomic_write_text(AGENDA_FILE, json.dumps(items, indent=2))
 
 class AgendaItem(BaseModel):
     title: str
@@ -1648,7 +1707,7 @@ def _read_healthkit() -> dict:
         return {"weight_log": [], "daily": [], "workouts": []}
 
 def _write_healthkit(data: dict):
-    HEALTHKIT_FILE.write_text(json.dumps(data, indent=2))
+    atomic_write_text(HEALTHKIT_FILE, json.dumps(data, indent=2))
 
 @app.post("/healthkit/sync")
 def healthkit_sync(payload: HealthKitPayload, key=Depends(require_key)):
@@ -1997,7 +2056,7 @@ def load_metrics() -> list:
     return []
 
 def save_metrics(data: list):
-    METRICS_FILE.write_text(json.dumps(data, indent=2))
+    atomic_write_text(METRICS_FILE, json.dumps(data, indent=2))
 
 class BodyMetricIn(BaseModel):
     weight_kg: Optional[float] = None
@@ -2163,7 +2222,7 @@ def update_tdee_profile(key=Depends(require_key),
     if age is not None: existing["age"] = age
     if sex is not None: existing["sex"] = sex
     if activity_level is not None: existing["activity_level"] = activity_level
-    PROFILE_FILE.write_text(json.dumps(existing, indent=2))
+    atomic_write_text(PROFILE_FILE, json.dumps(existing, indent=2))
     return {"ok": True, "profile": existing}
 
 
@@ -2357,7 +2416,7 @@ def load_sleep() -> list:
     return []
 
 def save_sleep(data: list):
-    SLEEP_FILE.write_text(json.dumps(data, indent=2))
+    atomic_write_text(SLEEP_FILE, json.dumps(data, indent=2))
 
 class SleepEntryIn(BaseModel):
     bedtime: str          # HH:MM

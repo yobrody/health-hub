@@ -52,7 +52,7 @@ function saveDiaryEntry(datetime: string, thumbnail: string, foods: Array<{ name
   } catch { /* localStorage quota or access denied */ }
 }
 
-export default function SmartScanner({ open, onClose, onFridgeUpdated }: Props) {
+export default function SmartScanner({ open, onClose, onFridgeUpdated, fridgeData }: Props) {
   const [stage, setStage] = useState<Stage>('idle')
   const [saving, setSaving] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -331,7 +331,36 @@ export default function SmartScanner({ open, onClose, onFridgeUpdated }: Props) 
       // Each identified food feeds the personal memory ("Your usual").
       foodResult.foods.forEach(f => rememberFood({ name: f.name, kcal: f.kcal, protein_g: f.protein_g, carbs_g: f.carbs_g ?? undefined, fat_g: f.fat_g ?? undefined }))
       window.dispatchEvent(new CustomEvent('food-logged'))
-      showToast(`Logged ${totalKcal} kcal`)
+      // Fridge cross-reference — ported from the retired CameraSheet (which was
+      // unreachable, so scans never depleted inventory). Match identified foods
+      // against fridge items; decrement stock + feed the learned shelf-life
+      // model. Best-effort: never blocks the food log.
+      let usedCount = 0
+      if (fridgeData) {
+        try {
+          const zones = ['fridge', 'freezer', 'pantry', 'condiments'] as const
+          const inventory = zones.flatMap(z => (fridgeData[z] || []).map(it => ({ ...it, zone: z })))
+          const matched = new Map<string, { zone: string; added: string | null; grams: number | null }>()
+          for (const f of foodResult.foods) {
+            const fname = f.name.toLowerCase()
+            const hit = inventory.find(it => {
+              const iname = it.name.toLowerCase()
+              return iname === fname || fname.includes(iname) || iname.includes(fname)
+            })
+            if (hit && !matched.has(hit.name)) {
+              matched.set(hit.name, { zone: hit.zone, added: hit.added, grams: typeof f.grams === 'number' && f.grams > 0 ? f.grams : null })
+            }
+          }
+          if (matched.size) {
+            usedCount = matched.size
+            void Promise.all([...matched.entries()].flatMap(([name, m]) => [
+              api.logFridgeUsage({ item_name: name, zone: m.zone, date_added: m.added ?? null }).catch(() => {}),
+              api.consumeFridgeItem(name, m.grams !== null ? { grams: m.grams } : { count: 1 }).catch(() => {}),
+            ])).then(() => onFridgeUpdated())
+          }
+        } catch { /* cross-ref is best-effort */ }
+      }
+      showToast(`Logged ${totalKcal} kcal${usedCount ? ` · used ${usedCount} from fridge` : ''}`)
       handleClose()
     } catch {
       showToast('Failed to save -- try again', 'err')
@@ -602,8 +631,11 @@ export default function SmartScanner({ open, onClose, onFridgeUpdated }: Props) 
                       <div style={{ textAlign: 'right' }}>
                         <div style={{
                           fontSize: 15, fontWeight: 700, color: 'var(--blue)',
-                          transition: 'transform 0.3s ease',
-                          transform: updatedIndices.has(i) ? 'scale(1)' : 'scale(1)',
+                          // "flash on recalculate" — the old code set the same
+                          // scale(1) in both branches, so nothing ever showed.
+                          background: updatedIndices.has(i) ? 'rgba(52,199,89,0.10)' : undefined,
+                          borderRadius: 6,
+                          transition: 'background 0.6s ease',
                         }}>{f.kcal} kcal</div>
                         <div style={{ fontSize: 12, color: 'var(--label2)' }}>{f.protein_g}g P / {f.carbs_g}g C / {f.fat_g}g F</div>
                       </div>

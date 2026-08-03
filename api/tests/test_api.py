@@ -2,12 +2,14 @@
 Health Hub API — integration test suite.
 Hits the live API at localhost:8080. Run with: pytest tests/test_api.py -v
 """
+import os
 import httpx
 import pytest
 from datetime import date
 
 BASE = "http://localhost:8080"
-HEADERS = {"X-Health-Key": "brody-health-hub-2026"}
+KEY = os.getenv("HEALTH_API_KEY", "")  # export before running; no committed literal (audit B-9)
+HEADERS = {"X-Health-Key": KEY}
 
 
 @pytest.fixture

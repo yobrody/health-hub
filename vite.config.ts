@@ -285,7 +285,7 @@ export default defineConfig(({ mode }) => {
   // loadEnv returns an object but does NOT populate process.env — use the returned object directly
   const env = loadEnv(mode, process.cwd(), '')
   const geminiKey = env.GEMINI_API_KEY || ''
-  const healthKey = env.VITE_API_KEY || 'brody-health-hub-2026'
+  const healthKey = env.VITE_API_KEY || ''  // set VITE_API_KEY in .env — no literal fallback (audit B-9)
 
   return {
     plugins: [

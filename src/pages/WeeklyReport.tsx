@@ -60,12 +60,16 @@ export default function WeeklyReport() {
   const [report, setReport] = useState<WeeklyReportData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [tdee, setTdee] = useState<number | null>(null)
 
   useEffect(() => {
     api.getWeeklyReport()
       .then(setReport)
       .catch(e => setError(String(e)))
       .finally(() => setLoading(false))
+    api.getAdaptiveTDEE()
+      .then(t => setTdee(t.adaptive_tdee ?? t.estimated_tdee ?? null))
+      .catch(() => {})
   }, [])
 
   if (loading) {
@@ -205,14 +209,16 @@ export default function WeeklyReport() {
             </div>
             {/* Deficit/surplus estimate */}
             {(() => {
-              const tdee = 2500
+              // Real TDEE from /tdee/adaptive (was a hardcoded 2500).
+              if (!tdee) return null
               const diff = report.calories.avg_daily - tdee
               if (Math.abs(diff) < 50) return null
+              const t = tdee.toLocaleString()
               return (
                 <div style={{ marginTop: 10, padding: '8px 10px', background: 'var(--c-bg)', borderRadius: 8, fontSize: 12, color: 'var(--c-label-dim)' }}>
                   {diff < 0
-                    ? `~${Math.abs(diff).toLocaleString()} kcal/day deficit vs ~2,500 kcal TDEE`
-                    : `~${diff.toLocaleString()} kcal/day surplus vs ~2,500 kcal TDEE`}
+                    ? `~${Math.abs(diff).toLocaleString()} kcal/day deficit vs ~${t} kcal TDEE`
+                    : `~${diff.toLocaleString()} kcal/day surplus vs ~${t} kcal TDEE`}
                 </div>
               )
             })()}

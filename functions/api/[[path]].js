@@ -44,7 +44,7 @@ export async function onRequest(context) {
   const url = new URL(context.request.url)
   const backendPath = url.pathname.replace(/^\/api/, '') || '/'
   const targetUrl = `${VPS_BASE}${backendPath}${url.search}`
-  const apiKey = context.env.HEALTH_API_KEY || 'brody-health-hub-2026'
+  const apiKey = context.env.HEALTH_API_KEY  // no literal fallback — key lives in CF Pages env only (audit B-9)
   const kv = context.env.FRIDGE_META
 
   const reqHeaders = new Headers(context.request.headers)

@@ -17,7 +17,6 @@ import Insights from './pages/Insights'
 import MealPlan from './pages/MealPlan'
 import Streaks from './pages/Streaks'
 import SkillBlock from './pages/SkillBlock'
-import CameraSheet from './components/CameraSheet'
 import SmartScanner from './components/SmartScanner'
 import { UpdatePrompt } from './components/UpdatePrompt'
 import ChangelogPopup from './components/ChangelogPopup'
@@ -25,7 +24,7 @@ import ConnectionBanner from './components/ConnectionBanner'
 import Celebrations from './components/Celebrations'
 import { api } from './api/client'
 import type { FridgeData } from './api/client'
-import { registerToastHandler } from './toast'
+import { registerToastHandler, showToast } from './toast'
 import { clampDragX, shouldDismiss, classifyGesture, DISMISS_DISTANCE_FRACTION } from './lib/swipe-dismiss'
 import type { Theme } from './main'
 import './App.css'
@@ -277,6 +276,17 @@ export default function App({ onToggleTheme, theme }: Props) {
     window.addEventListener('keydown', onKey)
     return () => { window.removeEventListener('pointerdown', onPointer, true); window.removeEventListener('keydown', onKey) }
   }, [])
+  // Barcode page "Add to food log" — the page has always supported this via
+  // an optional prop that was never passed, leaving it a lookup-only viewer.
+  async function handleBarcodeAddFood(name: string, kcal: number, protein: number) {
+    try {
+      await api.addFood({ meal: 'Snack', description: name, kcal, protein_g: protein })
+      showToast(`Logged ${name} (${kcal} kcal)`, 'ok')
+    } catch {
+      showToast('Could not log — check connection', 'err')
+    }
+  }
+
   function renderPortal(t: Tab) {
     switch (t) {
       case 'nutrition': return <Nutrition />
@@ -292,7 +302,7 @@ export default function App({ onToggleTheme, theme }: Props) {
       case 'routines': return <Routines />
       case 'metrics': return <Metrics />
       case 'timeline': return <Timeline />
-      case 'barcode': return <Barcode />
+      case 'barcode': return <Barcode onAddFood={handleBarcodeAddFood} />
       case 'weekly-report': return <WeeklyReport />
       case 'streaks': return <Streaks />
       case 'skill': return <SkillBlock onBack={() => setTab('workout')} />
@@ -309,7 +319,6 @@ export default function App({ onToggleTheme, theme }: Props) {
   const [toast, setToast] = useState<ToastState>(null)
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [toastExiting, setToastExiting] = useState(false)
-  const [showCamera, setShowCamera] = useState(false)
   const [showSmartScan, setShowSmartScan] = useState(false)
   const [fridgeData, setFridgeData] = useState<FridgeData | null>(null)
 
@@ -429,7 +438,7 @@ export default function App({ onToggleTheme, theme }: Props) {
           {tab === 'routines'  && <Routines />}
           {tab === 'metrics'   && <Metrics />}
           {tab === 'timeline'  && <Timeline />}
-          {tab === 'barcode'   && <Barcode />}
+          {tab === 'barcode'   && <Barcode onAddFood={handleBarcodeAddFood} />}
         {tab === 'weekly-report' && <WeeklyReport />}
           {tab === 'streaks'       && <Streaks />}
           {tab === 'skill'         && <SkillBlock onBack={() => setTab('workout')} />}
@@ -549,13 +558,6 @@ export default function App({ onToggleTheme, theme }: Props) {
         @keyframes hhPortalOut { from { opacity: 1; transform: scale(1); border-radius: 0; } to { opacity: 0; transform: scale(0.4); border-radius: 30px; } }
       `}</style>
 
-      {/* Legacy camera sheet (accessible from other entry points) */}
-      <CameraSheet
-        open={showCamera}
-        onClose={() => setShowCamera(false)}
-        fridgeData={fridgeData}
-        onFridgeUpdated={refreshFridge}
-      />
 
       {/* Smart scanner — unified barcode/receipt/food auto-detect */}
       <SmartScanner

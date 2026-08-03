@@ -68,9 +68,10 @@ in order:
   - Method: POST
   - Headers:
     - `Content-Type: application/json`
-    - `X-Health-Key: <your VPS key>` (only needed if hitting the FastAPI
-      directly — when going through the Cloudflare Pages proxy, the proxy
-      injects the key)
+    - `X-Health-Key: <your VPS key>` — **required** as of 2026-08: the
+      Cloudflare layer now rejects requests that carry neither a browser
+      same-origin signal nor this key (the /api surface used to be an open
+      proxy). If your existing Shortcut has no header, add this one.
   - Request Body: JSON, value = the dictionary above
 - **Show Notification** with the response so you can see "added X workouts"
   the first few runs

@@ -261,6 +261,8 @@ export default function Nutrition() {
       rememberFood({ name: desc, kcal: kcalNum, protein_g: proteinNum, carbs_g: carbsG, fat_g: fatG })
       const updated = await api.getToday()
       setData(updated)
+      api.getFoodHistory(14).then(h => setHistory(h)).catch(() => {})
+      window.dispatchEvent(new CustomEvent('food-logged'))
       resetSheet()
       if (navigator.vibrate) navigator.vibrate(10)
       showToast(`${desc} added to ${meal.toLowerCase()}`)
@@ -831,7 +833,7 @@ export default function Nutrition() {
             {/* ── 4. 7-DAY HISTORY BAR CHART ─────────────────────────────────── */}
             {history.length > 1 && (
               <Card style={{ marginBottom: 12 }}>
-                <CardLabel>7-Day History</CardLabel>
+                <CardLabel>14-Day History</CardLabel>
                 <div style={{ position: 'relative', height: 120, display: 'flex', alignItems: 'flex-end', gap: 6, paddingTop: 10 }}>
                   {/* Goal dashed line */}
                   <div style={{
@@ -885,6 +887,11 @@ export default function Nutrition() {
                         setDesc(r.desc)
                         setKcal(String(r.kcal))
                         setProteinG(r.protein_g ? String(r.protein_g) : '')
+                        // Clear any extended macros left over from a previous
+                        // smart estimate / barcode for a DIFFERENT food.
+                        setCarbsG(undefined); setFatG(undefined); setFiberG(undefined)
+                        setSugarG(undefined); setSodiumMg(undefined); setConfidence(undefined)
+                        setSmartResult(null); setSearchSource(null)
                         setShowAdd(true)
                         setScanMsg(null)
                         setPhotoAnalysis(null)
@@ -1014,7 +1021,7 @@ export default function Nutrition() {
 
               <input className="input-field" style={{ marginBottom: 10 }}
                 placeholder="What did you eat? e.g. Chicken and rice"
-                value={desc} onChange={e => { setDesc(e.target.value); setSearchSource(null); setSmartResult(null); setFatChip(null); setPortionChip(null) }} autoFocus={!scanning && !analyzing}
+                value={desc} onChange={e => { setDesc(e.target.value); setSearchSource(null); setSmartResult(null); setFatChip(null); setPortionChip(null); setCarbsG(undefined); setFatG(undefined); setFiberG(undefined); setSugarG(undefined); setSodiumMg(undefined); setConfidence(undefined) }} autoFocus={!scanning && !analyzing}
                 autoComplete="on" autoCorrect="on" spellCheck={true} />
 
               {/* Search database button + source badge */}
@@ -1199,9 +1206,11 @@ export default function Nutrition() {
             <button className="btn-destructive" style={{ width: '100%', marginBottom: 12 }}
               onClick={async () => {
                 const label = deleteConfirm.items.split('\n')[0].replace(/^- /, '').replace(/ \(~\d+ kcal\)/, '')
-                await api.deleteFood(deleteConfirm.time, deleteConfirm.meal)
+                await api.deleteFood(deleteConfirm.time, deleteConfirm.meal, { date: data?.date, description: label })
                 const updated = await api.getToday()
                 setData(updated)
+                api.getFoodHistory(14).then(h => setHistory(h)).catch(() => {})
+                window.dispatchEvent(new CustomEvent('food-logged'))
                 setDeleteConfirm(null)
                 if (navigator.vibrate) navigator.vibrate(20)
                 showToast(`Removed ${label}`)

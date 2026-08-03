@@ -24,7 +24,7 @@ export async function onRequestOptions() {
 }
 
 export async function onRequestPost(context) {
-  const expected = context.env.HEALTH_API_KEY || 'brody-health-hub-2026'
+  const expected = context.env.HEALTH_API_KEY  // no literal fallback — key lives in CF Pages env only (audit B-9)
 
   // Fetch current fridge contents (with KV-merged size hints).
   const fridgeItems = []

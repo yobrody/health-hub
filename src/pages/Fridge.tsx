@@ -1489,6 +1489,16 @@ function ItemDetailModal({ name, zone, onClose, onRemove }: {
           </Section>
         )}
 
+        {/* Promised "no nutrition data yet" state — previously the section
+            just vanished with no explanation when enrichment hadn't run. */}
+        {detail && !nutri && (
+          <Section label="Nutrition (per 100g)">
+            <div style={{ fontSize: 13, color: 'var(--label2)' }}>
+              No nutrition data yet — tap <b>Refresh data</b> below to pull it from Open Food Facts / AI.
+            </div>
+          </Section>
+        )}
+
         {/* ── Inventory ── */}
         {detail && (detail.cost != null || detail.store || detail.unit_size_g != null) && (
           <Section label="Inventory">
@@ -1593,7 +1603,7 @@ function Section({ label, children }: { label: string; children: React.ReactNode
 export default function Fridge() {
   const [data, setData] = useState<FridgeData>({ fridge: [], pantry: [], condiments: [], freezer: [] })
   const [slots, setSlots] = useState<SlotMap>({})
-  const [learnedShelfLife] = useState<ShelfLifeMap>({})
+  const [learnedShelfLife, setLearnedShelfLife] = useState<ShelfLifeMap>({})
   const [meals, setMeals] = useState<Meal[]>([])
   const [loadingMeals, setLoadingMeals] = useState(false)
   const [showMeals, setShowMeals] = useState(false)
@@ -1666,7 +1676,7 @@ export default function Fridge() {
     // contains an entry for every visible item, so the drag only affects the
     // dragged item (+ swap target), and every other item stays put.
     const next: SlotMap = { ...slots }
-    for (const z of ['fridge', 'pantry'] as const) {
+    for (const z of ['fridge', 'pantry', 'freezer', 'condiments'] as const) {
       const grid = buildShelfGrid(data[z] || [], slots, z)
       grid.forEach((row, s) => row.forEach((it, c) => {
         if (it && !next[it.name]) {
@@ -1771,6 +1781,10 @@ export default function Fridge() {
   const oldItems = allItems.filter(i => daysOld(i.added) > 5)
   const warnItems = allItems.filter(i => { const a = daysOld(i.added); return a > 3 && a <= 5 })
   const alertItems = [...oldItems, ...warnItems]
+  // Which zone an item currently lives in (eat-soon tiles need it to open
+  // the right detail modal).
+  const findZoneOf = (name: string): Zone | undefined =>
+    (['fridge', 'freezer', 'pantry', 'condiments'] as Zone[]).find(z => (data[z] || []).some(i => i.name === name))
   const [groceryDone, setGroceryDone] = useState<string[]>(() => {
     try { return JSON.parse(localStorage.getItem('grocery_done') || '[]') } catch { return [] }
   })
@@ -1785,9 +1799,17 @@ export default function Fridge() {
           localStorage.setItem('fridge_expiring_items', JSON.stringify(expiring))
         }
       } catch { /* ignore */ }
-      // /fridge/shelf-life isn't implemented on the backend (returns 404), so we
-      // skip the learned-shelf-life fetch and fall back to per-zone SHELF_LIFE
-      // defaults — learnedShelfLife stays {} and every read degrades gracefully.
+      // Learned shelf-life: served by the CF function /api/fridge/shelf-life
+      // (KV usage history). The old comment claimed it 404s — that's only true
+      // in local dev, where CF functions don't run; in production it works.
+      // Best-effort: empty map degrades to the per-zone SHELF_LIFE defaults.
+      try {
+        const names = (['fridge', 'freezer', 'pantry', 'condiments'] as Zone[])
+          .flatMap(z => (d[z] || []).map(i => i.name))
+        if (names.length) {
+          api.getShelfLife(names.slice(0, 60)).then(setLearnedShelfLife).catch(() => {})
+        }
+      } catch { /* non-fatal */ }
     })
     api.getSlots().then(setSlots).catch(() => { /* slot persistence is best-effort */ })
   }, [])
@@ -2132,7 +2154,7 @@ export default function Fridge() {
               {alertItems.slice(0, 12).map(it => {
                 const isOld = daysOld(it.added) > 5
                 return (
-                  <button key={it.name} onClick={() => setStoreMode(true)} title="Open store mode to clear out"
+                  <button key={it.name} onClick={() => setDetailModal({ name: it.name, zone: findZoneOf(it.name) ?? 'fridge' })} title="Open item details"
                     style={{ flexShrink: 0, width: 104, background: 'var(--card)', border: `1px solid ${isOld ? 'rgba(255,59,48,0.35)' : 'rgba(255,149,0,0.35)'}`, borderRadius: 14, padding: 8, cursor: 'pointer', textAlign: 'left', color: 'var(--label)' }}>
                     <div style={{ width: 40, height: 40, borderRadius: 10, overflow: 'hidden', background: 'var(--gray5)', border: '1px solid var(--separator)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                       <ItemVisual name={it.name} photoUrl={(it as { photo_url?: string | null }).photo_url} size={40} />
@@ -2273,8 +2295,20 @@ export default function Fridge() {
                           {/* Quick actions */}
                           <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
                             <button
-                              onClick={(e) => { e.stopPropagation(); setDetailModal({ name: item.name, zone }) }}
-                              title="Used it"
+                              onClick={async (e) => {
+                                e.stopPropagation()
+                                // Decrement one use — this button used to just
+                                // open the detail modal (same as tapping the
+                                // card), despite saying "Used it".
+                                try {
+                                  await api.consumeFridgeItem(item.name, { count: 1 })
+                                  showToast(`Marked ${item.name} used`, 'ok')
+                                  api.getFridge().then(setData).catch(() => {})
+                                } catch {
+                                  setDetailModal({ name: item.name, zone })
+                                }
+                              }}
+                              title="Used it — decrement one"
                               style={{ background: 'var(--green)', color: '#fff', border: 'none', borderRadius: 10, width: 40, height: 40, fontSize: 16, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                             >✓</button>
                             <button
@@ -2349,25 +2383,6 @@ export default function Fridge() {
               })() : null}
             </DragOverlay>
           </DndContext>
-        )}
-
-        {/* Bottom action row: superseded by the action bar under the header
-            (Shopping List + What can I make now live there). Hidden pending the
-            notepad rebuild that will own the shopping-list experience. */}
-        {totalItems < 0 && (
-          <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
-            <button onClick={shareShoppingList} style={{
-              flex: 1, background: 'var(--card)', border: '1.5px solid var(--separator)',
-              borderRadius: 16, padding: '13px 8px', fontSize: 13, fontWeight: 600,
-              color: 'var(--label)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
-            }}>📋 Shopping List</button>
-            <button onClick={getMeals} disabled={loadingMeals} style={{
-              flex: 1, background: 'var(--blue)', border: 'none',
-              borderRadius: 16, padding: '13px 8px', fontSize: 13, fontWeight: 600,
-              color: '#fff', cursor: 'pointer', opacity: loadingMeals ? 0.7 : 1,
-              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5,
-            }}>{loadingMeals ? '\u23F3' : '\u{1F37D}\uFE0F What can I make?'}</button>
-          </div>
         )}
 
         {/* ── Staples to restock ── distinct from the "Eat soon" banner above:
@@ -2489,7 +2504,7 @@ export default function Fridge() {
           name={detailModal.name}
           zone={detailModal.zone}
           onClose={() => setDetailModal(null)}
-          onRemove={() => removeByName(detailModal.name)}
+          onRemove={(canonical) => removeByName(canonical || detailModal.name)}
         />
       )}
 
@@ -2562,6 +2577,18 @@ export default function Fridge() {
             <button className="sheet-close" onClick={() => setShowAdd(false)} style={{ position:'absolute', top:16, right:16 }}>×</button>
             <div style={{ width:36, height:5, background:'var(--gray4)', borderRadius:3, margin:'0 auto 16px' }} />
             <div style={{ fontSize:20, fontWeight:700, marginBottom:16 }}>Add to fridge</div>
+            <div style={{ display:'flex', gap:8, marginBottom:16 }}>
+              <button type="button"
+                onClick={() => { setShowAdd(false); fileInputRef.current?.click() }}
+                style={{ flex:1, padding:'10px 8px', borderRadius:12, border:'1px solid var(--separator)', background:'var(--gray6)', color:'var(--label)', fontSize:13, fontWeight:600, cursor:'pointer' }}>
+                📷 Scan receipt
+              </button>
+              <button type="button"
+                onClick={() => { setShowAdd(false); barcodeInputRef.current?.click() }}
+                style={{ flex:1, padding:'10px 8px', borderRadius:12, border:'1px solid var(--separator)', background:'var(--gray6)', color:'var(--label)', fontSize:13, fontWeight:600, cursor:'pointer' }}>
+                🏷️ Scan barcode
+              </button>
+            </div>
             <form onSubmit={handleAdd}>
               <input className="input-field" style={{ marginBottom:12 }}
                 placeholder="Item name (e.g. Chicken breast)"
@@ -2574,7 +2601,7 @@ export default function Fridge() {
                       background: addZone === z ? ZONE_CONFIG[z].accent : 'var(--gray5)',
                       color: addZone === z ? '#fff' : 'var(--label)',
                       fontSize:11, fontWeight:700 }}>
-                    {ZONE_CONFIG[z].icon}
+                    {ZONE_CONFIG[z].label}
                   </button>
                 ))}
               </div>

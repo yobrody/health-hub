@@ -211,8 +211,10 @@ export const api = {
 
   // Food
   addFood: (entry: FoodEntryInput) => request('/food', { method: 'POST', body: JSON.stringify(entry), queueLabel: 'food' }),
-  deleteFood: (time: string, meal: string) =>
-    request('/food/delete', { method: 'POST', body: JSON.stringify({ time, meal }) }),
+  // date lets past-day entries be deleted (backend always supported it but the
+  // client never sent it); description disambiguates two same-minute entries.
+  deleteFood: (time: string, meal: string, opts?: { date?: string; description?: string }) =>
+    request('/food/delete', { method: 'POST', body: JSON.stringify({ time, meal, ...opts }) }),
   recalculateFood: (name: string, original_name: string) =>
     request<{ name: string; kcal: number; protein_g: number; carbs_g: number; fat_g: number; grams?: number | null; confidence: string; note: string }>(
       '/food/recalculate', { method: 'POST', body: JSON.stringify({ name, original_name }) }
@@ -467,6 +469,13 @@ export const api = {
 
   // Body metrics
   getTDEE: () => request<TDEEData>('/tdee'),
+  // Body profile behind the TDEE math. Without this call both TDEE cards run
+  // on the hardcoded 80kg/180cm/25y defaults in main.py.
+  updateTdeeProfile: (data: { height_cm?: number; age?: number; sex?: string; activity_level?: string; weight_kg?: number }) => {
+    const qs = Object.entries(data).filter(([, v]) => v !== undefined && v !== null && v !== '')
+      .map(([k, v]) => `${k}=${encodeURIComponent(String(v))}`).join('&')
+    return request<{ ok: boolean; profile: Record<string, unknown> }>(`/tdee/profile?${qs}`, { method: 'PUT' })
+  },
   getLatestMetric: () => request<{ metric: BodyMetric | null }>('/metrics/latest'),
   getMetrics: (days = 90) => request<{ metrics: BodyMetric[] }>(`/metrics?days=${days}`),
   addMetric: (data: { weight_kg?: number; body_fat_pct?: number; waist_cm?: number }) =>
@@ -651,7 +660,7 @@ export interface TodayData { date: string; entries: FoodEntry[]; total_kcal: num
 export interface FoodEntry { time: string; meal: string; items: string; kcal: number; protein_g?: number; carbs_g?: number; fat_g?: number; fiber_g?: number; sugar_g?: number; sodium_mg?: number; confidence?: string }
 export interface FoodEntryInput { meal: string; description: string; kcal: number; protein_g?: number; carbs_g?: number; fat_g?: number; fiber_g?: number; sugar_g?: number; sodium_mg?: number; confidence?: string; time?: string; date?: string }
 export interface FoodLogRow { date: string; time?: string; meal?: string; items?: string; kcal?: number; protein_g?: number; carbs_g?: number; fat_g?: number; fiber_g?: number; sugar_g?: number; sodium_mg?: number }
-export interface HistoryDay { date: string; total_kcal: number; logged: boolean }
+export interface HistoryDay { date: string; total_kcal: number; total_protein_g?: number; logged: boolean }
 export interface Goals { calories: number; protein: number; gym_days: number }
 export interface GoalsResponse { content: string; parsed: Goals }
 export interface GoalsUpdateInput { calories?: number; protein?: number; gym_days?: number; notes?: string }

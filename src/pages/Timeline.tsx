@@ -204,7 +204,7 @@ export default function Timeline() {
         {/* ─── Activity Heatmap ─── */}
         <Card>
           <CardLabel>Activity (4 weeks)</CardLabel>
-          <ActivityHeatmap events={events} days={28} />
+          <ActivityHeatmap events={events} days={Math.max(days, 14)} />
         </Card>
 
         {/* ─── Milestones ─── */}

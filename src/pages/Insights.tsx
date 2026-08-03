@@ -50,11 +50,14 @@ function InsightCard({ insight }: { insight: Insight }) {
 export default function Insights() {
   const [insights, setInsights] = useState<Insight[]>([])
   const [loading, setLoading] = useState(true)
+  const [failed, setFailed] = useState(false)
 
   useEffect(() => {
     api.getInsights()
-      .then(r => setInsights(r.insights))
-      .catch(() => {})
+      .then(r => { setInsights(r.insights); setFailed(false) })
+      // Was .catch(() => {}) — a 500/offline rendered the "Not enough data
+      // yet, keep logging" empty state, which is actively wrong.
+      .catch(() => setFailed(true))
       .finally(() => setLoading(false))
   }, [])
 
@@ -74,7 +77,19 @@ export default function Insights() {
           </div>
         )}
 
-        {!loading && insights.length === 0 && (
+        {!loading && failed && (
+          <div style={{
+            textAlign: 'center', padding: '40px 20px',
+            color: 'var(--c-label-dim, var(--label2))',
+            background: 'var(--c-card, var(--card))',
+            borderRadius: 16, border: '1px solid var(--c-border, var(--separator))',
+          }}>
+            <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 6 }}>Couldn't load insights</div>
+            <div style={{ fontSize: 14 }}>Check your connection and pull to refresh.</div>
+          </div>
+        )}
+
+        {!loading && !failed && insights.length === 0 && (
           <div style={{
             textAlign: 'center', padding: '40px 20px',
             color: 'var(--c-label-dim, var(--label2))',

@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { api } from '../api/client'
 import { celebrate } from '../lib/celebrations'
+import { showToast } from '../toast'
+import { loadDirection } from '../lib/calorie-target'
 import type { BodyMetric, TDEEData, SleepStats } from '../api/client'
 
 // ── Reusable components matching dark bento design from Today.tsx ────────────
@@ -171,6 +173,10 @@ export default function Metrics() {
       setWeight(''); setBodyFat(''); setWaist('')
       setShowLog(false)
       if (navigator.vibrate) navigator.vibrate(10)
+    } catch {
+      // Was try/finally with no catch — a failed log threw unhandled, the
+      // sheet stayed open and the user got no signal.
+      showToast('Could not save — check connection', 'err')
     } finally { setSubmitting(false) }
   }
 
@@ -183,12 +189,17 @@ export default function Metrics() {
       setSleepStats(stats)
       setShowSleep(false)
       if (navigator.vibrate) navigator.vibrate(10)
+    } catch {
+      showToast('Could not save sleep — check connection', 'err')
     } finally { setSubmitting(false) }
   }
 
   // Compute derived data
   const weights = metrics.filter(m => m.weight_kg).map(m => ({ date: m.date, value: m.weight_kg! }))
-  const chartWeights = weights.slice(-rangeDays)
+  // Filter by actual date window (was `.slice(-rangeDays)` — with sparse
+  // logging, "90d" could span a year of entries).
+  const rangeCutoff = new Date(Date.now() - rangeDays * 86400000).toISOString().slice(0, 10)
+  const chartWeights = weights.filter(w => w.date >= rangeCutoff)
   const latestWeight = weights.length > 0 ? weights[weights.length - 1] : null
   const weekAgoWeight = weights.find(w => {
     if (!latestWeight) return false
@@ -197,9 +208,16 @@ export default function Metrics() {
   })
   const weeklyChange = latestWeight && weekAgoWeight ? latestWeight.value - weekAgoWeight.value : null
 
-  // Trend direction for celebration
-  const goalDirection = tdee?.weight_trend?.direction
-  const trendMatchesGoal = goalDirection === 'losing' || goalDirection === 'maintaining'
+  // Trend direction for celebration — compare the OBSERVED trend against the
+  // user's CHOSEN direction from Goals (gain/maintain/lose). Was hardcoded to
+  // celebrate losing/maintaining only, which told a bulking user he was
+  // off-track whenever he gained.
+  const observedDirection = tdee?.weight_trend?.direction
+  const chosenDirection = loadDirection(localStorage)
+  const trendMatchesGoal =
+    (chosenDirection === 'gain' && observedDirection === 'gaining') ||
+    (chosenDirection === 'lose' && observedDirection === 'losing') ||
+    (chosenDirection === 'maintain' && observedDirection === 'maintaining')
 
   // Celebrate consecutive-day weight logging streak
   const celebratedRef = useRef(false)

@@ -14,6 +14,7 @@ import VoiceInput from '../components/VoiceInput'
 import Skeleton from '../components/Skeleton'
 import { rememberFood, getUsualFoods, type FoodMemoryItem } from '../lib/food-memory'
 import { checkFoodPlausibility } from '../lib/food-plausibility'
+import { loadPriorities, savePriorities, withPriority } from '../lib/agenda-priority'
 
 // =============================================================================
 // C-PREVIEW: Dark + bento + monospaced data
@@ -468,7 +469,7 @@ function WaterTracker() {
       setTotalMl(data.total_ml || 0)
       // Sync localStorage for backward compat with AI log_water
       const glassCount = Math.round((data.total_ml || 0) / 250)
-      try { localStorage.setItem('water_intake', JSON.stringify({ date: new Date().toDateString(), count: glassCount })) } catch { /* ignore */ }
+      try { localStorage.setItem('water_intake', JSON.stringify({ date: new Date().toDateString(), count: glassCount, ml: data.total_ml || 0 })) } catch { /* ignore */ }
       setLoading(false)
     }).catch(() => setLoading(false))
   }, [])
@@ -483,7 +484,7 @@ function WaterTracker() {
         if (raw) {
           const p = JSON.parse(raw)
           if (p.date === new Date().toDateString()) {
-            setTotalMl(p.count * 250)
+            setTotalMl(typeof p.ml === 'number' ? p.ml : p.count * 250)
           }
         }
       } catch { /* ignore */ }
@@ -497,7 +498,7 @@ function WaterTracker() {
     setTotalMl(optimistic)
     if (navigator.vibrate) navigator.vibrate(8)
     // Sync localStorage for AI compat
-    try { localStorage.setItem('water_intake', JSON.stringify({ date: new Date().toDateString(), count: Math.round(optimistic / 250) })) } catch { /* ignore */ }
+    try { localStorage.setItem('water_intake', JSON.stringify({ date: new Date().toDateString(), count: Math.round(optimistic / 250), ml: optimistic })) } catch { /* ignore */ }
     try {
       const res = await api.logWater(ml, label)
       setTotalMl(res.total_ml)
@@ -637,7 +638,7 @@ function StreaksSection({ onNavigate }: { onNavigate: (tab: Tab) => void }) {
   )
 }
 
-export default function Today({ onNavigate }: Props) {
+export default function Today({ onNavigate, onToggleTheme, themeIcon }: Props) {
   // Audit P2-12: forced-dark useEffect removed. The page now respects the
   // user's chosen theme (light / dark / system). Was a leftover from the
   // C-aesthetic preview; staying dark on a light-mode device made the page
@@ -856,27 +857,35 @@ export default function Today({ onNavigate }: Props) {
           unit_count: a.unit_count ?? null,
         })
         return
-      case 'log_water':
-        // Hydration lives in localStorage; increment running count for the
-        // current day, then synthesize a storage event so WaterTracker re-reads.
+      case 'log_water': {
+        // Server first (was localStorage-only, so AI-logged water vanished on
+        // the next mount when getWater() overwrote the total). Mirror to
+        // localStorage afterwards so WaterTracker updates without a refetch.
+        const res = await api.logWater(a.count * 250, 'AI')
         try {
           const todayKey = new Date().toDateString()
-          const raw = localStorage.getItem('water_intake')
-          const cur = raw ? JSON.parse(raw) as { date: string; count: number } : null
-          const base = cur && cur.date === todayKey ? cur.count : 0
-          const next = Math.min(base + a.count, 12)
-          localStorage.setItem('water_intake', JSON.stringify({ date: todayKey, count: next }))
+          const ml = typeof res?.total_ml === 'number' ? res.total_ml : a.count * 250
+          localStorage.setItem('water_intake', JSON.stringify({ date: todayKey, count: Math.round(ml / 250), ml }))
           window.dispatchEvent(new StorageEvent('storage', { key: 'water_intake' }))
         } catch { /* localStorage quota — non-fatal */ }
         return
+      }
       case 'mark_routine':
         await api.logRoutine(a.name)
         return
-      case 'add_agenda':
-        await api.addAgendaItem(a.title)
-        // Priority is stored separately via setItemPriority — left for a future
-        // enhancement; v1 ignores the AI hint so the action is one round-trip.
+      case 'add_agenda': {
+        const created = await api.addAgendaItem(a.title)
+        // Persist the AI's priority hint into the same localStorage map the
+        // Agenda page reads (was parsed, previewed, then discarded).
+        try {
+          const prio = a.priority
+          const id = created?.item?.id
+          if (id && (prio === 'urgent' || prio === 'low')) {
+            savePriorities(localStorage, withPriority(loadPriorities(localStorage), id, prio))
+          }
+        } catch { /* non-fatal */ }
         return
+      }
       case 'add_list_item':
         await api.addListItem(a.list, a.text)
         return
@@ -1088,16 +1097,19 @@ export default function Today({ onNavigate }: Props) {
   const animatedProtein = useAnimatedNumber(protein)
 
   // Track previous values to detect goal crossings
-  const prevTotal = useRef(0)
-  const prevProtein = useRef(0)
+  // null = "haven't observed a value yet" — prevents the confetti firing on
+  // page LOAD when the day's total is already past the goal (it should only
+  // fire on an actual crossing while the page is open).
+  const prevTotal = useRef<number | null>(null)
+  const prevProtein = useRef<number | null>(null)
   useEffect(() => {
-    if (total > 0 && prevTotal.current < goals.calories && total >= goals.calories) {
+    if (prevTotal.current !== null && total > 0 && prevTotal.current < goals.calories && total >= goals.calories) {
       celebrate('confetti', 'Calorie goal reached!')
     }
     prevTotal.current = total
   }, [total, goals.calories])
   useEffect(() => {
-    if (protein > 0 && prevProtein.current < goals.protein && protein >= goals.protein) {
+    if (prevProtein.current !== null && protein > 0 && prevProtein.current < goals.protein && protein >= goals.protein) {
       celebrate('confetti', 'Protein goal hit!')
     }
     prevProtein.current = protein
@@ -1109,8 +1121,11 @@ export default function Today({ onNavigate }: Props) {
     const caloriePct = total / goals.calories
     const caloriesOk = caloriePct >= 0.9 && caloriePct <= 1.1
     const proteinOk = protein >= goals.protein
-    // Check if a workout was logged today (weekStats tracks this week's count)
-    const workoutOk = true // simplified — we don't check gym day logic here
+    // On pace for the weekly gym goal: by day N of the week you should have
+    // ceil(goal * N/7) sessions. (Replaces the hardcoded `true`.)
+    const dayOfWeek = ((new Date().getDay() + 6) % 7) + 1 // Mon=1 .. Sun=7
+    const expected = weekStats ? Math.ceil(weekStats.goal_gym_days * dayOfWeek / 7) : 0
+    const workoutOk = !weekStats || weekStats.workout_count >= expected
     return caloriesOk && proteinOk && workoutOk
   })()
 
@@ -1287,6 +1302,16 @@ export default function Today({ onNavigate }: Props) {
             </div>
           </div>
           <NotifToggle />
+          {/* Theme cycler — light / dark / system. The props were passed by
+              App since the C-preview era but never rendered. */}
+          <button
+            onClick={onToggleTheme}
+            aria-label="Toggle theme"
+            className="flex items-center justify-center w-9 h-9 rounded-full text-[var(--c-label-dim)] hover:text-[var(--c-label)] hover:bg-[var(--c-card)] transition-colors text-[15px]"
+            style={{ WebkitTapHighlightColor: 'transparent' }}
+          >
+            {themeIcon}
+          </button>
           {/* Settings cog — only entry point to Goals page (calorie/protein
               targets, weight log, meal plan). Without this the Goals page
               is implemented but unreachable. */}
@@ -1809,6 +1834,20 @@ export default function Today({ onNavigate }: Props) {
             </div>
             <div className="text-[13px] text-[var(--c-label-dim)]">Heatmap</div>
             <div className="text-[12px] text-[var(--c-label-faint)] mt-0.5">Badges + records</div>
+          </Card>
+
+          {/* Coach chat tile — the only entry point to the Chat page.
+              (App.tsx claimed "Chat accessible via Today tile" but the tile
+              never existed; the whole voice-coach UI was unreachable.) */}
+          <Card onClick={() => onNavigate('chat')}>
+            <div className="flex items-center justify-between mb-2">
+              <CardLabel>Coach</CardLabel>
+              <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" className="text-[var(--c-label-faint)]">
+                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+              </svg>
+            </div>
+            <div className="text-[13px] text-[var(--c-label-dim)]">Ask anything</div>
+            <div className="text-[12px] text-[var(--c-label-faint)] mt-0.5">Voice + actions</div>
           </Card>
 
           {/* Insights tile */}

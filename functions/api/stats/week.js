@@ -19,7 +19,7 @@ export async function onRequestOptions() {
 }
 
 export async function onRequestGet(context) {
-  const expected = context.env.HEALTH_API_KEY || 'brody-health-hub-2026'
+  const expected = context.env.HEALTH_API_KEY  // no literal fallback — key lives in CF Pages env only (audit B-9)
 
   const h = { 'X-Health-Key': expected, 'Content-Type': 'application/json' }
 
