@@ -3,6 +3,7 @@ import { api } from '../api/client'
 import { showToast } from '../toast'
 import { useSwipeDown } from '../hooks/useSwipeDown'
 import { rememberFood } from '../lib/food-memory'
+import { compressThumbnail } from '../lib/image'
 import type { FridgeData, SmartScanResult, BarcodeLookupResult, ScannedItem } from '../api/client'
 
 type Stage = 'idle' | 'analyzing' | 'barcode-result' | 'receipt-result' | 'food-result'
@@ -15,26 +16,6 @@ interface Props {
 }
 
 // Compress image to ~200px wide thumbnail for diary storage (~20-30KB)
-async function compressThumbnail(file: File): Promise<string> {
-  return new Promise((resolve) => {
-    const img = new Image()
-    const url = URL.createObjectURL(file)
-    img.onload = () => {
-      try {
-        const canvas = document.createElement('canvas')
-        const scale = Math.min(1, 220 / img.width)
-        canvas.width = Math.round(img.width * scale)
-        canvas.height = Math.round(img.height * scale)
-        const ctx = canvas.getContext('2d')!
-        ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
-        resolve(canvas.toDataURL('image/jpeg', 0.65))
-      } catch { resolve('') }
-      finally { URL.revokeObjectURL(url) }
-    }
-    img.onerror = () => { URL.revokeObjectURL(url); resolve('') }
-    img.src = url
-  })
-}
 
 function inferSection(name: string): 'fridge' | 'freezer' | 'pantry' | 'condiments' {
   const n = name.toLowerCase()
@@ -226,6 +207,7 @@ export default function SmartScanner({ open, onClose, onFridgeUpdated, fridgeDat
           setBarcodeProduct(product)
           setBarcodeSource(serverProduct.source || 'open_food_facts')
           setStage('barcode-result')
+          api.logScanSample(thumb, 'barcode', { code: result.code, name: product.name, brand: product.brand, source: serverProduct.source || 'open_food_facts' })
         } catch {
           showToast(`Barcode lookup failed for ${result.code}`, 'err')
           setStage('idle')
@@ -240,6 +222,7 @@ export default function SmartScanner({ open, onClose, onFridgeUpdated, fridgeDat
         }
         setReceiptItems(result.items)
         setStage('receipt-result')
+        api.logScanSample(thumb, 'receipt', { items: result.items, store: result.store })
 
       } else {
         // food
@@ -260,6 +243,7 @@ export default function SmartScanner({ open, onClose, onFridgeUpdated, fridgeDat
           saveDiaryEntry(new Date().toISOString(), thumb, result.foods)
         }
         setStage('food-result')
+        api.logScanSample(thumb, 'food', { foods: result.foods, confidence: result.confidence })
       }
     } catch {
       showToast('Scan failed -- try again', 'err')

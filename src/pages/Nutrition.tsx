@@ -41,6 +41,7 @@ import { useSwipeDown } from '../hooks/useSwipeDown'
 import Skeleton from '../components/Skeleton'
 import { rememberFood } from '../lib/food-memory'
 import { checkFoodPlausibility } from '../lib/food-plausibility'
+import { compressThumbnail } from '../lib/image'
 // Lazy so recharts (~100KB gz) only downloads when the trend chart renders,
 // keeping it off the initial load.
 const CalorieTrendChart = lazy(() => import('../components/CalorieTrendChart'))
@@ -434,8 +435,12 @@ export default function Nutrition() {
     setScanMsg(null)
     setPhotoAnalysis(null)
     try {
-      const result = await api.analyzeFood(file, desc)
+      const [result, thumb] = await Promise.all([
+        api.analyzeFood(file, desc),
+        compressThumbnail(file).catch(() => ''),
+      ])
       setPhotoAnalysis(result)
+      api.logScanSample(thumb, 'nutrition-photo', { name: result.name, kcal: result.kcal, source: result.source, confidence: result.confidence, needs_label: result.needs_label })
       if (result.name) setDesc(result.name)
       if (result.kcal > 0) setKcal(String(result.kcal))
       if (result.protein_g > 0) setProteinG(String(result.protein_g))

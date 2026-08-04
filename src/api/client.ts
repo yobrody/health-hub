@@ -347,6 +347,22 @@ export const api = {
     return res.json()
   },
 
+  // Scan self-improvement telemetry: fire-and-forget a thumbnail + the result
+  // the app produced, so a periodic review can spot scanner mistakes without
+  // the user reporting anything. Best-effort — never blocks or throws.
+  logScanSample: (thumb: string, type: string, result: unknown): void => {
+    try {
+      const headers = new Headers({ 'Content-Type': 'application/json' })
+      if (KEY) headers.set('X-Health-Key', KEY)
+      void fetch(`${BASE}/scan-samples`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ thumb, type, result }),
+        keepalive: true,
+      }).catch(() => { /* telemetry is best-effort */ })
+    } catch { /* never let telemetry break a scan */ }
+  },
+
   // Upload photo thumbnail to R2, returns permanent URL
   uploadPhoto: async (dataUrl: string, mime = 'image/jpeg'): Promise<string> => {
     const headers = new Headers({ 'Content-Type': 'application/json' })

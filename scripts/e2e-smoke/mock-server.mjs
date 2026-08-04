@@ -30,6 +30,7 @@ function get(p) {
   if (p.startsWith('/barcode/')) return { code:'123', name:'Test Cola 330ml', brand:'TestBrand', serving_size:'330 ml', source:'open_food_facts', per_100g:{kcal:42,protein_g:0,carbs_g:10.6,fat_g:0,fiber_g:0,sugar_g:10.6,salt_g:0,sodium_mg:4}, nutrients_per_100g:{sugar_g:10.6,sodium_mg:4}, image_url:'' }
   return { ok:true }
 }
+globalThis.__SAMPLES = globalThis.__SAMPLES || []
 function post(p) {
   if (p === '/scan/smart') {
     if (SCAN === 'barcode') return { type:'barcode', code:'5000112637922' }
@@ -49,6 +50,15 @@ http.createServer((req,res)=>{
   const url = new URL(req.url,'http://localhost')
   if (url.pathname.startsWith('/api')) {
     const p = url.pathname.replace(/^\/api/,'')
+    if (p === '/scan-samples' && req.method === 'POST') {
+      let raw=''; req.on('data',c=>raw+=c); req.on('end',()=>{
+        try { const b=JSON.parse(raw); globalThis.__SAMPLES.unshift({type:b.type,result:b.result,hasThumb:!!b.thumb}); globalThis.__SAMPLES=globalThis.__SAMPLES.slice(0,10) } catch {}
+        res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({ok:true,count:globalThis.__SAMPLES.length}))
+      }); return
+    }
+    if (p === '/scan-samples' && req.method === 'GET') {
+      res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify({count:globalThis.__SAMPLES.length,samples:globalThis.__SAMPLES})); return
+    }
     const body = req.method==='POST' ? post(p) : get(p)
     res.writeHead(200,{'Content-Type':'application/json'}); res.end(JSON.stringify(body)); return
   }
