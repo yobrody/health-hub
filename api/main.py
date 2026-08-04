@@ -2180,6 +2180,54 @@ def _latest_weight_kg(profile_data: dict):
     return 80.0, "default"
 
 
+_ACTIVITY_MULTIPLIERS = {
+    "sedentary": 1.2, "light": 1.375, "moderate": 1.55,
+    "active": 1.725, "very_active": 1.9,
+}
+
+
+def _activity_from_steps(days: int = 14, min_days: int = 3):
+    """Derive an activity multiplier from REAL Apple Health step counts, so TDEE
+    stops running on the guessed 'moderate' profile value. Returns a dict or
+    None — honest by construction: it only fires when enough recent days
+    actually have synced steps (via POST /healthkit/sync). The steps→PAL bands
+    are the standard pedometer activity mapping (Tudor-Locke)."""
+    store = _read_healthkit()
+    cutoff = (date.today() - timedelta(days=days)).isoformat()
+    steps = [d["steps"] for d in store.get("daily", [])
+             if isinstance(d.get("steps"), (int, float)) and d["steps"] > 0
+             and d.get("date", "") >= cutoff]
+    if len(steps) < min_days:
+        return None
+    avg = round(sum(steps) / len(steps))
+    if avg < 5000:
+        label = "sedentary"
+    elif avg < 7500:
+        label = "light"
+    elif avg < 10000:
+        label = "moderate"
+    elif avg < 12500:
+        label = "active"
+    else:
+        label = "very_active"
+    return {"multiplier": _ACTIVITY_MULTIPLIERS[label], "activity_level": label,
+            "avg_steps": avg, "days": len(steps)}
+
+
+def _resolve_activity(profile_data: dict):
+    """Pick the activity multiplier + honest provenance. Prefers real steps,
+    then the user's profile setting, then a flagged default. Returns
+    (multiplier, activity_level_label, source, steps_activity_or_None)."""
+    steps_activity = _activity_from_steps()
+    if steps_activity:
+        return (steps_activity["multiplier"], steps_activity["activity_level"],
+                "steps", steps_activity)
+    profile_level = profile_data.get("activity_level")
+    if profile_level in _ACTIVITY_MULTIPLIERS:
+        return _ACTIVITY_MULTIPLIERS[profile_level], profile_level, "profile", None
+    return _ACTIVITY_MULTIPLIERS["moderate"], "moderate", "default", None
+
+
 # Lean-bulk surplus mirrors the frontend (src/lib/goal-suggestions.ts): the
 # midpoint of the workout engine's weekly gain band ≈ 200 kcal/day. Kept in
 # lockstep so the app and the API never suggest different goals.
@@ -2228,7 +2276,6 @@ def calculate_tdee(key=Depends(require_key)):
     height_cm = profile_data.get("height_cm", 180.0)
     age = profile_data.get("age", 25)
     sex = profile_data.get("sex", "male")
-    activity_level = profile_data.get("activity_level", "moderate")
 
     # Current weight = most recent weigh-in across BOTH stores (see _all_weighins).
     weight_kg, weight_source = _latest_weight_kg(profile_data)
@@ -2239,14 +2286,8 @@ def calculate_tdee(key=Depends(require_key)):
     else:
         bmr = 10 * weight_kg + 6.25 * height_cm - 5 * age + 5
 
-    multipliers = {
-        "sedentary": 1.2,
-        "light": 1.375,
-        "moderate": 1.55,
-        "active": 1.725,
-        "very_active": 1.9,
-    }
-    mult = multipliers.get(activity_level, 1.55)
+    # Activity multiplier: real Apple Health steps > profile setting > default.
+    mult, activity_level, activity_source, steps_activity = _resolve_activity(profile_data)
     tdee = round(bmr * mult)
 
     # Adaptive: compare avg intake over last 14 days vs TDEE
@@ -2287,6 +2328,10 @@ def calculate_tdee(key=Depends(require_key)):
         "bmr": round(bmr),
         "tdee": tdee,
         "activity_level": activity_level,
+        # Where the activity multiplier came from: 'steps' (real Apple Health
+        # step average), 'profile' (Brody set it), or 'default' (unset guess).
+        "activity_source": activity_source,
+        "steps_activity": steps_activity,
         "weight_kg": weight_kg,
         "avg_intake_14d": avg_intake,
         "logged_days_14d": logged_days,
@@ -2395,7 +2440,6 @@ def adaptive_tdee(key=Depends(require_key)):
     height_cm = profile_data.get("height_cm", 180.0)
     age = profile_data.get("age", 25)
     sex = profile_data.get("sex", "male")
-    activity_level = profile_data.get("activity_level", "moderate")
     goal_direction = profile_data.get("goal_direction", "maintain")
 
     # Current weight = most recent weigh-in across BOTH stores (see _all_weighins).
@@ -2406,8 +2450,9 @@ def adaptive_tdee(key=Depends(require_key)):
         bmr = 10 * weight_kg + 6.25 * height_cm - 5 * age - 161
     else:
         bmr = 10 * weight_kg + 6.25 * height_cm - 5 * age + 5
-    multipliers = {"sedentary": 1.2, "light": 1.375, "moderate": 1.55, "active": 1.725, "very_active": 1.9}
-    estimated_tdee = round(bmr * multipliers.get(activity_level, 1.55))
+    # Activity multiplier: real Apple Health steps > profile setting > default.
+    mult, activity_level, activity_source, steps_activity = _resolve_activity(profile_data)
+    estimated_tdee = round(bmr * mult)
 
     # --- Pull last 14 days of food logs (total calories per day) ---
     daily_intake: list[tuple[str, int]] = []  # (date_str, kcal)
@@ -2431,6 +2476,8 @@ def adaptive_tdee(key=Depends(require_key)):
         "estimated_tdee": estimated_tdee,
         "bmr": round(bmr),
         "activity_level": activity_level,
+        "activity_source": activity_source,
+        "steps_activity": steps_activity,
         "weight_kg": weight_kg,
         "weight_source": weight_source,
         "goal_direction": goal_direction,

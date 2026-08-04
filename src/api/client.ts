@@ -926,11 +926,22 @@ export interface BodyMetric {
   waist_cm?: number | null
 }
 
+/** Activity level derived from real Apple Health step counts. */
+export interface StepsActivity {
+  multiplier: number
+  activity_level: string
+  avg_steps: number
+  days: number
+}
+
 // TDEE calculator response
 export interface TDEEData {
   tdee: number
   bmr: number
   activity_level?: string
+  /** Provenance of the activity multiplier: real steps, profile, or unset default. */
+  activity_source?: 'steps' | 'profile' | 'default'
+  steps_activity?: StepsActivity | null
   avg_intake_14d?: number
   weight_trend?: { direction: string; weekly_change_kg: number }
   recommendation?: string
@@ -1049,6 +1060,9 @@ export interface AdaptiveTDEEData {
   estimated_tdee: number
   bmr: number
   activity_level: string
+  /** Provenance of the activity multiplier: real steps, profile, or unset default. */
+  activity_source?: 'steps' | 'profile' | 'default'
+  steps_activity?: StepsActivity | null
   weight_kg: number
   /** Where weight_kg came from: 'logged' (real weigh-in), 'profile', or 'default' (80kg placeholder). */
   weight_source?: 'logged' | 'profile' | 'default'

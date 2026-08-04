@@ -207,6 +207,31 @@ def test_metrics_latest(client):
 def test_tdee(client):
     r = client.get("/tdee")
     assert r.status_code == 200
+    d = r.json()
+    # Activity multiplier now carries honest provenance (steps > profile > default).
+    assert d.get("activity_source") in ("steps", "profile", "default")
+
+
+def test_tdee_activity_from_steps(client):
+    """Syncing real steps feeds the activity derivation. The sync endpoint keys
+    every push to the server's *current* day, so ≥3 calendar days of real syncs
+    are needed before activity_source flips to 'steps' — this test only asserts
+    the sync is accepted and the TDEE contract stays valid + self-consistent."""
+    r = client.post("/healthkit/sync", json={"steps_today": 11000})
+    assert r.status_code == 200
+    d = client.get("/tdee").json()
+    assert d.get("activity_source") in ("steps", "profile", "default")
+    if d.get("activity_source") == "steps":
+        sa = d.get("steps_activity")
+        assert sa and sa["avg_steps"] > 0 and sa["days"] >= 3
+        # steps_activity multiplier must be the one actually applied to BMR.
+        assert round(d["bmr"] * sa["multiplier"]) == d["tdee"]
+
+
+def test_adaptive_tdee_has_activity_source(client):
+    r = client.get("/tdee/adaptive")
+    assert r.status_code == 200
+    assert r.json().get("activity_source") in ("steps", "profile", "default")
 
 
 # ── Sleep ────────────────────────────────────────────────────────────────────

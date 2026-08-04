@@ -438,8 +438,17 @@ export default function Metrics() {
             </div>
           </div>
           {tdee?.activity_level && (
-            <div style={{ marginBottom: 10 }}>
+            <div style={{ marginBottom: 10, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
               <Badge text={tdee.activity_level.replace('_', ' ').toUpperCase()} color="#6366F1" />
+              {tdee.activity_source === 'steps' && tdee.steps_activity ? (
+                <span style={{ fontSize: 11, color: 'var(--green)', fontWeight: 600 }}>
+                  from your steps · {tdee.steps_activity.avg_steps.toLocaleString()}/day
+                </span>
+              ) : tdee.activity_source === 'default' ? (
+                <span style={{ fontSize: 11, color: 'var(--c-label-faint)' }}>
+                  assumed — set activity in Goals
+                </span>
+              ) : null}
             </div>
           )}
           {tdee?.avg_intake_14d && tdee?.tdee && (
