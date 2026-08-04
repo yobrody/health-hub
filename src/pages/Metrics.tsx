@@ -124,6 +124,45 @@ function WeightChart({ data, height = 120 }: { data: { date: string; value: numb
   )
 }
 
+// ── Measurement trend (waist, body-fat) ─────────────────────────────────────
+// A compact factual line — no green/red moralising, because on a lean bulk a
+// rising waist or body-fat isn't simply "bad" (the app's honesty rule: don't
+// assign a value judgement the user's goal doesn't warrant).
+function MeasurementTrend({ label, data, unit, color }: {
+  label: string; data: { date: string; value: number }[]; unit: string; color: string
+}) {
+  if (data.length < 2) return null
+  const values = data.map(d => d.value)
+  const min = Math.min(...values)
+  const max = Math.max(...values)
+  const range = max - min || 1
+  const w = 300, h = 56
+  const pts = data.map((d, i) => {
+    const x = (i / (data.length - 1)) * w
+    const y = h - ((d.value - min) / range) * h
+    return `${x},${y}`
+  }).join(' ')
+  const first = data[0].value
+  const last = data[data.length - 1].value
+  const delta = last - first
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 6 }}>
+        <span style={{ fontSize: 13, color: 'var(--c-label-dim)' }}>{label}</span>
+        <span style={{ fontSize: 13, fontFamily: "'JetBrains Mono', monospace", color: 'var(--c-label)' }}>
+          {last.toFixed(1)} {unit}
+          <span style={{ color: 'var(--c-label-faint)', marginLeft: 6 }}>
+            {delta > 0 ? '↑' : delta < 0 ? '↓' : '→'} {Math.abs(delta).toFixed(1)}
+          </span>
+        </span>
+      </div>
+      <svg width="100%" viewBox={`0 0 ${w} ${h + 4}`} preserveAspectRatio="none" style={{ display: 'block', height: h }}>
+        <polyline points={pts} fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" opacity="0.85" />
+      </svg>
+    </div>
+  )
+}
+
 // ── Main Metrics Page ───────────────────────────────────────────────────────
 
 export default function Metrics() {
@@ -200,6 +239,17 @@ export default function Metrics() {
   // logging, "90d" could span a year of entries).
   const rangeCutoff = new Date(Date.now() - rangeDays * 86400000).toISOString().slice(0, 10)
   const chartWeights = weights.filter(w => w.date >= rangeCutoff)
+  // Body-composition trends — waist + body-fat over the selected window. Data
+  // already exists in body_metrics.json; it was only ever shown as a single
+  // latest value before (roadmap #4).
+  const waistSeries = metrics
+    .filter(m => m.waist_cm != null)
+    .map(m => ({ date: m.date, value: m.waist_cm! }))
+    .filter(m => m.date >= rangeCutoff)
+  const bodyFatSeries = metrics
+    .filter(m => m.body_fat_pct != null)
+    .map(m => ({ date: m.date, value: m.body_fat_pct! }))
+    .filter(m => m.date >= rangeCutoff)
   const latestWeight = weights.length > 0 ? weights[weights.length - 1] : null
   const weekAgoWeight = weights.find(w => {
     if (!latestWeight) return false
@@ -531,6 +581,24 @@ export default function Metrics() {
               </div>
             </div>
             <WeightChart data={chartWeights} />
+          </Card>
+        )}
+
+        {/* ─── Composition Trends (waist / body fat) ─── */}
+        {(waistSeries.length >= 2 || bodyFatSeries.length >= 2) && (
+          <Card>
+            <CardLabel>Composition Trends · {rangeDays}d</CardLabel>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              {waistSeries.length >= 2 && (
+                <MeasurementTrend label="Waist" data={waistSeries} unit="cm" color="var(--blue)" />
+              )}
+              {bodyFatSeries.length >= 2 && (
+                <MeasurementTrend label="Body fat" data={bodyFatSeries} unit="%" color="var(--orange)" />
+              )}
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--c-label-faint)', marginTop: 12, lineHeight: 1.5 }}>
+              On a bulk, the scale can't separate muscle from fat — waist and body-fat trends can. Log them from “+ Log Weight”.
+            </div>
           </Card>
         )}
 
