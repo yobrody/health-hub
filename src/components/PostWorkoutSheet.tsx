@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { WorkoutAnalysis } from '../lib/gym-analysis'
 import { MUSCLE_LABELS } from '../lib/gym-muscles'
+import { buildHighlights, type Tone } from '../lib/gym-highlights'
 import { api } from '../api/client'
 
 /**
@@ -40,6 +41,10 @@ export function PostWorkoutSheet({
       setLoadingNarrative(false)
     }
   }
+
+  // Instant, offline coach read computed from the local scorecard — no AI call
+  // needed. The AI narrative below is the optional deeper dive.
+  const highlights = buildHighlights(analysis)
 
   return (
     <div
@@ -119,8 +124,15 @@ export function PostWorkoutSheet({
           </>
         )}
 
-        {/* AI narrative */}
+        {/* Coach insights — instant local highlights, AI deep-dive optional */}
         <div className="section-label" style={{ marginTop: 0 }}>Coach insights</div>
+        {highlights.length > 0 && (
+          <div style={{ marginBottom: 12 }}>
+            {highlights.map((hl, i) => (
+              <HighlightRow key={i} icon={hl.icon} text={hl.text} tone={hl.tone} />
+            ))}
+          </div>
+        )}
         {narrative ? (
           <div className="card" style={{ padding: 14, marginBottom: 14, fontSize: 14, lineHeight: 1.55, color: 'var(--label)' }}>
             {narrative}
@@ -129,8 +141,8 @@ export function PostWorkoutSheet({
           <button
             onClick={generateInsights}
             disabled={loadingNarrative}
-            style={{ width: '100%', background: 'var(--blue)', color: '#fff', border: 'none', borderRadius: 14, padding: '13px', fontSize: 15, fontWeight: 600, cursor: 'pointer', marginBottom: 10, opacity: loadingNarrative ? 0.5 : 1 }}
-          >{loadingNarrative ? 'Thinking…' : 'Generate insights'}</button>
+            style={{ width: '100%', background: highlights.length ? 'var(--gray6)' : 'var(--blue)', color: highlights.length ? 'var(--label)' : '#fff', border: 'none', borderRadius: 14, padding: '13px', fontSize: 15, fontWeight: 600, cursor: 'pointer', marginBottom: 10, opacity: loadingNarrative ? 0.5 : 1 }}
+          >{loadingNarrative ? 'Thinking…' : highlights.length ? 'Get the deeper read from your coach' : 'Generate insights'}</button>
         )}
         {narrativeError && (
           <div style={{ color: 'var(--red)', fontSize: 12, marginBottom: 10 }}>{narrativeError}</div>
@@ -170,6 +182,16 @@ function StatRow({ label, value, highlight }: { label: string; value: string; hi
     <div style={{ display: 'flex', justifyContent: 'space-between', padding: '6px 0', fontSize: 13 }}>
       <span style={{ color: 'var(--label2)' }}>{label}</span>
       <span style={{ fontWeight: 600, color }}>{value}</span>
+    </div>
+  )
+}
+
+function HighlightRow({ icon, text, tone }: { icon: string; text: string; tone: Tone }) {
+  const bg = tone === 'good' ? 'rgba(48,209,88,0.14)' : tone === 'warn' ? 'rgba(255,159,10,0.16)' : 'rgba(10,132,255,0.14)'
+  return (
+    <div style={{ display: 'flex', gap: 10, alignItems: 'center', padding: '10px 12px', borderRadius: 12, background: bg, marginBottom: 8 }}>
+      <span style={{ fontSize: 17, lineHeight: '20px', flexShrink: 0 }}>{icon}</span>
+      <span style={{ fontSize: 13.5, lineHeight: 1.35, color: 'var(--label)', fontWeight: 500 }}>{text}</span>
     </div>
   )
 }

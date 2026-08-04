@@ -61,6 +61,7 @@ export default function WeeklyReport() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [tdee, setTdee] = useState<number | null>(null)
+  const [hydration, setHydration] = useState<{ avgMl: number; goalMl: number; loggedDays: number } | null>(null)
 
   useEffect(() => {
     api.getWeeklyReport()
@@ -71,6 +72,32 @@ export default function WeeklyReport() {
       .then(t => setTdee(t.adaptive_tdee ?? t.estimated_tdee ?? null))
       .catch(() => {})
   }, [])
+
+  // Hydration isn't in the weekly-report payload (backend treats water per-day),
+  // so aggregate the week client-side from the same server dates the report uses.
+  useEffect(() => {
+    if (!report) return
+    let cancelled = false
+    const dates: string[] = []
+    const cur = new Date(report.period.start + 'T00:00:00')
+    const end = new Date(report.period.end + 'T00:00:00')
+    for (let d = new Date(cur); d <= end; d.setDate(d.getDate() + 1)) {
+      dates.push(d.toISOString().slice(0, 10))
+    }
+    Promise.all(dates.map(d => api.getWater(d).catch(() => null)))
+      .then(results => {
+        if (cancelled) return
+        const days = results.filter((r): r is NonNullable<typeof r> => !!r)
+        const logged = days.filter(r => (r.total_ml || 0) > 0)
+        const goalMl = days.find(r => r.goal_ml)?.goal_ml || 2000
+        const avgMl = logged.length
+          ? Math.round(logged.reduce((s, r) => s + (r.total_ml || 0), 0) / logged.length)
+          : 0
+        setHydration({ avgMl, goalMl, loggedDays: logged.length })
+      })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [report])
 
   if (loading) {
     return (
@@ -93,7 +120,7 @@ export default function WeeklyReport() {
     )
   }
 
-  const routineNames = Object.entries(report.routines)
+  const routineNames = Object.entries(report.routines || {})
   const qualLabel = ['', 'Poor', 'Fair', 'OK', 'Good', 'Great']
 
   return (
@@ -153,6 +180,24 @@ export default function WeeklyReport() {
               : 'No sleep data'}
           />
         </div>
+
+        {/* Hydration */}
+        {hydration && hydration.loggedDays > 0 && (
+          <div style={{
+            background: 'var(--c-card)', border: '1px solid var(--c-border)', borderRadius: 14,
+            padding: 16, marginBottom: 16,
+          }}>
+            <ProgressBar
+              label="Hydration (avg/day)"
+              value={hydration.avgMl}
+              goal={hydration.goalMl}
+              color="#38bdf8"
+            />
+            <div style={{ fontSize: 12, color: 'var(--c-label-faint)' }}>
+              Logged {hydration.loggedDays}/7 days · {(hydration.avgMl / 1000).toFixed(1)}L/day average
+            </div>
+          </div>
+        )}
 
         {/* Weight */}
         <div style={{
