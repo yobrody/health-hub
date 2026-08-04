@@ -375,18 +375,26 @@ function WeightTile({ onNavigate }: { onNavigate: (tab: Tab) => void }) {
   })()
 
   return (
-    <Card onClick={() => !showInput && onNavigate('goals')}>
+    // Tapping the tile now opens the weight input directly (the "tap to log"
+    // hint used to lie — it navigated to Goals). The chevron still opens the trend.
+    <Card onClick={() => !showInput && setShowInput(true)}>
       <div className="flex items-center justify-between mb-2">
         <CardLabel>Weight</CardLabel>
         <div className="flex items-center gap-1.5">
           <button
             onClick={(e) => { e.stopPropagation(); setShowInput(v => !v) }}
-            className="text-[11px] text-[var(--c-accent)] font-medium hover:text-[var(--c-label)] transition-colors"
+            className="text-[12px] text-[var(--c-accent)] font-semibold hover:text-[var(--c-label)] transition-colors"
             style={{ WebkitTapHighlightColor: 'transparent' }}
           >
-            {showInput ? 'cancel' : 'Log'}
+            {showInput ? 'cancel' : '+ Log'}
           </button>
-          <Icon.Chevron size={16} className="text-[var(--c-label-faint)]" />
+          <button
+            onClick={(e) => { e.stopPropagation(); onNavigate('goals') }}
+            aria-label="Weight trend"
+            style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', display: 'flex', WebkitTapHighlightColor: 'transparent' }}
+          >
+            <Icon.Chevron size={16} className="text-[var(--c-label-faint)]" />
+          </button>
         </div>
       </div>
       {showInput ? (
