@@ -727,18 +727,22 @@ export default function Nutrition() {
               <Card style={{ marginBottom: 12, padding: '14px 16px' }}>
                 <CardLabel>Fibre, sugar &amp; salt</CardLabel>
                 {[
-                  { label: 'Fiber', current: hasRealMacros ? Math.round(totalFiber) : Math.round(total * 0.012), goal: NUTRITION_TARGETS.fibreG, unit: 'g', color: 'var(--c-green)' },
-                  { label: 'Sugar', current: totalSugar > 0 ? Math.round(totalSugar) : Math.round(total * 0.08 / 4), goal: NUTRITION_TARGETS.freeSugarsMaxG, unit: 'g', color: 'var(--c-orange)', isLimit: true },
-                  { label: 'Sodium', current: totalSodium > 0 ? Math.round(totalSodium) : Math.round(total * 0.9), goal: NUTRITION_TARGETS.sodiumMaxMg, unit: 'mg', color: 'var(--c-red)', isLimit: true },
+                  // Only show a number + bar for a micro that was ACTUALLY logged.
+                  // These used to be back-computed from calories (sodium = kcal×0.9
+                  // etc.) and drawn as real bars — a fabricated value dressed as
+                  // data. Unmeasured now reads "—" (honest absence), never a guess.
+                  { label: 'Fiber', current: Math.round(totalFiber), measured: totalFiber > 0, goal: NUTRITION_TARGETS.fibreG, unit: 'g', color: 'var(--c-green)' },
+                  { label: 'Sugar', current: Math.round(totalSugar), measured: totalSugar > 0, goal: NUTRITION_TARGETS.freeSugarsMaxG, unit: 'g', color: 'var(--c-orange)', isLimit: true },
+                  { label: 'Sodium', current: Math.round(totalSodium), measured: totalSodium > 0, goal: NUTRITION_TARGETS.sodiumMaxMg, unit: 'mg', color: 'var(--c-red)', isLimit: true },
                 ].map(micro => {
-                  const pctFill = Math.min(micro.current / micro.goal, 1.3)
-                  const isOver = micro.isLimit && micro.current > micro.goal
+                  const pctFill = micro.measured ? Math.min(micro.current / micro.goal, 1.3) : 0
+                  const isOver = micro.measured && micro.isLimit && micro.current > micro.goal
                   return (
                     <div key={micro.label} style={{ marginBottom: 10 }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 4 }}>
                         <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--c-label)' }}>{micro.label}</span>
                         <span style={{ fontSize: 11, color: isOver ? 'var(--c-red)' : 'var(--c-label-dim)', fontWeight: 500, ...mono }}>
-                          {micro.current}{micro.unit} / {micro.isLimit ? '<' : ''}{micro.goal}{micro.unit}
+                          {micro.measured ? `${micro.current}${micro.unit}` : '—'} / {micro.isLimit ? '<' : ''}{micro.goal}{micro.unit}
                         </span>
                       </div>
                       <div style={{ height: 6, borderRadius: 3, background: 'var(--c-border)', overflow: 'hidden' }}>
@@ -754,9 +758,9 @@ export default function Nutrition() {
                   )
                 })}
                 <div style={{ fontSize: 10, color: 'var(--c-label-faint)', marginTop: 4, fontStyle: 'italic' }}>
-                  {hasRealMacros
-                    ? (totalSugar > 0 && totalSodium > 0 ? 'From logged item data' : 'Fiber tracked · sugar & sodium estimated')
-                    : 'All three inferred from calories alone — not measured'}
+                  {totalFiber > 0 || totalSugar > 0 || totalSodium > 0
+                    ? 'Measured from logged items · “—” means not captured yet'
+                    : 'Not captured yet — log via barcode or database search for real fibre, sugar & salt'}
                 </div>
               </Card>
             )}

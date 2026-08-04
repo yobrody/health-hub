@@ -629,10 +629,27 @@ export interface ScannedItem {
 export interface ScanResult { items?: ScannedItem[]; store?: { name: string; location: string | null } | null; error?: string; raw?: string }
 
 // Smart scan — unified result from POST /scan/smart
+export interface ScanFoodItem {
+  name: string
+  kcal: number
+  protein_g: number
+  carbs_g: number
+  fat_g: number
+  grams?: number | null
+  /** Provenance of the numbers: 'database' = matched a real Open Food Facts
+   *  product (trustworthy); 'label' = read off a printed panel; 'estimate' = AI
+   *  guess. Absent = a plain AI estimate (the historical default). */
+  source?: 'estimate' | 'database' | 'label'
+  /** True for a packaged product we could NOT verify against the database — the
+   *  UI must not present the guessed macros as fact; it asks for the label. */
+  needsLabel?: boolean
+  /** Full per-portion micro map when matched to a database product. */
+  nutrients?: NutrientMap
+}
 export type SmartScanResult =
   | { type: 'barcode'; code: string | null }
   | { type: 'receipt'; items: ScannedItem[]; store?: { name: string; location: string | null } | null }
-  | { type: 'food'; foods: Array<{ name: string; kcal: number; protein_g: number; carbs_g: number; fat_g: number; grams?: number | null }>; confidence: 'high' | 'medium' | 'low' }
+  | { type: 'food'; foods: ScanFoodItem[]; confidence: 'high' | 'medium' | 'low'; source?: 'label' | 'estimate'; needs_label?: boolean }
 export interface FoodAnalysis {
   name: string; kcal: number; protein_g: number; carbs_g: number; fat_g: number
   description: string; confidence: 'high' | 'medium' | 'low'

@@ -888,7 +888,7 @@ async def smart_scan(input: ScanInput, key=Depends(require_key)):
         '  - section: "fridge"|"freezer"|"pantry"|"condiments"\n'
         "  SKIP non-food items (bags, cleaning products, toiletries)\n\n"
         'For food: {"type": "food", "foods": [\n'
-        '  {"name": "item name", "kcal": 300, "protein_g": 20, "carbs_g": 40, "fat_g": 10, "grams": 200}\n'
+        '  {"name": "item name", "kcal": 300, "protein_g": 20, "carbs_g": 40, "fat_g": 10, "grams": 200, "source": "estimate", "needs_label": false}\n'
         "], \"confidence\": \"high\"}\n"
         "  Rules for food identification:\n"
         "  - Count items separately. If there are 2 pies, list as '2x chicken pot pie' with nutrition for BOTH combined.\n"
@@ -897,12 +897,19 @@ async def smart_scan(input: ScanInput, key=Depends(require_key)):
         "    * A full bowl of yogurt with toppings is typically 200-350g (250-400 kcal), NOT 60 kcal.\n"
         "    * A standard dinner plate filled = 400-600g of food.\n"
         "    * A sandwich = typically 250-400 kcal depending on filling.\n"
-        "  - For each item, the 'grams' field should reflect the actual visible portion weight.\n"
+        "  - 'grams' MUST be your real visual estimate of that item's portion weight — judge it from size cues "
+        "(a chicken breast 120-180g, a banana 100-120g, a slice of bread ~35g, a mug of rice ~180g). NEVER lazily default to 100.\n"
         "  - If multiple units of the same food are visible, combine them into one entry with total nutrition.\n"
-        "  - NUTRITION LABEL visible? READ the printed numbers exactly, don't estimate. Prefer per-serving/per-pack values. "
+        "  - NUTRITION LABEL visible? READ the printed numbers exactly, don't estimate — set \"source\":\"label\". Prefer per-serving/per-pack values. "
         "If ONLY per-100g is shown, find the pack's net weight (e.g. '200g', '330ml', a single-serve pot) and SCALE the per-100g "
         "numbers to that full pack, setting grams to it — a single-serve pot/bottle is eaten in one go (a 200g pot at 6.2g protein/100g "
         "is ~24.8g for the pot, not 12.4g). Only fall back to per-100g with grams=100 if no pack size is visible.\n"
+        "  - FRONT-OF-PACK PACKAGED PRODUCT (a boxed/wrapped/bottled shop product — meal-deal sandwich in its printed sleeve, "
+        "a protein bar wrapper, a bottled shake — where you can read the BRAND but CANNOT read a nutrition panel): identify it as "
+        "precisely as you can, putting BRAND + product together in 'name' (e.g. 'Tesco The Chicken Club', 'Grenade Carb Killa Caramel'). "
+        "Give only a rough best-effort estimate and set \"source\":\"estimate\", \"needs_label\": true. Do NOT emit confident macros you "
+        "could not read — wrong numbers for a named product are worse than none; the app will look the name up in a food database or ask for the label.\n"
+        "  - source: \"label\" ONLY if you read a printed panel, else \"estimate\". needs_label: true only for the front-of-pack case above.\n"
         '  confidence: "high" if clearly identifiable, "medium" if somewhat ambiguous, "low" if very uncertain\n'
     )
     parsed = gemini_call(prompt, image_b64=input.image, mime_type=media_type, max_tokens=2000, temperature=0.2)
@@ -914,11 +921,13 @@ async def smart_scan(input: ScanInput, key=Depends(require_key)):
             return {"type": "barcode", "code": code}
         # Barcode not readable — re-classify as food product from the packaging
         food_prompt = (
-            "This is a photo of a food product. Identify it from the packaging and estimate nutrition.\n"
+            "This is a photo of a packaged food product whose barcode number could not be read. "
+            "Identify it precisely from the packaging — put BRAND + product name together (e.g. 'Tesco The Chicken Club').\n"
             "IMPORTANT: If the image appears to be upside-down, mirrored, or rotated, still identify its contents. "
             "Read text in any orientation. If you see product packaging, read the brand name even if the text is flipped or rotated.\n"
-            'Respond as JSON: {"type": "food", "foods": [{"name": "product name", "kcal": N, "protein_g": N, "carbs_g": N, "fat_g": N, "grams": N}], "confidence": "medium"}\n'
-            "Be specific — include the brand name if visible."
+            "If a nutrition panel is readable, READ it exactly and set \"source\":\"label\". Otherwise give only a rough estimate and "
+            "set \"source\":\"estimate\", \"needs_label\": true — do NOT present confident macros you could not read.\n"
+            'Respond as JSON: {"type": "food", "foods": [{"name": "brand + product name", "kcal": N, "protein_g": N, "carbs_g": N, "fat_g": N, "grams": N, "source": "estimate", "needs_label": true}], "confidence": "low"}'
         )
         parsed = gemini_call(food_prompt, image_b64=input.image, mime_type=media_type, max_tokens=1000, temperature=0.2)
         scan_type = "food"
@@ -945,6 +954,14 @@ async def smart_scan(input: ScanInput, key=Depends(require_key)):
 
     # Default: food
     raw_foods = parsed.get("foods") or []
+    # Per-item provenance: source = "label" (read off a printed panel, trustworthy)
+    # or "estimate" (guessed); needs_label = an unreadable front-of-pack product.
+    # These MUST survive per item — the client decides enrichment/lookup per food,
+    # so a labelled yogurt next to a packaged sandwich isn't dragged into a lookup.
+    def _src(f):
+        s = f.get("source")
+        return s if s in ("label", "estimate") else "estimate"
+
     foods = [
         {
             "name": (f.get("name") or "unknown").strip(),
@@ -953,6 +970,8 @@ async def smart_scan(input: ScanInput, key=Depends(require_key)):
             "carbs_g": round(float(f.get("carbs_g") or 0)),
             "fat_g": round(float(f.get("fat_g") or 0)),
             "grams": int(f.get("grams") or 0) if f.get("grams") else None,
+            "source": _src(f),
+            "needs_label": bool(f.get("needs_label")),
         }
         for f in raw_foods
         if isinstance(f, dict) and f.get("name")
@@ -960,7 +979,11 @@ async def smart_scan(input: ScanInput, key=Depends(require_key)):
     confidence = parsed.get("confidence", "medium")
     if confidence not in ("high", "medium", "low"):
         confidence = "medium"
-    return {"type": "food", "foods": foods, "confidence": confidence}
+    # Scan-level flags kept for back-compat: "estimate" unless every item was
+    # label-read; needs_label if any item needs one.
+    source = "label" if foods and all(f["source"] == "label" for f in foods) else "estimate"
+    needs_label = any(f["needs_label"] for f in foods)
+    return {"type": "food", "foods": foods, "confidence": confidence, "source": source, "needs_label": needs_label}
 
 # ── FOOD RECALCULATE ─────────────────────────────────────────────────
 @app.post("/food/recalculate")

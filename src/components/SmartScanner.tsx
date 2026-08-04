@@ -4,7 +4,8 @@ import { showToast } from '../toast'
 import { useSwipeDown } from '../hooks/useSwipeDown'
 import { rememberFood } from '../lib/food-memory'
 import { compressThumbnail } from '../lib/image'
-import type { FridgeData, SmartScanResult, BarcodeLookupResult, ScannedItem } from '../api/client'
+import { isLikelyPackaged, sharedBrandToken } from '../lib/packaged-food'
+import type { FridgeData, SmartScanResult, BarcodeLookupResult, ScannedItem, ScanFoodItem, FoodSearchProduct, NutrientMap } from '../api/client'
 
 type Stage = 'idle' | 'analyzing' | 'barcode-result' | 'receipt-result' | 'food-result'
 
@@ -39,6 +40,78 @@ function parseServingGrams(serving?: string): number | null {
   const m = serving.match(/(\d+(?:\.\d+)?)\s*g/i)
   if (m) { const g = parseFloat(m[1]); return g > 0 && g < 2000 ? g : null }
   return null
+}
+
+// A database hit only counts if it plausibly IS the scanned product — the query
+// and the matched product must share a real word (≥4 letters) or a known brand.
+// Without this, "Tesco chicken club" could silently adopt some unrelated
+// "chicken" product's real-but-wrong numbers — a subtler dishonesty than an open
+// guess. The brand check also rescues short brands ("Pret", "M&S", "Co-op") that
+// the ≥4-letter keyword filter drops.
+function isRelevantMatch(query: string, prod: FoodSearchProduct): boolean {
+  const hay = `${prod.name} ${prod.brand}`
+  const words = query.toLowerCase().match(/[a-z]{4,}/g) ?? []
+  if (words.some(w => hay.toLowerCase().includes(w))) return true
+  return sharedBrandToken(query, hay)
+}
+
+// True when this item's own flags mark it as an unreadable packaged product.
+// The backend sets `needs_label` (snake) per item; the enrichment sets
+// `needsLabel` (camel) — accept either.
+function itemFlaggedForLabel(f: ScanFoodItem): boolean {
+  return f.needsLabel === true || (f as ScanFoodItem & { needs_label?: boolean }).needs_label === true
+}
+
+// Packaged/branded products (a Tesco meal-deal box, a protein bar wrapper) that
+// the vision model could only guess at get their macros REPLACED with real Open
+// Food Facts numbers where a confident match exists — otherwise they're flagged
+// `needsLabel` so the UI asks for the label/barcode instead of trusting a guess.
+// Generic plated/whole foods (banana, chicken breast) are left untouched, and an
+// item already READ from a real label is trusted as-is (never second-guessed).
+// Decisions are per item — a labelled yogurt on the same plate as a packaged
+// sandwich must not be dragged through the lookup.
+async function enrichPackagedFoods(foods: ScanFoodItem[]): Promise<ScanFoodItem[]> {
+  return Promise.all(foods.map(async (f): Promise<ScanFoodItem> => {
+    if (f.source === 'label') return f
+    if (!isLikelyPackaged(f.name) && !itemFlaggedForLabel(f)) return f
+    try {
+      const { results } = await api.searchFood(f.name)
+      const best = (results || []).find(r => (r.per_100g?.kcal ?? 0) > 0 && isRelevantMatch(f.name, r))
+      if (best) {
+        const p = best.per_100g
+        // Portion weight, best source first: serving size → pack quantity → the
+        // scan's own visual estimate → last-resort per-100g (disclosed in name so
+        // a 60g bar's per-100g numbers are never passed off as the whole item).
+        const g = parseServingGrams(best.serving_size) ?? parseServingGrams(best.quantity)
+          ?? (typeof f.grams === 'number' && f.grams > 0 ? f.grams : null)
+        const per100 = g == null
+        const scale = per100 ? 1 : g / 100
+        const r0 = (v?: number) => (typeof v === 'number' ? Math.round(v * scale) : 0)
+        const r1 = (v?: number) => (typeof v === 'number' ? Math.round(v * scale * 10) / 10 : 0)
+        const nutrients: NutrientMap = {}
+        for (const [k, v] of Object.entries(p)) {
+          if (k === 'kcal') continue
+          // Sodium is the metric the app tracks; skip OFF's redundant salt_g so
+          // "All nutrients" doesn't list Sodium AND Salt for the same mineral.
+          if (k === 'salt_g' && typeof p.sodium_mg === 'number' && p.sodium_mg > 0) continue
+          if (typeof v === 'number' && v > 0) nutrients[k] = Math.round(v * scale * 100) / 100
+        }
+        return {
+          name: per100 ? `${best.name || f.name} (per 100g)` : (best.name || f.name),
+          kcal: r0(p.kcal),
+          protein_g: r1(p.protein_g),
+          carbs_g: r1(p.carbs_g),
+          fat_g: r1(p.fat_g),
+          grams: per100 ? 100 : g,
+          source: 'database',
+          nutrients: Object.keys(nutrients).length ? nutrients : undefined,
+        }
+      }
+    } catch { /* lookup failed — fall through to needs-label */ }
+    // Identified the product, but couldn't verify its numbers: keep the name,
+    // mark the guess as unverified so the UI never shows it as fact.
+    return { ...f, source: 'estimate', needsLabel: true }
+  }))
 }
 
 export default function SmartScanner({ open, onClose, onFridgeUpdated, fridgeData }: Props) {
@@ -231,19 +304,29 @@ export default function SmartScanner({ open, onClose, onFridgeUpdated, fridgeDat
           setStage('idle')
           return
         }
-        // Guard against hallucination from blank photos
-        const totalKcal = result.foods.reduce((a, f) => a + (f.kcal || 0), 0)
-        if (totalKcal === 0) {
+        // Packaged/branded items get their guessed macros swapped for real Open
+        // Food Facts numbers (or flagged for the label) before we show anything —
+        // so a confidently-wrong number never reaches the screen. Runs BEFORE the
+        // blank-photo guard so an identified-but-unverified packaged product isn't
+        // mistaken for "no food".
+        const enrichedFoods = await enrichPackagedFoods(result.foods)
+        // Guard against hallucination from blank photos: only bail when nothing
+        // carried calories AND nothing was actually identified (a needsLabel /
+        // database item counts as identified even if its kcal is 0).
+        const anyKcal = enrichedFoods.some(f => (f.kcal || 0) > 0)
+        const anyIdentified = enrichedFoods.some(f => f.source === 'database' || f.needsLabel)
+        if (!anyKcal && !anyIdentified) {
           showToast("Couldn't identify food -- try a clearer photo", 'err')
           setStage('idle')
           return
         }
-        setFoodResult(result as SmartScanResult & { type: 'food' })
-        if (thumb && result.foods.length > 0) {
-          saveDiaryEntry(new Date().toISOString(), thumb, result.foods)
+        const enriched: SmartScanResult & { type: 'food' } = { ...result, type: 'food', foods: enrichedFoods }
+        setFoodResult(enriched)
+        if (thumb && enrichedFoods.length > 0) {
+          saveDiaryEntry(new Date().toISOString(), thumb, enrichedFoods)
         }
         setStage('food-result')
-        api.logScanSample(thumb, 'food', { foods: result.foods, confidence: result.confidence })
+        api.logScanSample(thumb, 'food', { foods: enrichedFoods, confidence: result.confidence })
       }
     } catch {
       showToast('Scan failed -- try again', 'err')
@@ -362,9 +445,21 @@ export default function SmartScanner({ open, onClose, onFridgeUpdated, fridgeDat
 
       const totalCarbs = Math.round(foodResult.foods.reduce((a, f) => a + (f.carbs_g ?? 0), 0))
       const totalFat = Math.round(foodResult.foods.reduce((a, f) => a + (f.fat_g ?? 0), 0))
+      // Sum the REAL micros carried by any database-matched items so the day's
+      // "All nutrients" / fibre-sugar-salt panels reflect measured values, not a
+      // calorie guess. Items without a nutrients map simply contribute nothing.
+      const nutrients: NutrientMap = {}
+      for (const f of foodResult.foods) {
+        for (const [k, v] of Object.entries(f.nutrients ?? {})) {
+          if (typeof v === 'number' && v > 0) nutrients[k] = Math.round(((nutrients[k] ?? 0) + v) * 100) / 100
+        }
+      }
+      const hasNutrients = Object.keys(nutrients).length > 0
       await api.addFood({ meal, description: scanContext === 'out' && scanPlace.trim() ? `${foodLine} @ ${scanPlace.trim()}` : foodLine,
         kcal: totalKcal, protein_g: totalProtein,
         carbs_g: totalCarbs || undefined, fat_g: totalFat || undefined,
+        fiber_g: nutrients.fiber_g, sugar_g: nutrients.sugar_g, sodium_mg: nutrients.sodium_mg,
+        nutrients: hasNutrients ? nutrients : undefined,
         context: scanContext, place: scanContext === 'out' ? (scanPlace.trim() || undefined) : undefined })
       // Each identified food feeds the personal memory ("Your usual").
       foodResult.foods.forEach(f => rememberFood({ name: f.name, kcal: f.kcal, protein_g: f.protein_g, carbs_g: f.carbs_g ?? undefined, fat_g: f.fat_g ?? undefined }))
@@ -676,22 +771,31 @@ export default function SmartScanner({ open, onClose, onFridgeUpdated, fridgeDat
                       onClick={() => { setEditingIndex(i); setEditName(f.name) }}
                       style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}
                     >
-                      <div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontSize: 15, fontWeight: 600 }}>{f.name}</div>
+                        {f.source === 'database' && (
+                          <div style={{ fontSize: 11, color: 'var(--green)', marginTop: 2, fontWeight: 600 }}>✓ Matched to food database</div>
+                        )}
+                        {f.needsLabel && (
+                          <div style={{ fontSize: 11, color: 'var(--orange)', marginTop: 2 }}>Rough estimate — tap to snap the label or barcode for exact numbers</div>
+                        )}
                         {itemNotes[i] && (
                           <div style={{ fontSize: 11, color: 'var(--label3)', marginTop: 2, fontStyle: 'italic' }}>{itemNotes[i]}</div>
                         )}
                       </div>
-                      <div style={{ textAlign: 'right' }}>
+                      <div style={{ textAlign: 'right', flexShrink: 0, marginLeft: 8 }}>
                         <div style={{
-                          fontSize: 15, fontWeight: 700, color: 'var(--blue)',
+                          fontSize: 15, fontWeight: 700,
+                          // Unverified packaged guesses read muted with a "~", never
+                          // as a confident blue number dressed up as fact.
+                          color: f.needsLabel ? 'var(--label3)' : 'var(--blue)',
                           // "flash on recalculate" — the old code set the same
                           // scale(1) in both branches, so nothing ever showed.
                           background: updatedIndices.has(i) ? 'rgba(52,199,89,0.10)' : undefined,
                           borderRadius: 6,
                           transition: 'background 0.6s ease',
-                        }}>{f.kcal} kcal</div>
-                        <div style={{ fontSize: 12, color: 'var(--label2)' }}>{f.protein_g}g P / {f.carbs_g}g C / {f.fat_g}g F</div>
+                        }}>{f.needsLabel ? '~' : ''}{f.kcal} kcal</div>
+                        <div style={{ fontSize: 12, color: f.needsLabel ? 'var(--label3)' : 'var(--label2)' }}>{f.needsLabel ? '~' : ''}{f.protein_g}g P / {f.carbs_g}g C / {f.fat_g}g F</div>
                       </div>
                     </div>
                   )}
@@ -763,6 +867,11 @@ export default function SmartScanner({ open, onClose, onFridgeUpdated, fridgeDat
               <div style={{ fontSize: 11, color: 'var(--label3)', textAlign: 'center', padding: '0 0 4px' }}>
                 Tap any item to edit
               </div>
+              {foodResult.foods.some(f => f.needsLabel) && (
+                <div style={{ fontSize: 11, color: 'var(--orange)', textAlign: 'center', padding: '0 0 6px' }}>
+                  Total includes a rough estimate — snap the label or barcode for an accurate number.
+                </div>
+              )}
             </div>
 
             {/* Home / Out — where did you eat this? Home cross-references the
