@@ -3,7 +3,8 @@ import { api } from '../api/client'
 import { celebrate } from '../lib/celebrations'
 import { showToast } from '../toast'
 import { loadDirection } from '../lib/calorie-target'
-import type { BodyMetric, TDEEData, SleepStats } from '../api/client'
+import { computeReadiness } from '../lib/readiness'
+import type { BodyMetric, TDEEData, SleepStats, SleepEntry } from '../api/client'
 
 // ── Reusable components matching dark bento design from Today.tsx ────────────
 
@@ -169,6 +170,7 @@ export default function Metrics() {
   const [tdee, setTdee] = useState<TDEEData | null>(null)
   const [latest, setLatest] = useState<BodyMetric | null>(null)
   const [sleepStats, setSleepStats] = useState<SleepStats | null>(null)
+  const [sleepEntries, setSleepEntries] = useState<SleepEntry[]>([])
   const [metrics, setMetrics] = useState<BodyMetric[]>([])
   const [showLog, setShowLog] = useState(false)
   const [showSleep, setShowSleep] = useState(false)
@@ -190,8 +192,15 @@ export default function Metrics() {
     api.getTDEE().then(setTdee).catch(() => {})
     api.getLatestMetric().then(r => setLatest(r.metric)).catch(() => {})
     api.getSleepStats(7).then(setSleepStats).catch(() => {})
+    api.getSleep(30).then(r => setSleepEntries(r.entries)).catch(() => {})
     api.getMetrics(90).then(r => setMetrics(r.metrics)).catch(() => {})
   }, [])
+
+  // Recovery-aware readiness — from real sleep (+ HRV baseline when we have one).
+  const readiness = computeReadiness(sleepEntries)
+  const readyColor = readiness
+    ? readiness.level === 'ready' ? 'var(--green)' : readiness.level === 'moderate' ? 'var(--orange)' : 'var(--red)'
+    : 'var(--c-label-dim)'
 
   async function handleLogWeight(e: React.FormEvent) {
     e.preventDefault()
@@ -293,6 +302,27 @@ export default function Metrics() {
     <div className="page" style={{ background: 'var(--bg)' }}>
       <div className="page-content" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
         <div style={{ fontSize: 30, fontWeight: 700, letterSpacing: '-0.5px', marginBottom: 8 }}>Body & Recovery</div>
+
+        {/* ─── Readiness (recovery-aware training signal) ─── */}
+        {readiness && (
+          <Card>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+              <div style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                <ProgressRing progress={readiness.score / 100} size={64} stroke={6} color={readyColor} />
+                <div style={{ position: 'absolute', fontSize: 17, fontWeight: 700, fontFamily: "'JetBrains Mono', monospace", color: readyColor }}>
+                  {readiness.score}
+                </div>
+              </div>
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div style={{ fontSize: 15, fontWeight: 700, color: readyColor }}>{readiness.headline}</div>
+                <div style={{ fontSize: 13, color: 'var(--c-label-dim)', lineHeight: 1.45, marginTop: 2 }}>{readiness.advice}</div>
+                <div style={{ fontSize: 11, color: 'var(--c-label-faint)', marginTop: 6 }}>
+                  {readiness.factors.join(' · ')}{!readiness.usedHrv ? ' · sleep-only' : ''}
+                </div>
+              </div>
+            </div>
+          </Card>
+        )}
 
         {/* ─── HERO: Weight Display ─── */}
         <Card>

@@ -499,6 +499,7 @@ export const api = {
 
   // Sleep
   getSleepStats: (days = 7) => request<SleepStats>(`/sleep/stats?days=${days}`),
+  getSleep: (days = 30) => request<{ entries: SleepEntry[] }>(`/sleep?days=${days}`),
   logSleep: (data: { bedtime: string; wake_time: string; quality: number; hrv_ms?: number }) =>
     request<{ ok: boolean }>('/sleep', { method: 'POST', body: JSON.stringify(data) }),
 
@@ -953,6 +954,19 @@ export interface SleepStats {
   avg_duration: number | null
   avg_hrv?: number | null
   entries: number
+}
+
+// A single logged night (GET /sleep).
+export interface SleepEntry {
+  id?: string
+  date: string
+  bedtime?: string
+  wake_time?: string
+  duration_hrs: number
+  quality: number
+  hrv_ms?: number
+  resting_hr?: number
+  notes?: string
 }
 
 // Timeline

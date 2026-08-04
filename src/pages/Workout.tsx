@@ -22,6 +22,8 @@ import {
 } from '../lib/workout-flow'
 import { genericIncrement, learnFromLogs, resolveEquipment, nextUpWeight, nextDownWeight, snapToStack } from '../lib/gym-equipment'
 import { diagnoseProgress, type WeighIn, type LiftTrend } from '../lib/progress-diagnosis'
+import { computeReadiness } from '../lib/readiness'
+import type { SleepEntry } from '../api/client'
 import { useWakeLock } from '../lib/useWakeLock'
 import { analyzeWorkout, type WorkoutAnalysis } from '../lib/gym-analysis'
 import { weeklyVolumeByMuscle, type MuscleVolume } from '../lib/gym-muscles'
@@ -525,6 +527,7 @@ function lastRirOf(sets?: Array<{ rir?: number }>): number | null {
 export default function Workout({ onOpenSkill }: { onOpenSkill?: () => void }) {
   const [workouts, setWorkouts] = useState<WorkoutData[]>([])
   const [weighIns, setWeighIns] = useState<WeighIn[]>([])
+  const [sleepEntries, setSleepEntries] = useState<SleepEntry[]>([])
   const [openSection, setOpenSection] = useState<string | null>(null)
   const [prs, setPRs] = useState<Record<string, { weight_kg: number; reps: number; date: string }>>({})
   const [live, setLive] = useState<LiveWorkout | null>(null)
@@ -607,6 +610,8 @@ export default function Workout({ onOpenSkill }: { onOpenSkill?: () => void }) {
     api.getPRs().then(p => { setPRs(p); try { localStorage.setItem('gym_prs_cache', JSON.stringify(p)) } catch { /* quota */ } })
       .catch(() => { /* offline: cache already seeded */ })
     api.getWeightLog(90).then(r => setWeighIns(r.entries ?? [])).catch(() => setWeighIns([]))
+    // Recovery-aware readiness — surfaced before you start today's session.
+    api.getSleep(30).then(r => setSleepEntries(r.entries ?? [])).catch(() => setSleepEntries([]))
     // Fetch nutrition signal for the predicted-weight rule. Failure is silent —
     // we just default to "not properly eating" and weight bumps are suppressed,
     // which is the safer fallback than over-predicting on missing data.
@@ -2017,6 +2022,26 @@ export default function Workout({ onOpenSkill }: { onOpenSkill?: () => void }) {
             {PROGRAM[displayDay].focus}
           </div>
         </div>
+
+        {/* Recovery-aware readiness — reacts to last night's sleep / HRV. Only
+            shows when there's real sleep data (computeReadiness returns null
+            otherwise), and only when NOT already mid-session. */}
+        {!live && (() => {
+          const readiness = computeReadiness(sleepEntries)
+          if (!readiness) return null
+          const c = readiness.level === 'ready' ? 'var(--green)' : readiness.level === 'moderate' ? 'var(--orange)' : 'var(--red)'
+          return (
+            <div style={{ marginTop: 14, padding: '12px 14px', borderRadius: 12, border: `1.5px solid ${c}`, background: `${c}0d`, display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div style={{ fontSize: 22, fontWeight: 800, fontFamily: "'JetBrains Mono', monospace", color: c, minWidth: 34, textAlign: 'center' }}>
+                {readiness.score}
+              </div>
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div style={{ fontSize: 14, fontWeight: 700, color: c }}>{readiness.headline}</div>
+                <div style={{ fontSize: 13, color: 'var(--label2)', lineHeight: 1.4, marginTop: 1 }}>{readiness.advice}</div>
+              </div>
+            </div>
+          )
+        })()}
 
         {(() => {
           const day = PROGRAM[displayDay]
