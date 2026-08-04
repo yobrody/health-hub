@@ -2600,7 +2600,17 @@ def extract_off_nutrients(nutriments: dict) -> dict:
         v = g(off_key)
         if v is not None:
             out[name] = round(v * 1000, 1)
-    return out
+    # Sanity clamp — OFF is crowd-sourced and a few products carry mis-keyed or
+    # wrong-unit values. Drop anything physically implausible per 100g rather
+    # than surface a garbage micro (verified units are grams→mg; these caps are
+    # ~2x the max a real food hits).
+    CAPS = {
+        "sodium_mg": 40000, "salt_mg": 100000, "calcium_mg": 2000, "iron_mg": 100,
+        "potassium_mg": 5000, "magnesium_mg": 1000, "zinc_mg": 100, "vitamin_c_mg": 5000,
+        "cholesterol_mg": 3000, "saturated_fat_g": 100, "salt_g": 100, "sugar_g": 100,
+        "fiber_g": 100, "trans_fat_g": 100,
+    }
+    return {k: v for k, v in out.items() if v >= 0 and (k not in CAPS or v <= CAPS[k])}
 
 
 @app.get("/barcode/{code}")
