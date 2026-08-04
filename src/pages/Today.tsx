@@ -12,6 +12,7 @@ import { useAnimatedNumber } from '../lib/useAnimatedNumber'
 import { PerfectDayBadge } from '../components/Celebrations'
 import VoiceInput from '../components/VoiceInput'
 import Skeleton from '../components/Skeleton'
+import { WeeklyCheckIn } from '../components/WeeklyCheckIn'
 import { rememberFood, getUsualFoods, type FoodMemoryItem } from '../lib/food-memory'
 import { checkFoodPlausibility } from '../lib/food-plausibility'
 import { loadPriorities, savePriorities, withPriority } from '../lib/agenda-priority'
@@ -1335,6 +1336,10 @@ export default function Today({ onNavigate, onToggleTheme, themeIcon }: Props) {
             </svg>
           </button>
         </div>
+
+        {/* Proactive weekly check-in — reuses the adaptive engine, shows once
+            a week when the scale trend warrants a calorie tweak. */}
+        <WeeklyCheckIn onOpenGoals={() => onNavigate('goals')} />
 
         {/* Perfect day badge — shown when all goals are met */}
         {isPerfectDay && <PerfectDayBadge />}
