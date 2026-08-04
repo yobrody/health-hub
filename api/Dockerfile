@@ -6,8 +6,8 @@ RUN pip install --no-cache-dir \
     fastapi \
     "uvicorn[standard]" \
     python-dotenv \
-    anthropic \
-    python-multipart
+    python-multipart \
+    pywebpush
 
 COPY main.py .
 COPY .env .
