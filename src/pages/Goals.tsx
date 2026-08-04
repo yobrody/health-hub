@@ -12,6 +12,7 @@ import {
   type Direction,
   type WeightEntry,
 } from '../lib/calorie-target'
+import { suggestGoals } from '../lib/goal-suggestions'
 // Lazy so recharts only loads when the weight chart renders (off initial load).
 const WeightTrendChart = lazy(() => import('../components/WeightTrendChart'))
 
@@ -145,9 +146,41 @@ export default function GoalsPage() {
   const trend = analyzeWeightTrend(weights)
   const suggestion = suggestCalorieTarget(goals.calories, trend, direction)
 
+  // From-scratch baseline goals derived from real TDEE + real bodyweight.
+  // TDEE prefers the adaptive figure (from actual intake vs weight change),
+  // falling back to the Mifflin-St Jeor estimate. Weight is the latest weigh-in.
+  const tdeeVal = adaptiveTDEE ? (adaptiveTDEE.adaptive_tdee ?? adaptiveTDEE.estimated_tdee) : null
+  const latestKg = weights.length ? weights[weights.length - 1].kg : (adaptiveTDEE?.weight_kg ?? null)
+  const goalSuggestion = (tdeeVal != null && latestKg != null)
+    ? suggestGoals(tdeeVal, latestKg, direction)
+    : null
+  const calorieMatches = !!goalSuggestion && goalSuggestion.hasTdee && goals.calories === goalSuggestion.calories
+  const proteinMatches = !!goalSuggestion && goalSuggestion.hasWeight && goals.protein === goalSuggestion.protein
+
   function pickDirection(d: Direction) {
     setDirection(d)
     saveDirection(localStorage, d)
+    // Persist to the profile so the backend TDEE targets, chat coach and
+    // meal planner all reason from the SAME goal direction the user picked
+    // here — otherwise the server silently assumes "maintain".
+    api.updateTdeeProfile({ goal_direction: d }).catch(() => { /* offline — localStorage still holds it */ })
+  }
+
+  async function applyGoalSuggestion(kind: 'calories' | 'protein' | 'both') {
+    if (!goalSuggestion) return
+    const patch: GoalsUpdateInput = {}
+    if (kind !== 'protein' && goalSuggestion.hasTdee) patch.calories = goalSuggestion.calories
+    if (kind !== 'calories' && goalSuggestion.hasWeight) patch.protein = goalSuggestion.protein
+    if (patch.calories == null && patch.protein == null) return
+    setSaving(true)
+    try {
+      const updated = await api.updateGoals(patch) as { ok: boolean; goals: Goals }
+      setGoals(updated.goals)
+      if (navigator.vibrate) navigator.vibrate(8)
+      showToast('Goals updated from your data')
+    } catch {
+      showToast('Failed to apply suggestion', 'err')
+    } finally { setSaving(false) }
   }
 
   async function applySuggestion() {
@@ -444,6 +477,67 @@ export default function GoalsPage() {
             )}
           </div>
         </div>
+
+        {/* Suggested goals — derived from real TDEE + bodyweight + chosen
+            direction. Lets Brody set honest, weight-aware targets in one tap
+            instead of guessing round numbers. */}
+        {goalSuggestion && (goalSuggestion.hasTdee || goalSuggestion.hasWeight) && !(calorieMatches && proteinMatches) && (
+          <div className="card" style={{ padding: 16, marginBottom: 12, border: '1.5px solid var(--green)', background: 'var(--green)0d' }}>
+            <div style={{ fontSize: 13, color: 'var(--label2)', fontWeight: 600, marginBottom: 8, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+              Suggested for your {direction} goal
+            </div>
+            <div style={{ fontSize: 13, color: 'var(--label2)', lineHeight: 1.5, marginBottom: 12 }}>
+              {direction === 'gain'
+                ? `Muscle gain: a ${goalSuggestion.calorieDelta > 0 ? '+' : ''}${goalSuggestion.calorieDelta} kcal lean-bulk surplus over your TDEE, protein at ${goalSuggestion.proteinPerKg} g/kg.`
+                : direction === 'lose'
+                  ? `Cut: a ${goalSuggestion.calorieDelta} kcal deficit under your TDEE, protein kept high (${goalSuggestion.proteinPerKg} g/kg) to spare muscle.`
+                  : `Maintenance: eat at your TDEE, protein at ${goalSuggestion.proteinPerKg} g/kg.`}
+            </div>
+
+            {goalSuggestion.hasTdee && (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                <div>
+                  <div style={{ fontSize: 15, fontWeight: 600 }}>Calories</div>
+                  <div style={{ fontSize: 12, color: 'var(--label2)' }}>
+                    now {goals.calories.toLocaleString()} → <strong style={{ color: 'var(--blue)' }}>{goalSuggestion.calories.toLocaleString()}</strong> kcal
+                  </div>
+                </div>
+                <button onClick={() => applyGoalSuggestion('calories')} disabled={saving || calorieMatches}
+                  style={{ background: calorieMatches ? 'var(--gray5)' : 'var(--blue)', color: calorieMatches ? 'var(--label2)' : '#fff',
+                    border: 'none', borderRadius: 10, padding: '8px 16px', fontSize: 13, fontWeight: 700, cursor: calorieMatches ? 'default' : 'pointer' }}>
+                  {calorieMatches ? 'Set ✓' : 'Use'}
+                </button>
+              </div>
+            )}
+
+            {goalSuggestion.hasWeight && (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                <div>
+                  <div style={{ fontSize: 15, fontWeight: 600 }}>Protein</div>
+                  <div style={{ fontSize: 12, color: 'var(--label2)' }}>
+                    now {goals.protein}g → <strong style={{ color: 'var(--orange)' }}>{goalSuggestion.protein}g</strong> ({goalSuggestion.proteinRange[0]}–{goalSuggestion.proteinRange[1]}g range)
+                  </div>
+                </div>
+                <button onClick={() => applyGoalSuggestion('protein')} disabled={saving || proteinMatches}
+                  style={{ background: proteinMatches ? 'var(--gray5)' : 'var(--orange)', color: proteinMatches ? 'var(--label2)' : '#fff',
+                    border: 'none', borderRadius: 10, padding: '8px 16px', fontSize: 13, fontWeight: 700, cursor: proteinMatches ? 'default' : 'pointer' }}>
+                  {proteinMatches ? 'Set ✓' : 'Use'}
+                </button>
+              </div>
+            )}
+
+            {goalSuggestion.hasTdee && goalSuggestion.hasWeight && !(calorieMatches && proteinMatches) && (
+              <button onClick={() => applyGoalSuggestion('both')} disabled={saving}
+                style={{ width: '100%', background: 'var(--green)', color: '#fff', border: 'none', borderRadius: 12,
+                  padding: '12px 14px', fontSize: 14, fontWeight: 700, cursor: 'pointer' }}>
+                Use both
+              </button>
+            )}
+            <div style={{ fontSize: 11, color: 'var(--label3)', marginTop: 10, fontStyle: 'italic' }}>
+              Based on TDEE {tdeeVal?.toLocaleString()} kcal · {latestKg}kg bodyweight. Adjust anything with Edit above.
+            </div>
+          </div>
+        )}
 
         {/* Nutrition goals */}
         <div className="section-label">Nutrition goals</div>

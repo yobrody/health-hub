@@ -487,7 +487,7 @@ export const api = {
   getTDEE: () => request<TDEEData>('/tdee'),
   // Body profile behind the TDEE math. Without this call both TDEE cards run
   // on the hardcoded 80kg/180cm/25y defaults in main.py.
-  updateTdeeProfile: (data: { height_cm?: number; age?: number; sex?: string; activity_level?: string; weight_kg?: number }) => {
+  updateTdeeProfile: (data: { height_cm?: number; age?: number; sex?: string; activity_level?: string; weight_kg?: number; goal_direction?: string }) => {
     const qs = Object.entries(data).filter(([, v]) => v !== undefined && v !== null && v !== '')
       .map(([k, v]) => `${k}=${encodeURIComponent(String(v))}`).join('&')
     return request<{ ok: boolean; profile: Record<string, unknown> }>(`/tdee/profile?${qs}`, { method: 'PUT' })
