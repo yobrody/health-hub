@@ -215,17 +215,33 @@ def test_tdee(client):
 def test_tdee_activity_from_steps(client):
     """Syncing real steps feeds the activity derivation. The sync endpoint keys
     every push to the server's *current* day, so ≥3 calendar days of real syncs
-    are needed before activity_source flips to 'steps' — this test only asserts
-    the sync is accepted and the TDEE contract stays valid + self-consistent."""
+    are needed before activity_source flips to 'steps' (can't be forced from a
+    black-box client in one run). This asserts the sync is accepted and, when
+    the steps path IS active from prior days, that the exposed multiplier is the
+    one actually applied to BMR (bmr*multiplier == tdee)."""
     r = client.post("/healthkit/sync", json={"steps_today": 11000})
     assert r.status_code == 200
     d = client.get("/tdee").json()
     assert d.get("activity_source") in ("steps", "profile", "default")
+    sa = d.get("steps_activity")
     if d.get("activity_source") == "steps":
-        sa = d.get("steps_activity")
         assert sa and sa["avg_steps"] > 0 and sa["days"] >= 3
-        # steps_activity multiplier must be the one actually applied to BMR.
         assert round(d["bmr"] * sa["multiplier"]) == d["tdee"]
+    else:
+        assert sa is None
+
+
+def test_tdee_recommendation_respects_gain_direction(client):
+    """A bulker must never be told to cut. With goal_direction='gain', the TDEE
+    recommendation should not tell the user to reduce/trim intake."""
+    client.put("/tdee/profile", params={"goal_direction": "gain"})
+    d = client.get("/tdee").json()
+    assert d.get("goal_direction") == "gain"
+    rec = (d.get("recommendation") or "").lower()
+    # Only meaningful once there are ≥3 logged food days; otherwise it's the
+    # "log more" prompt, which is fine either way.
+    if "log food" not in rec:
+        assert "reduc" not in rec and "cut" not in rec and "trim" not in rec
 
 
 def test_adaptive_tdee_has_activity_source(client):

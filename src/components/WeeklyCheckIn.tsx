@@ -5,6 +5,7 @@ import {
   analyzeWeightTrend,
   loadDirection,
   suggestCalorieTarget,
+  type Direction,
   type WeightEntry,
 } from '../lib/calorie-target'
 import type { Goals } from '../api/client'
@@ -36,6 +37,10 @@ export function WeeklyCheckIn({ onOpenGoals }: { onOpenGoals?: () => void }) {
   const [dismissedWeek, setDismissedWeek] = useState<string>(() => {
     try { return localStorage.getItem(LS_DISMISS) || '' } catch { return '' }
   })
+  // Server-truth goal direction. localStorage alone would default a fresh
+  // browser (with imported weight history) to 'maintain' and could suggest a
+  // cut to someone actually bulking — so prefer the persisted profile.
+  const [serverDirection, setServerDirection] = useState<Direction | null>(null)
   const [applying, setApplying] = useState(false)
 
   useEffect(() => {
@@ -43,13 +48,17 @@ export function WeeklyCheckIn({ onOpenGoals }: { onOpenGoals?: () => void }) {
       .then(r => setWeights(r.entries.map(e => ({ date: e.date, kg: e.kg }))))
       .catch(() => { /* offline — no check-in this render */ })
     api.getGoals().then(g => setGoals(g.parsed)).catch(() => {})
+    api.getProfile().then(p => {
+      const gd = (p as unknown as Record<string, unknown>).goal_direction
+      if (gd === 'gain' || gd === 'maintain' || gd === 'lose') setServerDirection(gd)
+    }).catch(() => {})
   }, [])
 
   const week = mondayKey()
   if (dismissedWeek === week || !goals) return null
 
   const trend = analyzeWeightTrend(weights)
-  const direction = loadDirection(localStorage)
+  const direction = serverDirection ?? loadDirection(localStorage)
   const suggestion = suggestCalorieTarget(goals.calories, trend, direction)
   if (!suggestion.actionable || !trend) return null
 

@@ -1458,7 +1458,7 @@ def get_profile(key=Depends(require_key)):
             name = data.get("name", name)
             # Body profile behind the TDEE math — exposed so the Goals page
             # can prefill its editor (PUT /tdee/profile writes these).
-            body = {k: data.get(k) for k in ("height_cm", "age", "sex", "activity_level") if k in data}
+            body = {k: data.get(k) for k in ("height_cm", "age", "sex", "activity_level", "goal_direction") if k in data}
         except Exception:
             pass
     return {"name": name, "calories": goals["calories"], "protein": goals["protein"], **body}
@@ -2276,6 +2276,7 @@ def calculate_tdee(key=Depends(require_key)):
     height_cm = profile_data.get("height_cm", 180.0)
     age = profile_data.get("age", 25)
     sex = profile_data.get("sex", "male")
+    goal_direction = profile_data.get("goal_direction", "maintain")
 
     # Current weight = most recent weigh-in across BOTH stores (see _all_weighins).
     weight_kg, weight_source = _latest_weight_kg(profile_data)
@@ -2338,21 +2339,41 @@ def calculate_tdee(key=Depends(require_key)):
         "weight_trend": weight_trend,
         "weight_trend_message": weight_trend_msg,
         "weight_source": weight_source,
-        "recommendation": _tdee_recommendation(tdee, avg_intake, weight_trend),
+        "goal_direction": goal_direction,
+        "recommendation": _tdee_recommendation(tdee, avg_intake, weight_trend, goal_direction),
     }
 
-def _tdee_recommendation(tdee: int, avg_intake: Optional[int], weight_trend: Optional[dict]) -> str:
+def _tdee_recommendation(tdee: int, avg_intake: Optional[int], weight_trend: Optional[dict],
+                         goal_direction: str = "maintain") -> str:
+    """Direction-aware coaching line. Reads the user's goal so a bulker who is
+    eating above TDEE and gaining is told he's on track — NOT to cut (the whole
+    honesty point: never coach against the user's stated goal)."""
     if avg_intake is None:
         return "Log food for 3+ days to get adaptive recommendations."
     diff = avg_intake - tdee
-    if weight_trend and weight_trend["direction"] == "gaining" and diff > 200:
-        return f"Eating ~{diff} kcal above TDEE. Weight trending up. Consider reducing to {tdee} kcal for maintenance."
-    elif weight_trend and weight_trend["direction"] == "losing" and diff < -200:
-        return f"Eating ~{abs(diff)} kcal below TDEE. Weight trending down — on track if cutting."
-    elif abs(diff) <= 200:
+    gaining = bool(weight_trend and weight_trend["direction"] == "gaining")
+    losing = bool(weight_trend and weight_trend["direction"] == "losing")
+
+    if goal_direction == "gain":
+        if gaining:
+            return f"On track for your bulk — eating ~{diff:+d} kcal vs TDEE and gaining."
+        if diff <= 100:
+            return f"Not gaining yet. For a lean bulk, push intake ~200 kcal above your {tdee} kcal TDEE."
+        return f"Eating ~{diff:+d} kcal vs TDEE but weight is flat — give it a week, then add calories if it stalls."
+    if goal_direction == "lose":
+        if losing:
+            return f"On track for your cut — eating ~{diff:+d} kcal vs TDEE and trending down."
+        if diff >= -100:
+            return f"Not losing yet. For ~0.5 kg/wk, aim ~500 kcal below your {tdee} kcal TDEE."
+        return f"Eating ~{diff:+d} kcal vs TDEE but weight is flat — hold the deficit a week before cutting further."
+    # maintain
+    if abs(diff) <= 200:
         return "Intake aligns well with TDEE. Weight should be stable."
-    else:
-        return f"Avg intake: {avg_intake} kcal vs TDEE: {tdee} kcal. Delta: {diff:+d} kcal/day."
+    if gaining and diff > 200:
+        return f"Eating ~{diff} kcal above TDEE and trending up — trim toward {tdee} kcal to hold steady."
+    if losing and diff < -200:
+        return f"Eating ~{abs(diff)} kcal below TDEE and trending down — nudge toward {tdee} kcal to hold steady."
+    return f"Avg intake: {avg_intake} kcal vs TDEE: {tdee} kcal. Delta: {diff:+d} kcal/day."
 
 @app.put("/tdee/profile")
 def update_tdee_profile(key=Depends(require_key),

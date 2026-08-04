@@ -49,8 +49,9 @@ export function computeReadiness(
   const sorted = [...entries].sort((a, b) => a.date.localeCompare(b.date))
   const last = sorted[sorted.length - 1]
 
-  // Duration: linear 4h → target, capped either end.
-  const durScore = clamp01((last.duration_hrs - 4) / (targetSleepH - 4))
+  // Duration: linear 4h → target, capped either end. Guard the denominator so
+  // an odd targetSleepH (≤4) can't produce NaN/Infinity.
+  const durScore = clamp01((last.duration_hrs - 4) / Math.max(targetSleepH - 4, 1))
   // Quality 1..5 → 0..1.
   const qualScore = clamp01((last.quality - 1) / 4)
 

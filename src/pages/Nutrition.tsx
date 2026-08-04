@@ -485,6 +485,10 @@ export default function Nutrition() {
   // First-paint skeletons for the hero ring numbers while /today is in flight.
   const showSkeleton = loading && !data
   const total = data?.total_kcal ?? 0
+  // Honesty: only claim a calorie/protein goal when we actually loaded one.
+  // `history` is a separate fetch from `/today`, so the page can render its
+  // charts/rings even when goals are unknown — never against a fabricated 2200.
+  const hasGoal = data?.goals?.calories != null
   const goal = data?.goals.calories ?? 2200
   const pct = Math.min(total / goal, 1)
   const remaining = Math.max(goal - total, 0)
@@ -639,7 +643,7 @@ export default function Nutrition() {
               {/* Macro mini-rings */}
               <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 10 }}>
                 <div style={{ fontSize: 11, color: 'var(--c-label-faint)', textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 500 }}>
-                  of {goal.toLocaleString()} kcal goal
+                  of {hasGoal ? goal.toLocaleString() : '—'} kcal goal
                 </div>
                 <div style={{ display: 'flex', gap: 12 }}>
                   {/* Protein mini ring */}
@@ -960,23 +964,31 @@ export default function Nutrition() {
               <Card style={{ marginBottom: 12 }}>
                 <CardLabel>14-Day History</CardLabel>
                 <div style={{ position: 'relative', height: 120, display: 'flex', alignItems: 'flex-end', gap: 6, paddingTop: 10 }}>
-                  {/* Goal dashed line */}
-                  <div style={{
-                    position: 'absolute',
-                    top: 10,
-                    left: 0,
-                    right: 0,
-                    height: 1,
-                    borderTop: '1px dashed var(--c-label-faint)',
-                    opacity: 0.5,
-                  }} />
-                  <div style={{ position: 'absolute', top: 2, right: 0, fontSize: 9, color: 'var(--c-label-faint)', ...mono }}>
-                    {goal.toLocaleString()}
-                  </div>
+                  {/* Goal dashed line — only when the goal is real, never a fabricated 2200. */}
+                  {hasGoal && (
+                    <>
+                      <div style={{
+                        position: 'absolute',
+                        top: 10,
+                        left: 0,
+                        right: 0,
+                        height: 1,
+                        borderTop: '1px dashed var(--c-label-faint)',
+                        opacity: 0.5,
+                      }} />
+                      <div style={{ position: 'absolute', top: 2, right: 0, fontSize: 9, color: 'var(--c-label-faint)', ...mono }}>
+                        {goal.toLocaleString()}
+                      </div>
+                    </>
+                  )}
 
-                  {history.slice(1).map((d, i) => {
-                    const barHeight = d.logged ? Math.max((d.total_kcal / (goal * 1.3)) * 100, 4) : 4
-                    const overGoal = d.total_kcal > goal
+                  {(() => {
+                    // Without a real goal, scale bars off the observed max so the
+                    // chart is still readable but claims no target.
+                    const chartMax = hasGoal ? goal * 1.3 : Math.max(...history.slice(1).map(d => d.total_kcal), 1)
+                    return history.slice(1).map((d, i) => {
+                    const barHeight = d.logged ? Math.max((d.total_kcal / chartMax) * 100, 4) : 4
+                    const overGoal = hasGoal && d.total_kcal > goal
                     const dayLabel = new Date(d.date + 'T12:00:00').toLocaleDateString('en-GB', { weekday: 'short' }).slice(0, 2)
                     return (
                       <div key={i} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
@@ -996,7 +1008,8 @@ export default function Nutrition() {
                         </div>
                       </div>
                     )
-                  })}
+                  })
+                  })()}
                 </div>
               </Card>
             )}
