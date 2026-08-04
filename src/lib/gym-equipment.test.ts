@@ -58,3 +58,26 @@ describe('imperial stacks land on real notches', () => {
     }
   })
 })
+
+// Reported on-device 2026-08-04: these two machines produced weights that don't
+// exist — cable crunch 44.2kg (his notches are 36/41/45) and leg press 41.25kg.
+describe('reported off-stack machines now land on real weights', () => {
+  it('Cable Crunch uses the 10lb family (…36 / 41 / 45), never 44.2', () => {
+    const st = resolveEquipment('Cable Crunch').effectiveStack!
+    const vals = enumerateStack(st)
+    expect(vals).toContain(36)
+    expect(vals).toContain(41)
+    expect(vals).toContain(45)
+    expect(vals).not.toContain(44.2)
+    expect(Number.isInteger(snapToStack(st, 44))).toBe(true)
+  })
+
+  it('Leg Press steps in real plate increments (2.5kg), never 41.25', () => {
+    const st = resolveEquipment('Leg Press').effectiveStack!
+    const snapped = snapToStack(st, 41.2)
+    expect(snapped % 2.5).toBe(0)
+    expect(snapped).not.toBe(41.25)
+    // "too easy" at 40 bumps to a real notch, not an invented 41.25
+    expect(nextUpWeight(st, 40)).toBe(42.5)
+  })
+})

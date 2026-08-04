@@ -281,7 +281,7 @@ export const PROGRAM: Record<DayName, ProgramDay> = {
       {
         name: 'Seated Leg Curl', sets: 3, repRange: '10–15', restSeconds: 60,
         lift: 'isolation', startingWeightKg: 36,
-        swaps: [{ name: 'Lying Leg Curl' }, { name: 'Cable Leg Curl' }],
+        swaps: [{ name: 'Prone Leg Curl' }, { name: 'Lying Leg Curl' }, { name: 'Cable Leg Curl' }],
       },
       {
         name: 'Hip Thrust (Glute Drive)', sets: 3, repRange: '10–15', restSeconds: 90,

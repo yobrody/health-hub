@@ -91,6 +91,14 @@ function getExerciseAccent(name: string): string {
   return '#5E6877' // neutral graphite
 }
 
+// Cardio moves are logged by effort/time, not load — so the active card must
+// not prompt for a weight (treadmill "asks for weight" was the bug). Word-
+// bounded so it never catches strength lifts like "seated row" or "incline press".
+function isCardio(name: string): boolean {
+  const n = name.toLowerCase()
+  return /\b(treadmill|walk|walking|jog|jogging|run|running|sprint|cycle|cycling|elliptical|cross.?trainer|stair|stairmaster|rowing machine|row erg|erg|cardio|bike|spin)\b/.test(n)
+}
+
 // Local exercise DB search + fallback to wger API for custom exercises
 function searchExercisesLocal(query: string): string[] {
   const results = searchExerciseDB(query)
@@ -290,7 +298,9 @@ function ActiveSetCard({
           <div style={{ fontSize: 13, color: 'var(--label3)', marginTop: 3 }}>Doesn&rsquo;t count toward progress</div>
         </div>
       )}
-      {/* Weight pill — tap to expand +/- controls. Calm chips, no glass blur. */}
+      {/* Weight pill — tap to expand +/- controls. Calm chips, no glass blur.
+          Hidden for cardio (treadmill/walk/run…), which isn't a loaded lift. */}
+      {!isCardio(exerciseName) && (
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, marginBottom: 18 }}>
         {!showWeightEdit ? (
           <button
@@ -319,6 +329,7 @@ function ActiveSetCard({
           <div style={{ fontSize: 12, color: 'var(--label3)' }}>next notch {stackUp}kg</div>
         )}
       </div>
+      )}
 
       {reason && !isDone && (
         <div style={{ fontSize: 16, color: 'var(--label)', lineHeight: 1.4, margin: '-2px 0 16px', textWrap: 'pretty' } as React.CSSProperties}>

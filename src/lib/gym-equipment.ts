@@ -132,7 +132,10 @@ export const SEED_PADDINGTON: Equipment[] = [
 
   // Hammer Strength / plate-loaded
   { id: 'leg-press', name: 'Leg Press', type: 'plate-loaded',
-    stack: { min: 0, max: 400, step: 1.25 }, source: 'seed',
+    // 2.5kg steps = one 1.25kg plate per side, the smallest realistic add. The
+    // old 1.25 step invented weights like 41.25kg that don't exist on the sled.
+    // Self-corrects to Brody's real loads as he logs them.
+    stack: { min: 0, max: 400, step: 2.5 }, source: 'seed',
     aliases: ['leg press', 'horizontal leg press', '45 leg press'],
     notes: 'Plate-loaded sled. Sled itself ~30-50kg unloaded depending on machine.' },
   { id: 'hammer-row', name: 'Hammer Row', type: 'plate-loaded',
@@ -160,7 +163,7 @@ export const SEED_PADDINGTON: Equipment[] = [
   { id: 'leg-extension', name: 'Leg Extension', type: 'stack', stack: STACK_15LB, source: 'seed',
     aliases: ['leg extension', 'quad extension'] },
   { id: 'leg-curl', name: 'Leg Curl', type: 'stack', stack: STACK_10LB, source: 'seed',
-    aliases: ['leg curl', 'lying leg curl', 'seated leg curl', 'hamstring curl'] },
+    aliases: ['leg curl', 'lying leg curl', 'prone leg curl', 'seated leg curl', 'hamstring curl', 'cable leg curl'] },
   { id: 'calf-raise-machine', name: 'Standing Calf Raise (machine)', type: 'stack', stack: STACK_15LB, source: 'seed',
     aliases: ['standing calf raise', 'calf raise machine', 'seated calf raise'] },
   { id: 'glute-trainer', name: 'Glute Trainer', type: 'stack', stack: STACK_10LB, source: 'seed',
@@ -176,7 +179,9 @@ export const SEED_PADDINGTON: Equipment[] = [
     aliases: ['cable tricep pushdown', 'tricep pushdown', 'rope pushdown', 'cable triceps extension'] },
   { id: 'cable-curl', name: 'Cable Curl', type: 'cable', stack: CABLE_STACK_LB, source: 'seed',
     aliases: ['cable curl', 'cable bicep curl'] },
-  { id: 'cable-crunch', name: 'Cable Crunch', type: 'cable', stack: CABLE_STACK_LB, source: 'seed',
+  { id: 'cable-crunch', name: 'Cable Crunch', type: 'cable', stack: STACK_10LB, source: 'seed',
+    // Brody's cable crunch runs the 10lb selector family (…36 / 41 / 45…),
+    // confirmed 2026-08-04. The generic cable column produced 44.2kg, off-stack.
     aliases: ['cable crunch', 'kneeling cable crunch'] },
   { id: 'cable-glute-kickback', name: 'Cable Glute-Ham Kickback', type: 'cable', stack: CABLE_STACK_LB, source: 'seed',
     aliases: ['cable glute kickback', 'cable kickback'] },
