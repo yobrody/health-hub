@@ -16,11 +16,18 @@ Everything from the big 2026-08-04 feedback batch is shipped + deployed (backend
 
 ## Open / pending
 1. **Optional CF env var:** `SCAN_SAMPLES_TOKEN = hh_scan_431NLxeqrWM790HmkC3pB7qIKZP9RWWY` in Cloudflare Pages (Production) + retry deploy, to activate the nightly scan self-improvement review reads. No-ops harmlessly until set.
-2. **NEXT WORK (Brody's 2026-08-04 asks) — make Health Hub weight-aware & honest:**
-   a. **TDEE-derived goals.** Body weight now feeds BMR/TDEE (`GET /tdee` in main.py — was defaulting to 80kg, now uses the latest logged weight; Brody is 62kg). But calorie + protein GOALS are still fixed values (goals.md), not derived. Add: suggest a calorie goal from real TDEE and a protein goal from bodyweight (Brody's aim = **muscle gain** → surplus over maintenance, protein ~1.8–2.2 g/kg). Surface on Goals page; let him accept/adjust. Backend + frontend.
-   b. **Workout weight-awareness.** Engine already uses bodyweight for plateau detection (`diagnoseProgress`, `bodyweightFlatWeeks:3`) and a nutrition "properly eating" gate. Extend so goals/progress reflect the gain intent.
-   c. **Honesty audit.** Brody asked "is anything else not honest?" — audit for other places using hardcoded defaults / placeholder / stale data like the old 80kg TDEE default. Report + fix. (Known-good: machine weights self-correct, scans scale to pack, etc.)
-   d. **Final-vision additions.** Brody wants a "what should we add for the final vision of Health Hub" pass — propose a roadmap.
+
+## ⚠️ DEPLOY CHANGED (2026-08-04) — backend now needs a SECOND volume mount
+`DATA_DIR` used to live in the image's ephemeral layer (only WORKSPACE was mounted), so **every rebuild wiped workouts/weight/metrics/profile/lists/routines**, and profile.json never persisted. Fixed: `main.py` reads `HEALTH_DATA_DIR` (set to `/data` in the VPS `.env`), and the container now bind-mounts `/home/lucky/health-hub-data:/data`. **Any future `docker run` MUST include BOTH `-v` mounts** (see `api/README.md` Deploy). Existing data was migrated + backed up to `~/health-hub-backups/<ts>/` on lucky-vps. Historical weigh-ins (May 64.5kg) + 3 old workouts were recovered into the persistent dir.
+
+## Done — Brody's 2026-08-04 "weight-aware & honest" batch (shipped + deployed)
+- a. **TDEE-derived goals** ✓ `src/lib/goal-suggestions.ts` (calories = TDEE ± surplus/deficit, protein = bodyweight × g/kg: 2.0 gain / 2.2 cut / 1.6 maintain). Accept/tweak card on the Goals page; server mirror `_suggested_goals` in main.py (parity locked by test + `_round_half_up`).
+- b. **Muscle-gain intent carried through** ✓ Goal direction now persists to the profile (`PUT /tdee/profile?goal_direction=`); `Stats.tsx` progress tile colours gain as GOOD via `weightProgressTone`.
+- c. **Honesty audit** ✓ `docs/audits/2026-08-04-honesty-audit.md`. Big finds: the ephemeral-DATA_DIR data-loss bug (above), `/tdee` reading weight from only `body_metrics.json` (fell back to 80kg despite the real 62kg in `weight_log.json` — fixed via `_all_weighins`), goal direction assumed "maintain". All fixed + verified live.
+- d. **Roadmap** — delivered to Brody in-chat (not a doc).
+- **Review discipline:** added `.claude/agents/health-hub-reviewer.md` (correctness/honesty invariants). It reviewed this batch; its 3 findings were fixed in `3f013f3`.
+
+**Still worth doing (from the audit, low severity):** offline goal fallbacks (`?? 2200`/`?? 140`) draw a fake reference line when goals fetch fails — render `—` instead; add a "set your height/age for accurate TDEE" nudge (height/age/sex still default until Brody fills the now-persistent profile editor).
 
 ## Conventions when shipping from Claude Code (local)
 You're in the real git repo here, so it's simpler than the Cowork flow: edit → `npm run build` + `npx vitest run` + `npx tsc --noEmit` + `npx eslint` → `git add/commit/push` (Cloudflare auto-deploys frontend/Functions). For backend (`api/main.py`) run the scp + docker redeploy (status doc). Commit trailer used this project:
