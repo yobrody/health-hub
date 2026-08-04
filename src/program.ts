@@ -169,7 +169,7 @@ export const PROGRAM: Record<DayName, ProgramDay> = {
       // real number replaced the guess outright.
       {
         name: 'Seated Shoulder Press (machine)', sets: 3, repRange: '6–10', restSeconds: 120,
-        lift: 'compound', startingWeightKg: 27, rampUp: true,
+        lift: 'compound', startingWeightKg: 27,
         notes: 'Stack is 22/27/32 — there is no 30. 32kg gave 4,4 reps; 27kg is the working weight. Build to 6+ on all sets before touching 32 again.',
         swaps: [
           { name: 'Smith Overhead Press' },
@@ -228,7 +228,7 @@ export const PROGRAM: Record<DayName, ProgramDay> = {
     exercises: [
       {
         name: 'Lat Pulldown', sets: 3, repRange: '6–10', restSeconds: 120,
-        lift: 'compound', startingWeightKg: 38, rampUp: true, recalibrating: true,
+        lift: 'compound', startingWeightKg: 38, recalibrating: true,
         swaps: [{ name: 'Assisted Pull-Up Machine' }, { name: 'Pull-Ups (rig)' }],
       },
       {
@@ -269,7 +269,7 @@ export const PROGRAM: Record<DayName, ProgramDay> = {
     exercises: [
       {
         name: 'Leg Press', sets: 4, repRange: '8–12', restSeconds: 150,
-        lift: 'compound', startingWeightKg: 60, rampUp: true, recalibrating: true,
+        lift: 'compound', startingWeightKg: 60, recalibrating: true,
         notes: 'Seed is deliberately low — expect double jumps for a session or two.',
         swaps: [{ name: 'Hack Squat' }, { name: 'Smith Squat' }],
       },

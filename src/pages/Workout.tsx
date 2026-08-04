@@ -30,7 +30,7 @@ import { Section, SectionRow } from '../components/Section'
 import { searchExerciseDB, getExercisesByGroup, findExercise } from '../lib/exercises'
 import type { MuscleGroup } from '../lib/exercises'
 
-interface LiveSet extends ExerciseSet { done: boolean; rir?: number; drop?: boolean }
+interface LiveSet extends ExerciseSet { done: boolean; rir?: number; drop?: boolean; target?: number }
 
 // Effort tiers the user taps during rest → reps-in-reserve. Beginner-friendly:
 // they report how it FELT, not what's "correct".
@@ -851,6 +851,7 @@ export default function Workout({ onOpenSkill }: { onOpenSkill?: () => void }) {
         const sets: LiveSet[] = [...rampSets, ...Array.from({ length: ex.sets }, () => ({
           weight_kg: t.weight_kg,
           reps: t.repsTarget,
+          target: t.repsTarget,  // prescribed reps — a shortfall counts as a miss, not "too easy"
           done: false,
         }))]
         return { name: ex.name, sets, prevBest: pr, repRange: ex.repRange, rir: rirFor(ex.lift), restSeconds: ex.restSeconds, notes: ex.notes, swaps: ex.swaps, reason: t.reasonNote, stackUp: t.weightUp, stackDown: t.weightDown }
@@ -1001,21 +1002,30 @@ export default function Workout({ onOpenSkill }: { onOpenSkill?: () => void }) {
   function applySetFeedback(exIdx: number, setIdx: number, tier: 'easy' | 'good' | 'hard' | 'fail') {
     const exName = live?.exercises[exIdx]?.name ?? ''
     const eq = resolveEquipment(exName)
+    // A set logged below its prescribed reps is a miss — you aimed for the target
+    // and fell short. It must NOT count as "too easy" (that would push the weight
+    // up off a set you actually failed) and it records as a near-failure so the
+    // next session knows. Downgrade an 'easy' tap on a missed set to a hold.
+    const doneSet = live?.exercises[exIdx]?.sets[setIdx]
+    const missedTarget = !!doneSet && doneSet.target != null && (doneSet.reps ?? 0) < doneSet.target
+    const effTier: 'easy' | 'good' | 'hard' | 'fail' = (tier === 'easy' && missedTarget) ? 'good' : tier
     setLive(w => {
       if (!w) return w
       const exercises = w.exercises.map((ex, ei) => {
         if (ei !== exIdx) return ex
-        const sets = ex.sets.map((s, si) => si === setIdx ? { ...s, rir: TIER_RIR[tier] } : s)
+        const sets = ex.sets.map((s, si) => si === setIdx
+          ? { ...s, rir: missedTarget ? Math.min(TIER_RIR[effTier], 1) : TIER_RIR[effTier] }
+          : s)
         const doneWeight = sets[setIdx].weight_kg
-        if (doneWeight != null && doneWeight > 0 && (tier === 'easy' || tier === 'fail')) {
+        if (doneWeight != null && doneWeight > 0 && (effTier === 'easy' || effTier === 'fail')) {
           let adj = doneWeight
           if (eq.effectiveStack) {
-            adj = tier === 'easy'
+            adj = effTier === 'easy'
               ? nextUpWeight(eq.effectiveStack, doneWeight)
               : nextDownWeight(eq.effectiveStack, doneWeight)
           } else {
             const inc = genericIncrement(doneWeight)
-            adj = tier === 'easy'
+            adj = effTier === 'easy'
               ? Math.round((doneWeight + inc) * 100) / 100
               : Math.max(0, Math.round((doneWeight - inc) * 100) / 100)
           }
@@ -1031,13 +1041,14 @@ export default function Workout({ onOpenSkill }: { onOpenSkill?: () => void }) {
     // 2 minutes. Near-failure earns more recovery; an easy set, less.
     if (!live?.editingId) {
       const baseRest = live?.exercises[exIdx]?.restSeconds ?? 90
-      const factor = tier === 'easy' ? 0.8 : tier === 'good' ? 1.0 : tier === 'hard' ? 1.2 : 1.3
+      const factor = effTier === 'easy' ? 0.8 : effTier === 'good' ? 1.0 : effTier === 'hard' ? 1.2 : 1.3
       setRestTimer({ seconds: Math.max(30, Math.round(baseRest * factor / 5) * 5) })
     }
     if (navigator.vibrate) navigator.vibrate(12)
-    if (tier === 'easy') showToast('Up a notch next set 💪')
-    else if (tier === 'good') showToast('Held the weight — dialled in')
-    else if (tier === 'hard') showToast('Holding the weight, giving you more rest')
+    if (missedTarget && tier === 'easy') showToast(`Logged ${doneSet?.reps}/${doneSet?.target} reps — holding the weight, not a fail on you`)
+    else if (effTier === 'easy') showToast('Up a notch next set 💪')
+    else if (effTier === 'good') showToast('Held the weight — dialled in')
+    else if (effTier === 'hard') showToast('Holding the weight, giving you more rest')
     else showToast('Down a notch next set — or drop & keep going')
   }
 
