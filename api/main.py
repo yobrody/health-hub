@@ -2188,14 +2188,23 @@ _LOSE_DEFICIT_KCAL = 500
 _PROTEIN_G_PER_KG = {"gain": 2.0, "maintain": 1.6, "lose": 2.2}
 
 
+def _round_half_up(x: float) -> int:
+    """Round half away from zero for positive inputs, matching JS Math.round —
+    Python's built-in round() uses banker's rounding, which would make the API
+    and the frontend deriver disagree by 50 kcal at exact .5 boundaries."""
+    return int(math.floor(x + 0.5))
+
+
 def _suggested_goals(tdee, weight_kg: float, direction: str, weight_source: str) -> dict:
     """Weight/TDEE-derived baseline goals, matching the frontend deriver so the
     coach, meal-planner and Goals card all agree. Nulls out a metric when its
-    input is a guess rather than a real measurement."""
+    input is a guess rather than a real measurement — including calories, since
+    a default-weight TDEE is itself a guess, not something to suggest from."""
+    have_weight = weight_source != "default"
     delta = _GAIN_SURPLUS_KCAL if direction == "gain" else -_LOSE_DEFICIT_KCAL if direction == "lose" else 0
-    calories = round((tdee + delta) / 50) * 50 if tdee else None
+    calories = _round_half_up((tdee + delta) / 50) * 50 if (tdee and have_weight) else None
     pk = _PROTEIN_G_PER_KG.get(direction, 1.6)
-    protein = round(weight_kg * pk) if weight_source != "default" else None
+    protein = _round_half_up(weight_kg * pk) if have_weight else None
     return {
         "calories": calories,
         "calorie_delta": delta if calories is not None else 0,

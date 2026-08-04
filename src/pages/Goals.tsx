@@ -150,7 +150,11 @@ export default function GoalsPage() {
   // TDEE prefers the adaptive figure (from actual intake vs weight change),
   // falling back to the Mifflin-St Jeor estimate. Weight is the latest weigh-in.
   const tdeeVal = adaptiveTDEE ? (adaptiveTDEE.adaptive_tdee ?? adaptiveTDEE.estimated_tdee) : null
-  const latestKg = weights.length ? weights[weights.length - 1].kg : (adaptiveTDEE?.weight_kg ?? null)
+  // Only trust the server weight when it's a real value — never the 80kg
+  // placeholder (weight_source 'default'), or the card would suggest protein
+  // off a fabricated bodyweight and label it as his.
+  const serverWeight = adaptiveTDEE && adaptiveTDEE.weight_source !== 'default' ? adaptiveTDEE.weight_kg : null
+  const latestKg = weights.length ? weights[weights.length - 1].kg : serverWeight
   const goalSuggestion = (tdeeVal != null && latestKg != null)
     ? suggestGoals(tdeeVal, latestKg, direction)
     : null

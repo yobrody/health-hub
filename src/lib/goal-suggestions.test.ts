@@ -44,6 +44,12 @@ describe('suggestGoals — calories', () => {
     const s = suggestGoals(2413, 62, 'gain')
     expect(s.calories % 50).toBe(0)
   })
+
+  it('rounds half-UP at a .5 boundary (parity contract with backend _round_half_up)', () => {
+    // 2425 maintain → 2425/50 = 48.5 → 49*50 = 2450. The Python API must match
+    // this (its default round() would give 2400 via banker's rounding).
+    expect(suggestGoals(2425, 62, 'maintain').calories).toBe(2450)
+  })
 })
 
 describe('suggestGoals — protein', () => {
