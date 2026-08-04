@@ -563,7 +563,7 @@ function WaterTracker() {
   )
 }
 
-type Tab = 'today' | 'nutrition' | 'fridge' | 'workout' | 'chat' | 'goals' | 'skincare' | 'lists' | 'agenda' | 'routines' | 'metrics' | 'timeline' | 'barcode' | 'weekly-report' | 'insights' | 'meal-plan' | 'streaks'
+type Tab = 'today' | 'nutrition' | 'fridge' | 'workout' | 'chat' | 'goals' | 'skincare' | 'lists' | 'agenda' | 'routines' | 'metrics' | 'timeline' | 'barcode' | 'weekly-report' | 'insights' | 'meal-plan' | 'streaks' | 'seasonings' | 'skill'
 interface Props {
   onNavigate: (tab: Tab) => void
   onToggleTheme: () => void
@@ -1872,6 +1872,16 @@ export default function Today({ onNavigate, onToggleTheme, themeIcon }: Props) {
             </div>
             <div className="text-[13px] text-[var(--c-label-dim)]">Tomorrow</div>
             <div className="text-[12px] text-[var(--c-label-faint)] mt-0.5">AI meals from fridge</div>
+          </Card>
+
+          {/* Seasonings — lightweight condiment shelf */}
+          <Card onClick={() => onNavigate('seasonings')}>
+            <div className="flex items-center justify-between mb-2">
+              <CardLabel>Seasonings</CardLabel>
+              <span style={{ fontSize: 15 }}>🧂</span>
+            </div>
+            <div className="text-[13px] text-[var(--c-label-dim)]">Spices &amp; condiments</div>
+            <div className="text-[12px] text-[var(--c-label-faint)] mt-0.5">Snap or type to add</div>
           </Card>
 
           {/* Body — metrics page tile */}

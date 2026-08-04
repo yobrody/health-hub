@@ -62,6 +62,12 @@ function parseServingGrams(serving?: string): number | null {
 
 export default function SmartScanner({ open, onClose, onFridgeUpdated, fridgeData }: Props) {
   const [stage, setStage] = useState<Stage>('idle')
+  // Home = from your pantry/fridge (cross-references + depletes inventory).
+  // Out = eating out (skip the fridge, tag the place). Persisted default.
+  const [scanContext, setScanContext] = useState<'home' | 'out'>(() => {
+    try { return (localStorage.getItem('scan_context_default') as 'home' | 'out') || 'home' } catch { return 'home' }
+  })
+  const [scanPlace, setScanPlace] = useState('')
   const [saving, setSaving] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
   const sheetSwipe = useSwipeDown(handleClose) // swipe-down-to-dismiss (handleClose is hoisted)
@@ -89,6 +95,7 @@ export default function SmartScanner({ open, onClose, onFridgeUpdated, fridgeDat
 
   function reset() {
     setStage('idle')
+    setScanPlace('')
     setSaving(false)
     setBarcodeProduct(null)
     setBarcodeCode(null)
@@ -297,7 +304,8 @@ export default function SmartScanner({ open, onClose, onFridgeUpdated, fridgeDat
           sugar_g: sc(p100.sugar_g),
           sodium_mg: sc(p100.sodium_mg),
           confidence: 'high',
-          context: 'home',
+          context: scanContext,
+          place: scanContext === 'out' ? (scanPlace.trim() || undefined) : undefined,
           nutrients: Object.keys(nut).length ? nut : undefined,
         })
         window.dispatchEvent(new CustomEvent('food-logged'))
@@ -357,8 +365,10 @@ export default function SmartScanner({ open, onClose, onFridgeUpdated, fridgeDat
 
       const totalCarbs = Math.round(foodResult.foods.reduce((a, f) => a + (f.carbs_g ?? 0), 0))
       const totalFat = Math.round(foodResult.foods.reduce((a, f) => a + (f.fat_g ?? 0), 0))
-      await api.addFood({ meal, description: foodLine, kcal: totalKcal, protein_g: totalProtein,
-        carbs_g: totalCarbs || undefined, fat_g: totalFat || undefined, context: 'home' })
+      await api.addFood({ meal, description: scanContext === 'out' && scanPlace.trim() ? `${foodLine} @ ${scanPlace.trim()}` : foodLine,
+        kcal: totalKcal, protein_g: totalProtein,
+        carbs_g: totalCarbs || undefined, fat_g: totalFat || undefined,
+        context: scanContext, place: scanContext === 'out' ? (scanPlace.trim() || undefined) : undefined })
       // Each identified food feeds the personal memory ("Your usual").
       foodResult.foods.forEach(f => rememberFood({ name: f.name, kcal: f.kcal, protein_g: f.protein_g, carbs_g: f.carbs_g ?? undefined, fat_g: f.fat_g ?? undefined }))
       window.dispatchEvent(new CustomEvent('food-logged'))
@@ -367,7 +377,7 @@ export default function SmartScanner({ open, onClose, onFridgeUpdated, fridgeDat
       // against fridge items; decrement stock + feed the learned shelf-life
       // model. Best-effort: never blocks the food log.
       let usedCount = 0
-      if (fridgeData) {
+      if (fridgeData && scanContext === 'home') {
         try {
           const zones = ['fridge', 'freezer', 'pantry', 'condiments'] as const
           const inventory = zones.flatMap(z => (fridgeData[z] || []).map(it => ({ ...it, zone: z })))
@@ -513,6 +523,22 @@ export default function SmartScanner({ open, onClose, onFridgeUpdated, fridgeDat
                 )}
               </div>
             </div>
+
+            {/* Home / Out for the food-log path (fridge add is a separate button). */}
+            <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
+              {(['home', 'out'] as const).map(c => (
+                <button key={c} type="button"
+                  onClick={() => { setScanContext(c); try { localStorage.setItem('scan_context_default', c) } catch { /* quota */ } }}
+                  style={{ flex: 1, padding: '9px 0', borderRadius: 12, border: '1px solid ' + (scanContext === c ? 'var(--blue)' : 'var(--separator)'), background: scanContext === c ? 'var(--blue)' : 'var(--gray6)', color: scanContext === c ? '#fff' : 'var(--label)', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
+                  {c === 'home' ? '🏠 At home' : '🍽️ Eating out'}
+                </button>
+              ))}
+            </div>
+            {scanContext === 'out' && (
+              <input className="input-field" placeholder="Where? (optional)"
+                value={scanPlace} onChange={e => setScanPlace(e.target.value)}
+                style={{ marginBottom: 10, padding: '10px 12px', fontSize: 15 }} />
+            )}
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               <button onClick={() => barcodeAction('log')} disabled={saving} className="btn-primary">
@@ -741,6 +767,23 @@ export default function SmartScanner({ open, onClose, onFridgeUpdated, fridgeDat
                 Tap any item to edit
               </div>
             </div>
+
+            {/* Home / Out — where did you eat this? Home cross-references the
+                fridge and depletes stock; Out tags the place and skips it. */}
+            <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
+              {(['home', 'out'] as const).map(c => (
+                <button key={c} type="button"
+                  onClick={() => { setScanContext(c); try { localStorage.setItem('scan_context_default', c) } catch { /* quota */ } }}
+                  style={{ flex: 1, padding: '9px 0', borderRadius: 12, border: '1px solid ' + (scanContext === c ? 'var(--blue)' : 'var(--separator)'), background: scanContext === c ? 'var(--blue)' : 'var(--gray6)', color: scanContext === c ? '#fff' : 'var(--label)', fontSize: 14, fontWeight: 600, cursor: 'pointer' }}>
+                  {c === 'home' ? '\uD83C\uDFE0 At home' : '\uD83C\uDF7D\uFE0F Eating out'}
+                </button>
+              ))}
+            </div>
+            {scanContext === 'out' && (
+              <input className="input-field" placeholder="Where? (optional — e.g. Pret)"
+                value={scanPlace} onChange={e => setScanPlace(e.target.value)}
+                style={{ marginBottom: 10, padding: '10px 12px', fontSize: 15 }} />
+            )}
 
             <button
               onClick={logFood} disabled={saving} className="btn-primary"

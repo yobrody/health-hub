@@ -171,6 +171,10 @@ export default function Nutrition() {
   // carried through to the log so every nutrient the source gave is preserved.
   const [entryNutrients, setEntryNutrients] = useState<Record<string, number> | undefined>()
   const [showAllNutrients, setShowAllNutrients] = useState(false)
+  const [logContext, setLogContext] = useState<'home' | 'out'>(() => {
+    try { return (localStorage.getItem('scan_context_default') as 'home' | 'out') || 'home' } catch { return 'home' }
+  })
+  const [logPlace, setLogPlace] = useState('')
   // Fortnight of per-item history, for dietary pattern checks.
   const [foodLog, setFoodLog] = useState<FoodLogRow[]>([])
   const [confidence, setConfidence] = useState<string | undefined>()
@@ -294,13 +298,20 @@ export default function Nutrition() {
     const kcalNum = parseInt(kcal)
     const proteinNum = proteinG ? parseInt(proteinG) : undefined
     try {
-      await api.addFood({ meal, description: desc, kcal: kcalNum, protein_g: proteinNum, carbs_g: carbsG, fat_g: fatG, fiber_g: fiberG, sugar_g: sugarG, sodium_mg: sodiumMg, confidence, nutrients: entryNutrients })
+      await api.addFood({
+        meal,
+        description: logContext === 'out' && logPlace.trim() ? `${desc} @ ${logPlace.trim()}` : desc,
+        kcal: kcalNum, protein_g: proteinNum, carbs_g: carbsG, fat_g: fatG,
+        fiber_g: fiberG, sugar_g: sugarG, sodium_mg: sodiumMg, confidence, nutrients: entryNutrients,
+        context: logContext, place: logContext === 'out' ? (logPlace.trim() || undefined) : undefined,
+      })
       saveRecent({ desc, kcal: kcalNum, protein_g: proteinNum ?? 0 })
       rememberFood({ name: desc, kcal: kcalNum, protein_g: proteinNum, carbs_g: carbsG, fat_g: fatG })
       const updated = await api.getToday()
       setData(updated)
       api.getFoodHistory(14).then(h => setHistory(h)).catch(() => {})
       window.dispatchEvent(new CustomEvent('food-logged'))
+      setLogPlace('')
       resetSheet()
       if (navigator.vibrate) navigator.vibrate(10)
       showToast(`${desc} added to ${meal.toLowerCase()}`)
@@ -838,6 +849,9 @@ export default function Nutrition() {
                                   <div style={{ flex: 1, fontSize: 13, color: 'var(--c-label-dim)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                     {label}
                                   </div>
+                                  {e.context === 'out' && (
+                                    <span title={e.place ? `Eating out · ${e.place}` : 'Eating out'} style={{ fontSize: 11, flexShrink: 0 }}>🍽️</span>
+                                  )}
                                   <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--c-label-faint)', flexShrink: 0, ...mono }}>
                                     {e.kcal}
                                   </div>
@@ -1092,6 +1106,22 @@ export default function Nutrition() {
               <div style={{ marginTop: -6, marginBottom: 10, fontSize: 11, color: 'var(--c-label-faint)', ...mono }}>
                 Target: ~{mealTargetKcal} kcal · ~{mealTargetProtein}g protein
               </div>
+
+              {/* Home vs out — tags the entry so you can tell pantry meals from
+                  eating out (and only home meals touch the fridge). */}
+              <div style={{ display: 'flex', gap: 6, marginBottom: logContext === 'out' ? 8 : 12 }}>
+                {(['home', 'out'] as const).map(c => (
+                  <button key={c} type="button"
+                    onClick={() => { setLogContext(c); try { localStorage.setItem('scan_context_default', c) } catch { /* quota */ } }}
+                    style={{ flex: 1, padding: '7px 0', borderRadius: 10, border: '1px solid ' + (logContext === c ? 'var(--c-accent)' : 'var(--c-border)'), background: logContext === c ? 'var(--c-accent)' : 'var(--c-bg)', color: logContext === c ? '#fff' : 'var(--c-label)', fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
+                    {c === 'home' ? '🏠 At home' : '🍽️ Eating out'}
+                  </button>
+                ))}
+              </div>
+              {logContext === 'out' && (
+                <input className="input-field" placeholder="Where? (optional)" value={logPlace}
+                  onChange={e => setLogPlace(e.target.value)} style={{ marginBottom: 12, padding: '9px 12px', fontSize: 14 }} />
+              )}
 
               {/* Recent foods chips inside sheet */}
               {recentFoods.length > 0 && (
