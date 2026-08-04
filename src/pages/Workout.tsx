@@ -517,6 +517,9 @@ export default function Workout({ onOpenSkill }: { onOpenSkill?: () => void }) {
   const [openSection, setOpenSection] = useState<string | null>(null)
   const [prs, setPRs] = useState<Record<string, { weight_kg: number; reps: number; date: string }>>({})
   const [live, setLive] = useState<LiveWorkout | null>(null)
+  // Live-workout persistence: hydrated flips true after the restore effect so the
+  // persist effect can't clobber the saved snapshot on the first render.
+  const [hydrated, setHydrated] = useState(false)
   // Screen stays on while a session is running - roughly 20 unlocks saved.
   useWakeLock(live !== null)
 
@@ -610,6 +613,64 @@ export default function Workout({ onOpenSkill }: { onOpenSkill?: () => void }) {
       })
       .catch(() => { setProperlyEating(false) })
   }, [applyWorkouts])
+
+  // ── Live-workout persistence ──────────────────────────────────────────────
+  // A live workout is just React state, so switching tabs (which unmounts this
+  // page), backgrounding the PWA, or the phone killing it all used to wipe an
+  // in-progress session. Snapshot it to localStorage on every change and restore
+  // on mount so none of that loses your logged sets. The rest countdown is saved
+  // as an absolute deadline, so time keeps elapsing while you're away.
+  const LIVE_KEY = 'gym_live_v1'
+  const restDeadlineRef = useRef<number | null>(null)
+  const prevRestRef = useRef<{ seconds: number } | null>(null)
+
+  // Restore once, before the persist effect is allowed to run.
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(LIVE_KEY)
+      if (raw) {
+        const snap = JSON.parse(raw)
+        if (snap?.live?.exercises && Array.isArray(snap.live.exercises)) {
+          setLive(snap.live)
+          setFocusExIdx(snap.focusExIdx || 0)
+          setFocusSetIdx(snap.focusSetIdx || 0)
+          if (snap.phase === 'rest' && snap.restEndsAt) {
+            const rem = Math.round((snap.restEndsAt - Date.now()) / 1000)
+            if (rem > 1) { setPhase('rest'); setRestTimer({ seconds: rem }) }
+            else { setPhase('active') }  // rest already elapsed while away
+          } else {
+            setPhase(snap.phase === 'done' ? 'done' : 'active')
+          }
+        }
+      }
+    } catch { /* corrupt snapshot — start fresh */ }
+    setHydrated(true)
+  }, [])
+
+  // Convert the current rest timer into an absolute deadline the moment it starts.
+  useEffect(() => {
+    if (restTimer && restTimer !== prevRestRef.current) {
+      restDeadlineRef.current = Date.now() + restTimer.seconds * 1000
+    }
+    if (!restTimer) restDeadlineRef.current = null
+    prevRestRef.current = restTimer
+  }, [restTimer])
+
+  // Persist (only after hydration, so we never overwrite the snapshot with the
+  // null initial state before restore has run).
+  useEffect(() => {
+    if (!hydrated) return
+    try {
+      if (live) {
+        localStorage.setItem(LIVE_KEY, JSON.stringify({
+          live, focusExIdx, focusSetIdx, phase,
+          restEndsAt: phase === 'rest' ? restDeadlineRef.current : null,
+        }))
+      } else {
+        localStorage.removeItem(LIVE_KEY)
+      }
+    } catch { /* quota — best effort */ }
+  }, [hydrated, live, focusExIdx, focusSetIdx, phase, restTimer])
 
   // Last-session sets per exercise — the "did all reps hit?" signal for predictNextWeight.
   // Walks the workouts list newest-first and records the first occurrence of each exercise.
