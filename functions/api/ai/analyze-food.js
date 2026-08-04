@@ -41,8 +41,12 @@ export async function onRequestOptions() {
 // must NOT yield a confident guess (wrong numbers are worse than none) — flag
 // it low-confidence + needs_label so the app asks for the label.
 const LABEL_RULE = `PACKAGED FOOD & NUTRITION LABELS — check this FIRST, before anything else:
-- If a NUTRITION LABEL / information panel is visible (a table listing Energy/kcal, Fat, Carbohydrate, Protein — per 100g and/or per serving/pack): READ THE PRINTED NUMBERS EXACTLY. Never estimate when the label is readable. Return ONE food item. If a per-serving or per-pack column is shown, use those values and set grams to that serving size; otherwise use the per-100g values and set grams to 100. Set "source":"label" and "confidence":"high".
-- If a PACKAGED PRODUCT is shown only from the FRONT (branded wrapper/box, e.g. a meal-deal sandwich) and you CANNOT actually read a nutrition panel: identify the product name and give a rough best-effort estimate, but set "source":"estimate", "confidence":"low", and "needs_label": true. Do NOT present a confident number you could not read — the app will ask the user to photograph the nutrition label.`
+- If a NUTRITION LABEL / information panel is visible (a table listing Energy/kcal, Fat, Carbohydrate, Protein — per 100g and/or per serving/pack): READ THE PRINTED NUMBERS EXACTLY. Never estimate when the label is readable. Return ONE food item, and prefer values for the WHOLE amount the person will actually eat:
+  1. If a per-serving or per-pack column is shown, use those values and set grams to that serving/pack size.
+  2. If ONLY per-100g is shown, look for the pack's NET weight/volume anywhere on the packaging ("200g", "330ml", "500g e", a single-serve pot/bottle/tub). If found, SCALE the per-100g numbers to that full net amount and set grams to it — a single-serve pot or bottle is normally eaten in one go, so logging per-100g would undercount (e.g. a 200g pot at 6.2g protein/100g = 12.4g logged when it's really ~24.8g).
+  3. Only when you truly cannot find any pack size, fall back to the per-100g values with grams=100.
+  Set "source":"label" and "confidence":"high".
+- If a PACKAGED PRODUCT is shown only from the FRONT (branded wrapper/box, e.g. a meal-deal sandwich or a bottled protein shake) and you CANNOT actually read a nutrition panel: identify the product as precisely as you can, putting the BRAND and product name together in "name" (e.g. "For Goodness Shakes Chocolate", "Grenade Carb Killa Caramel") — the app looks this exact name up in a food database, so an accurate branded name is what makes the match work. Give a rough best-effort estimate, but set "source":"estimate", "confidence":"low", and "needs_label": true. Do NOT present a confident number you could not read — the app will ask the user to photograph the nutrition label.`
 
 // CRITICAL: the model must REFUSE to invent food when the image is empty,
 // dark, blurry, or non-food. Past failure mode: black screen → "chicken katsu

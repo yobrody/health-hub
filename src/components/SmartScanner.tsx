@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import { api } from '../api/client'
+import { api, isQueuedError } from '../api/client'
 import { showToast } from '../toast'
 import { useSwipeDown } from '../hooks/useSwipeDown'
 import { rememberFood } from '../lib/food-memory'
@@ -270,6 +270,16 @@ export default function SmartScanner({ open, onClose, onFridgeUpdated, fridgeDat
         // so we log the PORTION, not 100g (previously logged per-100g as-is —
         // a Coke barcode read 42 kcal instead of the can's ~140).
         const p100 = barcodeProduct.per_100g ?? {}
+        // Some barcodes resolve a product NAME but no nutrition (OFF has the
+        // product, no nutriments). Logging all-zeros gets rejected and surfaces
+        // as a bare "Action failed" — guide the user to the label instead.
+        const hasNutrition = (p100.kcal ?? barcodeProduct.kcal ?? 0) > 0 ||
+          [p100.protein_g, p100.carbs_g, p100.fat_g, barcodeProduct.protein_g].some(v => typeof v === 'number' && v > 0)
+        if (!hasNutrition) {
+          showToast(`Found ${barcodeProduct.name}, but no nutrition on file — snap the label for exact numbers`, 'info')
+          handleClose()
+          return
+        }
         const servingG = parseServingGrams(barcodeProduct.serving_size)
         const scale = servingG ? servingG / 100 : 1
         const sc = (v?: number) => (typeof v === 'number' ? Math.round(v * scale * 10) / 10 : undefined)
@@ -301,8 +311,11 @@ export default function SmartScanner({ open, onClose, onFridgeUpdated, fridgeDat
           : `Logged: ${barcodeProduct.name}${barcodeProduct.kcal ? ` -- ${barcodeProduct.kcal} kcal` : ''}`
       showToast(msg)
       handleClose()
-    } catch {
-      showToast('Action failed -- try again', 'err')
+    } catch (e) {
+      // A queued write (offline) isn't a failure — it'll sync. Only real errors
+      // should read as "failed".
+      if (isQueuedError(e)) { showToast('Saved — will sync when you’re back online'); handleClose() }
+      else showToast('Action failed -- try again', 'err')
     } finally {
       setSaving(false)
     }
