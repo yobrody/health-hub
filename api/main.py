@@ -178,6 +178,23 @@ def parse_entries(content: str) -> list:
             cm = re.search(r"confidence=(\w+)", meta)
             if cm:
                 entry["confidence"] = cm.group(1)
+            # Arbitrary micro/macro nutrients as a compact JSON blob — lets the
+            # log carry saturated fat, salt, calcium, iron, potassium, vitamins
+            # etc. without a schema change per nutrient.
+            ctx = re.search(r"context=(\w+)", meta)
+            if ctx:
+                entry["context"] = ctx.group(1)
+            pl = re.search(r"place=([^\n]+?)(?:\s+nutrients=|\s*$)", meta)
+            if pl:
+                entry["place"] = pl.group(1).strip()
+            nm = re.search(r"nutrients=(\{[^}]*\})", meta)
+            if nm:
+                try:
+                    nut = json.loads(nm.group(1))
+                    if isinstance(nut, dict):
+                        entry["nutrients"] = nut
+                except (json.JSONDecodeError, ValueError):
+                    pass
         entries.append(entry)
     return entries
 
@@ -339,10 +356,17 @@ class FoodEntry(BaseModel):
     sugar_g: Optional[int] = None
     sodium_mg: Optional[int] = None
     confidence: Optional[str] = None
+    # Full micro/macro nutrient map (saturated_fat_g, salt_g, calcium_mg,
+    # iron_mg, potassium_mg, vitamin_c_mg, vitamin_d_ug, …). Stored verbatim so
+    # every nutrient a source provides is preserved and can be shown/summed.
+    nutrients: Optional[dict] = None
     # ISO date YYYY-MM-DD. Defaults to today; let callers (e.g. the AI
     # assistant translating "yesterday I ate…") log to a different day.
     # Server clamps to a sensible window so the UI can never time-travel.
     date: Optional[str] = None
+    # 'home' (from pantry/fridge) or 'out' (eating out); optional place name.
+    context: Optional[str] = None
+    place: Optional[str] = None
 
 @app.get("/today")
 def get_today(key=Depends(require_key)):
@@ -385,6 +409,17 @@ def add_food(entry: FoodEntry, key=Depends(require_key)):
         macro_parts.append(f"sodium={entry.sodium_mg}mg")
     if entry.confidence:
         macro_parts.append(f"confidence={entry.confidence}")
+    if entry.context:
+        macro_parts.append(f"context={entry.context}")
+    if entry.place:
+        macro_parts.append(f"place={entry.place.replace(chr(10), ' ')[:60]}")
+    if entry.nutrients:
+        # Compact JSON, no spaces, numeric values only — keeps the comment
+        # regex-safe and small.
+        clean = {k: v for k, v in entry.nutrients.items()
+                 if isinstance(v, (int, float)) and v == v}
+        if clean:
+            macro_parts.append("nutrients=" + json.dumps(clean, separators=(",", ":")))
     macro_comment = f"\n<!-- {' '.join(macro_parts)} -->" if macro_parts else ""
     block = "\n### " + t + " — " + entry.meal + "\n- " + entry.description + " (~" + str(entry.kcal) + " kcal" + protein_str + ")" + macro_comment + "\n**Subtotal: ~" + str(entry.kcal) + " kcal**\n"
     content = re.sub(r"\n---\n\*\*Daily Total.*", "", content)
@@ -2528,6 +2563,46 @@ def get_timeline(days: int = 7, key=Depends(require_key)):
 
 
 # ── BARCODE SCANNER (nutrition lookup) ────────────────────────────────
+def extract_off_nutrients(nutriments: dict) -> dict:
+    """Pull the FULL per-100g micro/macro set Open Food Facts actually returned,
+    with safe unit conversions. Only includes a nutrient when OFF has the key —
+    never fabricates a 0. OFF was already returning all of this; the app used to
+    discard everything but a handful. Sodium is derived from salt when absent
+    (sodium = salt / 2.5), so barcode items finally carry sodium."""
+    out: dict = {}
+    def g(key):
+        v = nutriments.get(key)
+        return v if isinstance(v, (int, float)) else None
+    # grams as-is
+    for off_key, name in [
+        ("saturated-fat_100g", "saturated_fat_g"),
+        ("fiber_100g", "fiber_g"),
+        ("sugars_100g", "sugar_g"),
+        ("salt_100g", "salt_g"),
+        ("trans-fat_100g", "trans_fat_g"),
+    ]:
+        v = g(off_key)
+        if v is not None:
+            out[name] = round(v, 2)
+    # sodium: prefer OFF sodium_100g (g→mg), else derive from salt
+    sod = g("sodium_100g")
+    if sod is not None:
+        out["sodium_mg"] = round(sod * 1000)
+    elif "salt_g" in out:
+        out["sodium_mg"] = round(out["salt_g"] * 400)  # salt(g)/2.5*1000
+    # milligrams (OFF stores these per-100g in grams)
+    for off_key, name in [
+        ("calcium_100g", "calcium_mg"), ("iron_100g", "iron_mg"),
+        ("potassium_100g", "potassium_mg"), ("magnesium_100g", "magnesium_mg"),
+        ("cholesterol_100g", "cholesterol_mg"), ("vitamin-c_100g", "vitamin_c_mg"),
+        ("zinc_100g", "zinc_mg"),
+    ]:
+        v = g(off_key)
+        if v is not None:
+            out[name] = round(v * 1000, 1)
+    return out
+
+
 @app.get("/barcode/{code}")
 def barcode_lookup(code: str, key=Depends(require_key)):
     """Look up a barcode via Open Food Facts (free, no API key needed)."""
@@ -2570,6 +2645,7 @@ If you don't recognize the barcode, make your best guess based on common UK prod
 
     product = data.get("product", {})
     nutrients = product.get("nutriments", {})
+    full = extract_off_nutrients(nutrients)
     return {
         "code": code,
         "name": product.get("product_name", "Unknown"),
@@ -2584,7 +2660,11 @@ If you don't recognize the barcode, make your best guess based on common UK prod
             "fiber_g": nutrients.get("fiber_100g", 0),
             "sugar_g": nutrients.get("sugars_100g", 0),
             "salt_g": nutrients.get("salt_100g", 0),
+            "sodium_mg": full.get("sodium_mg", 0),
         },
+        # Full micro/macro map (saturated fat, salt, sodium, calcium, iron,
+        # potassium, vitamin C, …) — everything OFF supplied, per 100g.
+        "nutrients_per_100g": full,
         "image_url": product.get("image_front_url", ""),
     }
 

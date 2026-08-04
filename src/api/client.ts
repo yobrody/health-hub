@@ -653,13 +653,19 @@ export interface BarcodeLookupResult {
   protein_g?: number
   carbs_g?: number
   fat_g?: number
-  per_100g?: { kcal?: number; protein_g?: number; carbs_g?: number; fat_g?: number }
+  per_100g?: { kcal?: number; protein_g?: number; carbs_g?: number; fat_g?: number; fiber_g?: number; sugar_g?: number; salt_g?: number; sodium_mg?: number }
+  /** Full per-100g micro/macro map from Open Food Facts. */
+  nutrients_per_100g?: NutrientMap
   image_url?: string
 }
 export interface TodayData { date: string; entries: FoodEntry[]; total_kcal: number; goals: Goals }
-export interface FoodEntry { time: string; meal: string; items: string; kcal: number; protein_g?: number; carbs_g?: number; fat_g?: number; fiber_g?: number; sugar_g?: number; sodium_mg?: number; confidence?: string }
-export interface FoodEntryInput { meal: string; description: string; kcal: number; protein_g?: number; carbs_g?: number; fat_g?: number; fiber_g?: number; sugar_g?: number; sodium_mg?: number; confidence?: string; time?: string; date?: string }
-export interface FoodLogRow { date: string; time?: string; meal?: string; items?: string; kcal?: number; protein_g?: number; carbs_g?: number; fat_g?: number; fiber_g?: number; sugar_g?: number; sodium_mg?: number }
+/** Arbitrary per-portion micro/macro nutrients: saturated_fat_g, salt_g,
+ * calcium_mg, iron_mg, potassium_mg, vitamin_c_mg, etc. Whatever the source
+ * supplied — nothing is fabricated. */
+export type NutrientMap = Record<string, number>
+export interface FoodEntry { time: string; meal: string; items: string; kcal: number; protein_g?: number; carbs_g?: number; fat_g?: number; fiber_g?: number; sugar_g?: number; sodium_mg?: number; confidence?: string; context?: 'home' | 'out'; place?: string; nutrients?: NutrientMap }
+export interface FoodEntryInput { meal: string; description: string; kcal: number; protein_g?: number; carbs_g?: number; fat_g?: number; fiber_g?: number; sugar_g?: number; sodium_mg?: number; confidence?: string; time?: string; date?: string; context?: 'home' | 'out'; place?: string; nutrients?: NutrientMap }
+export interface FoodLogRow { date: string; time?: string; meal?: string; items?: string; kcal?: number; protein_g?: number; carbs_g?: number; fat_g?: number; fiber_g?: number; sugar_g?: number; sodium_mg?: number; context?: 'home' | 'out'; place?: string; nutrients?: NutrientMap }
 export interface HistoryDay { date: string; total_kcal: number; total_protein_g?: number; logged: boolean }
 export interface Goals { calories: number; protein: number; gym_days: number }
 export interface GoalsResponse { content: string; parsed: Goals }

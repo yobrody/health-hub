@@ -1,5 +1,38 @@
 import { useEffect, useState, useRef, lazy, Suspense } from 'react'
 import { NUTRITION_TARGETS } from '../program'
+
+// Friendly label + unit + sort order for any captured nutrient key. Keeps the
+// "All nutrients" panel readable and ordered (macros → fats → minerals → vits).
+const NUTRIENT_META: Record<string, { label: string; unit: string; order: number }> = {
+  saturated_fat_g: { label: 'Saturated fat', unit: 'g', order: 10 },
+  trans_fat_g: { label: 'Trans fat', unit: 'g', order: 11 },
+  cholesterol_mg: { label: 'Cholesterol', unit: 'mg', order: 12 },
+  fiber_g: { label: 'Fiber', unit: 'g', order: 20 },
+  sugar_g: { label: 'Sugar', unit: 'g', order: 21 },
+  salt_g: { label: 'Salt', unit: 'g', order: 30 },
+  sodium_mg: { label: 'Sodium', unit: 'mg', order: 31 },
+  potassium_mg: { label: 'Potassium', unit: 'mg', order: 40 },
+  calcium_mg: { label: 'Calcium', unit: 'mg', order: 41 },
+  iron_mg: { label: 'Iron', unit: 'mg', order: 42 },
+  magnesium_mg: { label: 'Magnesium', unit: 'mg', order: 43 },
+  zinc_mg: { label: 'Zinc', unit: 'mg', order: 44 },
+  vitamin_c_mg: { label: 'Vitamin C', unit: 'mg', order: 50 },
+  vitamin_d_ug: { label: 'Vitamin D', unit: 'µg', order: 51 },
+  vitamin_a_ug: { label: 'Vitamin A', unit: 'µg', order: 52 },
+}
+function buildNutrientMap(obj: Record<string, number | undefined | null>): Record<string, number> | undefined {
+  const out: Record<string, number> = {}
+  for (const [k, v] of Object.entries(obj)) if (typeof v === 'number' && v > 0) out[k] = v
+  return Object.keys(out).length ? out : undefined
+}
+function nutrientMeta(key: string): { label: string; unit: string; order: number } {
+  if (NUTRIENT_META[key]) return NUTRIENT_META[key]
+  // Fallback: derive a label + unit from the key suffix.
+  const unit = key.endsWith('_mg') ? 'mg' : key.endsWith('_ug') ? 'µg' : key.endsWith('_g') ? 'g' : ''
+  const label = key.replace(/_(g|mg|ug)$/, '').replace(/_/g, ' ').replace(/^\w/, c => c.toUpperCase())
+  return { label, unit, order: 99 }
+}
+
 import { analyseDiet } from '../lib/nutrition-gaps'
 import type { FoodLogRow } from '../api/client'
 import { api } from '../api/client'
@@ -134,6 +167,10 @@ export default function Nutrition() {
   const [fiberG, setFiberG] = useState<number | undefined>()
   const [sugarG, setSugarG] = useState<number | undefined>()
   const [sodiumMg, setSodiumMg] = useState<number | undefined>()
+  // Full micro/macro map captured from a barcode / DB search / smart estimate,
+  // carried through to the log so every nutrient the source gave is preserved.
+  const [entryNutrients, setEntryNutrients] = useState<Record<string, number> | undefined>()
+  const [showAllNutrients, setShowAllNutrients] = useState(false)
   // Fortnight of per-item history, for dietary pattern checks.
   const [foodLog, setFoodLog] = useState<FoodLogRow[]>([])
   const [confidence, setConfidence] = useState<string | undefined>()
@@ -199,6 +236,7 @@ export default function Nutrition() {
     setFiberG(undefined)
     setSugarG(undefined)
     setSodiumMg(undefined)
+    setEntryNutrients(undefined)
     setConfidence(undefined)
     setSmartResult(null)
     setSmartBase('')
@@ -256,7 +294,7 @@ export default function Nutrition() {
     const kcalNum = parseInt(kcal)
     const proteinNum = proteinG ? parseInt(proteinG) : undefined
     try {
-      await api.addFood({ meal, description: desc, kcal: kcalNum, protein_g: proteinNum, carbs_g: carbsG, fat_g: fatG, fiber_g: fiberG, sugar_g: sugarG, sodium_mg: sodiumMg, confidence })
+      await api.addFood({ meal, description: desc, kcal: kcalNum, protein_g: proteinNum, carbs_g: carbsG, fat_g: fatG, fiber_g: fiberG, sugar_g: sugarG, sodium_mg: sodiumMg, confidence, nutrients: entryNutrients })
       saveRecent({ desc, kcal: kcalNum, protein_g: proteinNum ?? 0 })
       rememberFood({ name: desc, kcal: kcalNum, protein_g: proteinNum, carbs_g: carbsG, fat_g: fatG })
       const updated = await api.getToday()
@@ -297,6 +335,11 @@ export default function Nutrition() {
     setFiberG(n.fiber_g)
     setSugarG(n.sugar_g)
     setSodiumMg(n.sodium_mg)
+    // Carry every micro the database product supplied into the log.
+    setEntryNutrients(buildNutrientMap({
+      saturated_fat_g: (n as { saturated_fat_g?: number }).saturated_fat_g,
+      fiber_g: n.fiber_g, sugar_g: n.sugar_g, salt_g: n.salt_g, sodium_mg: n.sodium_mg,
+    }))
     setConfidence('high')
     setSearchSource('verified')
     setSearchResults([])
@@ -323,6 +366,7 @@ export default function Nutrition() {
       setFiberG(r.fiber_g)
       setSugarG(r.sugar_g)
       setSodiumMg(r.sodium_mg)
+      setEntryNutrients(buildNutrientMap({ fiber_g: r.fiber_g, sugar_g: r.sugar_g, sodium_mg: r.sodium_mg }))
       setConfidence(r.confidence)
       if (navigator.vibrate) navigator.vibrate(8)
     } catch {
@@ -437,6 +481,17 @@ export default function Nutrition() {
       macrosEstimated = true
     }
   }
+  // Full micronutrient aggregation — sum every entry's `nutrients` map plus the
+  // core stored micros, so the panel can show ALL nutrients that were captured
+  // (saturated fat, salt, calcium, iron, potassium, vitamin C, …). Nothing is
+  // fabricated: a nutrient appears only if at least one logged item carried it.
+  const nutrientTotals: Record<string, number> = {}
+  for (const e of ents) {
+    for (const [k, v] of Object.entries(e.nutrients ?? {})) {
+      if (typeof v === 'number' && v === v) nutrientTotals[k] = (nutrientTotals[k] ?? 0) + v
+    }
+  }
+
   // Back-compat aliases used throughout the view (now real where available)
   const estimatedCarbs = Math.round(realCarbs)
   const estimatedFat = Math.round(realFat)
@@ -667,6 +722,41 @@ export default function Nutrition() {
                     ? (totalSugar > 0 && totalSodium > 0 ? 'From logged item data' : 'Fiber tracked · sugar & sodium estimated')
                     : 'All three inferred from calories alone — not measured'}
                 </div>
+              </Card>
+            )}
+
+            {/* ── 2c. ALL NUTRIENTS ─── every micro/macro captured from barcodes,
+                 DB searches and smart estimates, summed for the day. Only shows
+                 nutrients that were actually measured (nothing fabricated). ── */}
+            {Object.keys(nutrientTotals).length > 0 && (
+              <Card style={{ marginBottom: 12, padding: '14px 16px' }}>
+                <button onClick={() => setShowAllNutrients(v => !v)}
+                  style={{ width: '100%', background: 'none', border: 'none', padding: 0, cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <CardLabel>All nutrients today</CardLabel>
+                  <span style={{ fontSize: 13, color: 'var(--c-label-dim)' }}>{showAllNutrients ? 'Hide' : `${Object.keys(nutrientTotals).length} tracked ▾`}</span>
+                </button>
+                {showAllNutrients && (
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 16px', marginTop: 12 }}>
+                    {Object.entries(nutrientTotals)
+                      .sort((a, b) => nutrientMeta(a[0]).order - nutrientMeta(b[0]).order)
+                      .map(([k, v]) => {
+                        const m = nutrientMeta(k)
+                        return (
+                          <div key={k} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', borderBottom: '1px solid var(--c-border)', paddingBottom: 4 }}>
+                            <span style={{ fontSize: 12, color: 'var(--c-label)' }}>{m.label}</span>
+                            <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--c-label-dim)', ...mono }}>
+                              {v >= 100 ? Math.round(v) : Math.round(v * 10) / 10}{m.unit}
+                            </span>
+                          </div>
+                        )
+                      })}
+                  </div>
+                )}
+                {showAllNutrients && (
+                  <div style={{ fontSize: 10, color: 'var(--c-label-faint)', marginTop: 10, fontStyle: 'italic' }}>
+                    Only nutrients your logged items actually carried — barcode &amp; database items have the most. Log via barcode or database search for full micros.
+                  </div>
+                )}
               </Card>
             )}
 

@@ -52,6 +52,14 @@ function saveDiaryEntry(datetime: string, thumbnail: string, foods: Array<{ name
   } catch { /* localStorage quota or access denied */ }
 }
 
+// Parse grams from an Open Food Facts serving_size string ("30 g", "1 slice (25g)").
+function parseServingGrams(serving?: string): number | null {
+  if (!serving) return null
+  const m = serving.match(/(\d+(?:\.\d+)?)\s*g/i)
+  if (m) { const g = parseFloat(m[1]); return g > 0 && g < 2000 ? g : null }
+  return null
+}
+
 export default function SmartScanner({ open, onClose, onFridgeUpdated, fridgeData }: Props) {
   const [stage, setStage] = useState<Stage>('idle')
   const [saving, setSaving] = useState(false)
@@ -205,6 +213,7 @@ export default function SmartScanner({ open, onClose, onFridgeUpdated, fridgeDat
             carbs_g: serverProduct.per_100g?.carbs_g,
             fat_g: serverProduct.per_100g?.fat_g,
             per_100g: serverProduct.per_100g,
+            nutrients_per_100g: serverProduct.nutrients_per_100g,
           }
           setBarcodeCode(result.code)
           setBarcodeProduct(product)
@@ -266,11 +275,30 @@ export default function SmartScanner({ open, onClose, onFridgeUpdated, fridgeDat
       if (choice === 'log' || choice === 'both') {
         const h = new Date().getHours()
         const meal = h < 11 ? 'Breakfast' : h < 15 ? 'Lunch' : h < 18 ? 'Snack' : 'Dinner'
+        // Open Food Facts values are per-100g. Scale to the pack's serving size
+        // so we log the PORTION, not 100g (previously logged per-100g as-is —
+        // a Coke barcode read 42 kcal instead of the can's ~140).
+        const p100 = barcodeProduct.per_100g ?? {}
+        const servingG = parseServingGrams(barcodeProduct.serving_size)
+        const scale = servingG ? servingG / 100 : 1
+        const sc = (v?: number) => (typeof v === 'number' ? Math.round(v * scale * 10) / 10 : undefined)
+        const nut: Record<string, number> = {}
+        for (const [k, v] of Object.entries(barcodeProduct.nutrients_per_100g ?? {})) {
+          if (typeof v === 'number' && v > 0) nut[k] = Math.round(v * scale * 100) / 100
+        }
         await api.addFood({
           meal,
-          description: barcodeProduct.name,
-          kcal: barcodeProduct.kcal ?? 0,
-          protein_g: barcodeProduct.protein_g,
+          description: servingG ? barcodeProduct.name : `${barcodeProduct.name} (per 100g)`,
+          kcal: Math.round((p100.kcal ?? barcodeProduct.kcal ?? 0) * scale),
+          protein_g: sc(p100.protein_g ?? barcodeProduct.protein_g),
+          carbs_g: sc(p100.carbs_g ?? barcodeProduct.carbs_g),
+          fat_g: sc(p100.fat_g ?? barcodeProduct.fat_g),
+          fiber_g: sc(p100.fiber_g),
+          sugar_g: sc(p100.sugar_g),
+          sodium_mg: sc(p100.sodium_mg),
+          confidence: 'high',
+          context: 'home',
+          nutrients: Object.keys(nut).length ? nut : undefined,
         })
         window.dispatchEvent(new CustomEvent('food-logged'))
       }
@@ -327,7 +355,10 @@ export default function SmartScanner({ open, onClose, onFridgeUpdated, fridgeDat
       const h = new Date().getHours()
       const meal = h < 11 ? 'Breakfast' : h < 15 ? 'Lunch' : h < 18 ? 'Snack' : 'Dinner'
 
-      await api.addFood({ meal, description: foodLine, kcal: totalKcal, protein_g: totalProtein })
+      const totalCarbs = Math.round(foodResult.foods.reduce((a, f) => a + (f.carbs_g ?? 0), 0))
+      const totalFat = Math.round(foodResult.foods.reduce((a, f) => a + (f.fat_g ?? 0), 0))
+      await api.addFood({ meal, description: foodLine, kcal: totalKcal, protein_g: totalProtein,
+        carbs_g: totalCarbs || undefined, fat_g: totalFat || undefined, context: 'home' })
       // Each identified food feeds the personal memory ("Your usual").
       foodResult.foods.forEach(f => rememberFood({ name: f.name, kcal: f.kcal, protein_g: f.protein_g, carbs_g: f.carbs_g ?? undefined, fat_g: f.fat_g ?? undefined }))
       window.dispatchEvent(new CustomEvent('food-logged'))
