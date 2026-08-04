@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState, lazy, Suspense } from 'react'
 import { api } from '../api/client'
 import type { WorkoutData, PR, HistoryDay, Goals } from '../api/client'
+import { loadDirection } from '../lib/calorie-target'
+import { weightProgressTone } from '../lib/goal-suggestions'
 
 // Charts are lazy so recharts stays out of the initial bundle.
 const WeightTrendChart = lazy(() => import('../components/WeightTrendChart'))
@@ -144,6 +146,12 @@ export default function Stats() {
 
   const latestWeight = weights.length ? weights[weights.length - 1].kg : null
   const weightDelta = weights.length >= 2 ? weights[weights.length - 1].kg - weights[0].kg : null
+  // Colour the body-weight delta by the user's actual goal: gaining is GOOD
+  // when bulking, off-track when cutting. Anything else is a cut mindset the
+  // app has no business assuming.
+  const direction = loadDirection(localStorage)
+  const weightTone = weightDelta !== null ? weightProgressTone(weightDelta, direction) : 'neutral'
+  const weightColor = weightTone === 'good' ? 'var(--c-green)' : weightTone === 'bad' ? 'var(--c-orange)' : undefined
 
   if (loading) {
     return (
@@ -174,7 +182,7 @@ export default function Stats() {
             color={consistency.thisWeekCount >= (goals?.gym_days ?? 4) ? 'var(--c-green)' : undefined}
           />
           <StatCard label="Volume · 30d" value={consistency.volume30 >= 1000 ? `${(consistency.volume30 / 1000).toFixed(1)}t` : `${Math.round(consistency.volume30)}kg`} sub="lifted" />
-          <StatCard label="Body weight" value={latestWeight !== null ? `${latestWeight.toFixed(1)}` : '—'} sub={weightDelta !== null ? `${weightDelta > 0 ? '+' : ''}${weightDelta.toFixed(1)}kg overall` : 'kg'} color={weightDelta !== null ? (weightDelta < -0.1 ? 'var(--c-green)' : weightDelta > 0.1 ? 'var(--c-orange)' : undefined) : undefined} />
+          <StatCard label="Body weight" value={latestWeight !== null ? `${latestWeight.toFixed(1)}` : '—'} sub={weightDelta !== null ? `${weightDelta > 0 ? '+' : ''}${weightDelta.toFixed(1)}kg ${direction === 'gain' ? 'gained' : direction === 'lose' ? 'lost' : 'overall'}` : 'kg'} color={weightColor} />
           <StatCard label="Avg calories" value={nutrition.avgKcal ? nutrition.avgKcal.toLocaleString() : '—'} sub={nutrition.loggedDays ? `${nutrition.avgProtein}g protein/day` : 'no logs yet'} />
         </div>
 

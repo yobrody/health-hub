@@ -1,5 +1,23 @@
 import { describe, it, expect } from 'vitest'
-import { suggestGoals, GAIN_SURPLUS_KCAL, LOSE_DEFICIT_KCAL } from './goal-suggestions'
+import { suggestGoals, weightProgressTone, GAIN_SURPLUS_KCAL, LOSE_DEFICIT_KCAL } from './goal-suggestions'
+
+describe('weightProgressTone — gain is good for a bulker', () => {
+  it('treats gaining weight as good progress when bulking', () => {
+    expect(weightProgressTone(0.8, 'gain')).toBe('good')
+  })
+  it('treats losing weight as off-track when bulking', () => {
+    expect(weightProgressTone(-0.8, 'gain')).toBe('bad')
+  })
+  it('mirrors the logic when cutting', () => {
+    expect(weightProgressTone(-0.8, 'lose')).toBe('good')
+    expect(weightProgressTone(0.8, 'lose')).toBe('bad')
+  })
+  it('is neutral for maintenance drift and near-zero change', () => {
+    expect(weightProgressTone(0.5, 'maintain')).toBe('neutral')
+    expect(weightProgressTone(0.05, 'gain')).toBe('neutral')
+    expect(weightProgressTone(-0.05, 'lose')).toBe('neutral')
+  })
+})
 
 describe('suggestGoals — calories', () => {
   it('adds a lean-bulk surplus over TDEE when gaining', () => {

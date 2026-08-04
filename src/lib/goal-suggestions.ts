@@ -59,6 +59,24 @@ function validPositive(n: number): boolean {
   return Number.isFinite(n) && n > 0
 }
 
+/**
+ * Is a weight change good, bad, or neutral GIVEN the goal direction? A bulker
+ * gaining is winning; a cutter gaining is off-track. The old Stats card hard-
+ * coded "loss = green, gain = orange", which is dishonest for someone whose
+ * whole aim is muscle gain. `deadbandKg` keeps tiny scale noise neutral.
+ */
+export function weightProgressTone(
+  deltaKg: number,
+  direction: Direction,
+  deadbandKg = 0.1,
+): 'good' | 'bad' | 'neutral' {
+  if (!Number.isFinite(deltaKg) || Math.abs(deltaKg) <= deadbandKg) return 'neutral'
+  if (direction === 'maintain') return 'neutral'
+  const gaining = deltaKg > 0
+  const wantGain = direction === 'gain'
+  return gaining === wantGain ? 'good' : 'bad'
+}
+
 export function suggestGoals(tdee: number, weightKg: number, direction: Direction): GoalSuggestion {
   const hasTdee = validPositive(tdee)
   const hasWeight = validPositive(weightKg)
