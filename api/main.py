@@ -2652,6 +2652,367 @@ def sleep_stats(days: int = 7, key=Depends(require_key)):
     return {"avg_duration": avg_dur, "avg_quality": avg_qual, "avg_hrv": avg_hrv, "entries": len(recent)}
 
 
+# ── RECOVERY READINESS (server mirror of src/lib/readiness.ts) ───────
+# Kept in lockstep with the frontend so a morning push never disagrees with
+# what the Workout page shows. Honesty rules, same as the client:
+#   • None when there's no sleep at all — never invents a score.
+#   • HRV only factors in with a real ≥3-night personal baseline.
+def _compute_readiness(entries: Optional[list], target_sleep_h: float = 8.0) -> Optional[dict]:
+    if not entries:
+        return None
+    def clamp01(n: float) -> float:
+        return 0.0 if n < 0 else 1.0 if n > 1 else n
+    s = sorted(entries, key=lambda e: e.get("date", ""))
+    last = s[-1]
+    dur = float(last.get("duration_hrs", 0) or 0)
+    qual = float(last.get("quality", 0) or 0)
+    dur_score = clamp01((dur - 4) / max(target_sleep_h - 4, 1))
+    qual_score = clamp01((qual - 1) / 4)
+
+    prior_hrv = [
+        e["hrv_ms"] for e in s[:-1]
+        if isinstance(e.get("hrv_ms"), (int, float)) and e["hrv_ms"] > 0
+    ]
+    hrv_score: Optional[float] = None
+    hrv_baseline: Optional[float] = None
+    lh = last.get("hrv_ms")
+    if isinstance(lh, (int, float)) and lh > 0 and len(prior_hrv) >= 3:
+        hrv_baseline = sum(prior_hrv) / len(prior_hrv)
+        ratio = lh / hrv_baseline
+        hrv_score = clamp01((ratio - 0.8) / 0.3)
+
+    used_hrv = hrv_score is not None
+    score01 = (
+        dur_score * 0.45 + qual_score * 0.3 + hrv_score * 0.25
+        if used_hrv else dur_score * 0.6 + qual_score * 0.4
+    )
+    score = _round_half_up(score01 * 100)
+    level = "ready" if score >= 70 else "moderate" if score >= 45 else "low"
+
+    factors = []
+    dur_tag = "short" if dur < 6 else "good" if dur >= 7.5 else "ok"
+    factors.append(f"{dur:.1f}h sleep · {dur_tag}")
+    factors.append(f"quality {int(qual)}/5")
+    hrv_low = bool(used_hrv and lh < hrv_baseline * 0.9)
+    if used_hrv:
+        factors.append(
+            f"HRV {int(lh)}ms vs {_round_half_up(hrv_baseline)}ms baseline{' · low' if hrv_low else ''}"
+        )
+
+    short_sleep = dur < 6.5
+    if level == "ready":
+        headline = "Ready to train"
+        advice = "Recovered — train as planned and push your top sets."
+    elif level == "moderate":
+        headline = "Moderate recovery"
+        advice = (
+            "Down on sleep — train, but drop a set or cap the top weight if it feels heavy."
+            if short_sleep else "Train, but keep 1–2 reps in reserve on the heavy work."
+        )
+    else:
+        headline = "Low recovery"
+        if short_sleep and hrv_low:
+            advice = "Short sleep and suppressed HRV — deload today or take a rest day."
+        elif hrv_low:
+            advice = "HRV is well below your baseline — deload or do light technique work."
+        else:
+            advice = "Under-recovered — cut volume, skip the failure sets, prioritise sleep tonight."
+
+    return {
+        "score": score, "level": level, "headline": headline,
+        "factors": factors, "advice": advice, "usedHrv": used_hrv,
+    }
+
+@app.get("/readiness")
+def get_readiness(days: int = 30, key=Depends(require_key)):
+    entries = load_sleep()
+    cutoff = (date.today() - timedelta(days=days)).isoformat()
+    recent = [e for e in entries if e.get("date", "") >= cutoff]
+    return {"readiness": _compute_readiness(recent)}
+
+
+# ── WEEKLY CALORIE TREND (server mirror of src/lib/calorie-target.ts) ─
+# Mirrors the WeeklyCheckIn card so its push never says something the card
+# wouldn't. Same source (weight_log.json) and same thresholds.
+_WEEKLY_RULES = {
+    "gain":     {"target": 0.25,  "tol": 0.15, "over": 100, "under": 200,
+                 "reason_over": "Gaining faster than 0.4kg/week — eat 100 kcal less",
+                 "reason_under": "Not gaining — try 200 kcal more per day"},
+    "maintain": {"target": 0.0,   "tol": 0.2,  "over": 100, "under": 100,
+                 "reason_over": "Trending up — try 100 kcal less",
+                 "reason_under": "Trending down — try 100 kcal more"},
+    "lose":     {"target": -0.5,  "tol": 0.25, "over": 150, "under": 150,
+                 "reason_over": "Not losing — try 150 kcal less per day",
+                 "reason_under": "Losing faster than 0.75kg/week — eat 150 kcal more"},
+}
+
+def _weekly_trend(weights: list, window_days: int = 14) -> Optional[dict]:
+    entries = [
+        (w.get("date", "")[:10], float(w["kg"]))
+        for w in weights if w.get("kg") is not None and w.get("date")
+    ]
+    if not entries:
+        return None
+    entries.sort(key=lambda e: e[0])
+    try:
+        last_dt = date.fromisoformat(entries[-1][0])
+    except ValueError:
+        return None
+    cutoff_dt = last_dt - timedelta(days=window_days)
+    window = []
+    for ds, kg in entries:
+        try:
+            d = date.fromisoformat(ds)
+        except ValueError:
+            continue
+        if d >= cutoff_dt:
+            window.append((d, kg))
+    if len(window) < 2:
+        return None
+    x0 = window[0][0]
+    xs = [(d - x0).days for d, _ in window]
+    ys = [kg for _, kg in window]
+    n = len(xs)
+    mean_x = sum(xs) / n
+    mean_y = sum(ys) / n
+    num = sum((xs[i] - mean_x) * (ys[i] - mean_y) for i in range(n))
+    den = sum((xs[i] - mean_x) ** 2 for i in range(n))
+    slope_per_day = 0.0 if den == 0 else num / den
+    return {"days": n, "current": ys[-1], "weekly_change_kg": slope_per_day * 7, "reliable": n >= 14}
+
+def _weekly_suggestion(current_target: int, trend: Optional[dict], direction: str) -> dict:
+    if not trend or not trend["reliable"]:
+        return {"actionable": False}
+    rule = _WEEKLY_RULES.get(direction, _WEEKLY_RULES["maintain"])
+    upper = rule["target"] + rule["tol"]
+    lower = rule["target"] - rule["tol"]
+    wc = trend["weekly_change_kg"]
+    if wc > upper:
+        delta = -rule["over"]
+        return {"actionable": True, "delta": delta,
+                "suggested": _round_half_up((current_target + delta) / 50) * 50,
+                "reason": rule["reason_over"]}
+    if wc < lower:
+        delta = rule["under"]
+        return {"actionable": True, "delta": delta,
+                "suggested": _round_half_up((current_target + delta) / 50) * 50,
+                "reason": rule["reason_under"]}
+    return {"actionable": False}
+
+def _goal_direction() -> str:
+    if PROFILE_FILE.exists():
+        try:
+            gd = json.loads(PROFILE_FILE.read_text()).get("goal_direction")
+            if gd in ("gain", "maintain", "lose"):
+                return gd
+        except (json.JSONDecodeError, OSError):
+            pass
+    return "maintain"
+
+
+# ── WEB PUSH ─────────────────────────────────────────────────────────
+# Real push (server → device), distinct from the app's in-page reminders.
+# Subscriptions are per-device; each carries opt-in flags per notification
+# type. The VPS scheduler hits POST /push/run?job=... on a cadence; every job
+# only sends when the underlying signal is real (readiness needs recent sleep,
+# weekly needs an actionable weight trend, hydration needs a genuinely low
+# intake) — a push that fabricates a signal is worse than no push.
+PUSH_FILE = DATA_DIR / "push_subscriptions.json"
+VAPID_PRIVATE_KEY = os.getenv("VAPID_PRIVATE_KEY", "")
+VAPID_PUBLIC_KEY = os.getenv("VAPID_PUBLIC_KEY", "")
+VAPID_SUBJECT = os.getenv("VAPID_SUBJECT", "mailto:brody@health-hub.local")
+_PUSH_TYPES = ("readiness", "weekly", "hydration")
+
+def load_push_subs() -> list:
+    if PUSH_FILE.exists():
+        try:
+            return json.loads(PUSH_FILE.read_text())
+        except (json.JSONDecodeError, OSError):
+            return []
+    return []
+
+def save_push_subs(subs: list):
+    atomic_write_text(PUSH_FILE, json.dumps(subs, indent=2))
+
+def _default_prefs() -> dict:
+    # New devices opt in explicitly — nothing fires until a type is turned on.
+    return {t: False for t in _PUSH_TYPES}
+
+class PushSubscribeIn(BaseModel):
+    endpoint: str
+    keys: dict
+    expirationTime: Optional[float] = None
+
+class PushUnsubIn(BaseModel):
+    endpoint: str
+
+class PushPrefsIn(BaseModel):
+    endpoint: str
+    prefs: dict
+
+@app.get("/push/vapid_public")
+def push_vapid_public(key=Depends(require_key)):
+    """The application server (VAPID public) key the browser subscribes with.
+    Empty string until the server is configured — the client treats that as
+    'push not available' rather than erroring."""
+    return {"publicKey": VAPID_PUBLIC_KEY}
+
+@app.post("/push/subscribe")
+def push_subscribe(sub: PushSubscribeIn, key=Depends(require_key)):
+    subs = load_push_subs()
+    existing = next((s for s in subs if s.get("endpoint") == sub.endpoint), None)
+    if existing:
+        existing["keys"] = sub.keys  # refresh keys, keep prefs
+        existing.setdefault("prefs", _default_prefs())
+    else:
+        subs.append({
+            "endpoint": sub.endpoint,
+            "keys": sub.keys,
+            "prefs": _default_prefs(),
+            "created": datetime.now().isoformat(),
+        })
+    save_push_subs(subs)
+    return {"ok": True}
+
+@app.post("/push/unsubscribe")
+def push_unsubscribe(body: PushUnsubIn, key=Depends(require_key)):
+    subs = [s for s in load_push_subs() if s.get("endpoint") != body.endpoint]
+    save_push_subs(subs)
+    return {"ok": True}
+
+@app.get("/push/prefs")
+def push_get_prefs(endpoint: str, key=Depends(require_key)):
+    s = next((s for s in load_push_subs() if s.get("endpoint") == endpoint), None)
+    if not s:
+        return {"subscribed": False, "prefs": _default_prefs()}
+    return {"subscribed": True, "prefs": {**_default_prefs(), **s.get("prefs", {})}}
+
+@app.put("/push/prefs")
+def push_set_prefs(body: PushPrefsIn, key=Depends(require_key)):
+    subs = load_push_subs()
+    s = next((s for s in subs if s.get("endpoint") == body.endpoint), None)
+    if not s:
+        raise HTTPException(status_code=404, detail="subscription not found")
+    merged = {**_default_prefs(), **s.get("prefs", {})}
+    for t in _PUSH_TYPES:
+        if t in body.prefs:
+            merged[t] = bool(body.prefs[t])
+    s["prefs"] = merged
+    save_push_subs(subs)
+    return {"ok": True, "prefs": merged}
+
+def _send_one_push(sub: dict, payload: dict) -> bool:
+    """Send to a single subscription. Returns False when the endpoint is dead
+    (404/410) so the caller can prune it; True otherwise (including transient
+    failures, which we keep and log)."""
+    from pywebpush import webpush, WebPushException
+    try:
+        webpush(
+            subscription_info={"endpoint": sub["endpoint"], "keys": sub["keys"]},
+            data=json.dumps(payload),
+            vapid_private_key=VAPID_PRIVATE_KEY,
+            vapid_claims={"sub": VAPID_SUBJECT},
+        )
+        return True
+    except WebPushException as e:
+        status = getattr(getattr(e, "response", None), "status_code", None)
+        if status in (404, 410):
+            return False
+        print(f"[push] send failed (status={status}): {e}")
+        return True
+
+def _push_to_type(ptype: str, payload: dict) -> dict:
+    """Send `payload` to every subscription opted into `ptype`; prune dead ones."""
+    if not (VAPID_PRIVATE_KEY and VAPID_PUBLIC_KEY):
+        raise HTTPException(status_code=503, detail="VAPID keys not configured")
+    subs = load_push_subs()
+    targets = [s for s in subs if s.get("prefs", {}).get(ptype)]
+    sent = 0
+    dead = []
+    for s in targets:
+        if _send_one_push(s, payload):
+            sent += 1
+        else:
+            dead.append(s["endpoint"])
+    if dead:
+        remaining = [s for s in subs if s["endpoint"] not in dead]
+        save_push_subs(remaining)
+    return {"eligible": len(targets), "sent": sent, "pruned": len(dead)}
+
+def _build_readiness_payload() -> Optional[dict]:
+    entries = load_sleep()
+    cutoff = (date.today() - timedelta(days=30)).isoformat()
+    recent = [e for e in entries if e.get("date", "") >= cutoff]
+    r = _compute_readiness(recent)
+    if not r:
+        return None
+    # Don't fire a "this morning" ping off a stale reading: require last night's
+    # (or today's) sleep to be logged.
+    last_date = sorted(recent, key=lambda e: e.get("date", ""))[-1].get("date", "")
+    if last_date < (date.today() - timedelta(days=1)).isoformat():
+        return None
+    emoji = "\U0001F7E2" if r["level"] == "ready" else "\U0001F7E0" if r["level"] == "moderate" else "\U0001F534"
+    return {"title": f"{emoji} {r['headline']}", "body": r["advice"], "tag": "readiness", "url": "/"}
+
+def _build_weekly_payload() -> Optional[dict]:
+    # Weight from BOTH stores (weight_log.json + body_metrics.json) via the
+    # unified helper — matching every other calorie/TDEE path. Reading
+    # weight_log alone silently drops Metrics-page weigh-ins and can compute a
+    # trend on incomplete data (the 2026-08-04 audit bug).
+    weights = [{"date": d, "kg": kg} for d, kg in _all_weighins()]
+    # Only push against a real, user-set calorie goal — never the 2200 fallback
+    # read_goals() substitutes when goals.md is absent (that would drive a
+    # suggestion off a placeholder nobody set).
+    if not (WORKSPACE / "goals.md").exists():
+        return None
+    trend = _weekly_trend(weights)
+    current = read_goals().get("calories")
+    if not current:
+        return None
+    sug = _weekly_suggestion(int(current), trend, _goal_direction())
+    if not sug.get("actionable"):
+        return None
+    wc = trend["weekly_change_kg"]
+    trend_txt = f"{'+' if wc >= 0 else ''}{wc:.2f} kg/wk"
+    return {
+        "title": "Weekly check-in",
+        "body": f"You're trending {trend_txt}. {sug['reason']}.",
+        "tag": "weekly", "url": "/",
+    }
+
+def _build_hydration_payload() -> Optional[dict]:
+    data = _read_water()
+    total = data.get("total_ml", 0) or 0
+    goal = data.get("goal_ml", 2000) or 2000
+    # Afternoon nudge only when meaningfully behind (<55% of goal). On track → silent.
+    if goal <= 0 or total >= goal * 0.55:
+        return None
+    remaining = goal - total
+    return {
+        "title": "\U0001F4A7 Hydration check",
+        "body": f"{total}ml so far today — about {remaining}ml to go to hit {goal}ml.",
+        "tag": "hydration", "url": "/",
+    }
+
+_JOB_BUILDERS = {
+    "readiness": _build_readiness_payload,
+    "weekly": _build_weekly_payload,
+    "hydration": _build_hydration_payload,
+}
+
+@app.post("/push/run")
+def push_run(job: str, key=Depends(require_key)):
+    """Compute + send a scheduled push job. Called by the VPS cron. Returns an
+    honest no-op (sent: 0) when the signal isn't real enough to notify."""
+    builder = _JOB_BUILDERS.get(job)
+    if not builder:
+        raise HTTPException(status_code=400, detail=f"unknown job '{job}'")
+    payload = builder()
+    if payload is None:
+        return {"ok": True, "job": job, "sent": 0, "skipped": "no actionable signal"}
+    return {"ok": True, "job": job, **_push_to_type(job, payload)}
+
+
 # ── HEALTH TIMELINE ──────────────────────────────────────────────────
 @app.get("/timeline")
 def get_timeline(days: int = 7, key=Depends(require_key)):

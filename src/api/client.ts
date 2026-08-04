@@ -503,6 +503,17 @@ export const api = {
   logSleep: (data: { bedtime: string; wake_time: string; quality: number; hrv_ms?: number }) =>
     request<{ ok: boolean }>('/sleep', { method: 'POST', body: JSON.stringify(data) }),
 
+  // Push notifications (real web-push — see lib/push.ts)
+  getPushKey: () => request<{ publicKey: string }>('/push/vapid_public'),
+  pushSubscribe: (sub: unknown) =>
+    request<{ ok: boolean }>('/push/subscribe', { method: 'POST', body: JSON.stringify(sub) }),
+  pushUnsubscribe: (body: { endpoint: string }) =>
+    request<{ ok: boolean }>('/push/unsubscribe', { method: 'POST', body: JSON.stringify(body) }),
+  getPushPrefs: (endpoint: string) =>
+    request<{ subscribed: boolean; prefs: PushPrefs }>(`/push/prefs?endpoint=${encodeURIComponent(endpoint)}`),
+  setPushPrefs: (body: { endpoint: string; prefs: Partial<PushPrefs> }) =>
+    request<{ ok: boolean; prefs: PushPrefs }>('/push/prefs', { method: 'PUT', body: JSON.stringify(body) }),
+
   // Timeline
   getTimeline: (days = 7) => request<{ events: TimelineEvent[] }>(`/timeline?days=${days}`),
 
@@ -967,6 +978,14 @@ export interface SleepEntry {
   hrv_ms?: number
   resting_hr?: number
   notes?: string
+}
+
+// Push notifications (real web-push — see lib/push.ts). One flag per type; the
+// VPS scheduler reads these to decide what to send to each device.
+export interface PushPrefs {
+  readiness: boolean
+  weekly: boolean
+  hydration: boolean
 }
 
 // Timeline

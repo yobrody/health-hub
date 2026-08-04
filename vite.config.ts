@@ -328,6 +328,11 @@ export default defineConfig(({ mode }) => {
           skipWaiting: true,
           clientsClaim: true,
           cleanupOutdatedCaches: true,
+          // Pull our push/notificationclick handlers into the generated SW.
+          // Path is relative to the SW at the site root → /sw-push.js (copied
+          // verbatim from public/). Lets us keep generateSW's autoUpdate flow
+          // while still receiving real web-push.
+          importScripts: ['sw-push.js'],
           globPatterns: ['**/*.{js,css,html,ico,png,svg}'],
           runtimeCaching: [
             {

@@ -2,6 +2,7 @@ import { useEffect, useState, useRef, lazy, Suspense } from 'react'
 import { api } from '../api/client'
 import { showToast } from '../toast'
 import { celebrate } from '../lib/celebrations'
+import { PushSettings } from '../components/PushSettings'
 import type { WeekStats, Goals, GoalsUpdateInput, AdaptiveTDEEData, HistoryDay } from '../api/client'
 import { BUILD_SHA, BUILD_DATE } from '../build-info'
 import {
@@ -739,6 +740,10 @@ export default function GoalsPage() {
           </div>
           <span style={{ fontSize: 12, color: 'var(--label3)' }}>JSON backup</span>
         </button>
+
+        {/* Real web-push opt-in (readiness / weekly check-in / hydration).
+            Server-side prefs live per-device; the VPS scheduler reads them. */}
+        <PushSettings />
 
         <div style={{
           marginTop: 28, paddingTop: 18,
