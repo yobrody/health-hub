@@ -246,7 +246,7 @@ export default function Stats() {
           <SectionLabel>Calories · last 14 days</SectionLabel>
           {food.some(d => d.logged) ? (
             <Suspense fallback={<div style={{ height: 140, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, color: 'var(--c-label-faint)' }}>…</div>}>
-              <CalorieTrendChart history={food} goal={goals?.calories ?? 2200} days={14} />
+              <CalorieTrendChart history={food} goal={goals?.calories ?? null} days={14} />
             </Suspense>
           ) : (
             <div style={{ fontSize: 13, color: 'var(--c-label-faint)' }}>No food logged yet.</div>

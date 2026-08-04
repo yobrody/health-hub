@@ -681,7 +681,7 @@ export default function Nutrition() {
               <CardLabel>Last 14 days</CardLabel>
               <div style={{ marginTop: 8 }}>
                 <Suspense fallback={<Skeleton w="100%" h={180} />}>
-                  <CalorieTrendChart history={history} goal={goal} days={14} />
+                  <CalorieTrendChart history={history} goal={data?.goals.calories ?? null} days={14} />
                 </Suspense>
               </div>
             </Card>

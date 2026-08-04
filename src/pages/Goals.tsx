@@ -161,6 +161,11 @@ export default function GoalsPage() {
   const calorieMatches = !!goalSuggestion && goalSuggestion.hasTdee && goals.calories === goalSuggestion.calories
   const proteinMatches = !!goalSuggestion && goalSuggestion.hasWeight && goals.protein === goalSuggestion.protein
 
+  // Height/age/sex still unset → the server TDEE silently runs on 180cm/25/male
+  // defaults. Nudge Brody to fill the (already-present) body-profile editor so
+  // his TDEE stops being a guess (2026-08-04 honesty-audit recommendation).
+  const profileIncomplete = !bodyProfile.height_cm || !bodyProfile.age || !bodyProfile.sex
+
   function pickDirection(d: Direction) {
     setDirection(d)
     saveDirection(localStorage, d)
@@ -395,6 +400,24 @@ export default function GoalsPage() {
           </div>
         )}
 
+        {/* Accurate-TDEE nudge — only while the body profile is still on defaults. */}
+        {profileIncomplete && (
+          <button
+            onClick={() => document.getElementById('body-profile')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+            style={{
+              width: '100%', textAlign: 'left', marginBottom: 12, cursor: 'pointer',
+              border: '1.5px solid var(--orange)', background: 'var(--orange)0d', borderRadius: 14, padding: 16,
+            }}
+          >
+            <div style={{ fontSize: 13, color: 'var(--orange)', fontWeight: 700, marginBottom: 4 }}>
+              Set your height, age & sex for an accurate TDEE
+            </div>
+            <div style={{ fontSize: 13, color: 'var(--label2)', lineHeight: 1.5 }}>
+              Until you do, the TDEE math assumes 180 cm / 25 y / male — so the numbers above are a rough estimate, not yours. Tap to fill it in ↓
+            </div>
+          </button>
+        )}
+
         {/* Body weight */}
         <div className="card" style={{ padding: 16, marginBottom: 12 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: weights.length > 0 ? 14 : 0 }}>
@@ -611,7 +634,7 @@ export default function GoalsPage() {
         </div>
 
         {/* Body profile — feeds the TDEE calculators on the Body page */}
-        <div className="section-label">Body profile</div>
+        <div className="section-label" id="body-profile">Body profile</div>
         <div className="card" style={{ marginBottom: 20, padding: 16 }}>
           <div style={{ fontSize: 13, color: 'var(--label2)', marginBottom: 12 }}>
             Used by the TDEE + adaptive-TDEE math. Weight comes from your weigh-ins automatically.

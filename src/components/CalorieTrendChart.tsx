@@ -27,7 +27,11 @@ function TrendTooltip({ active, payload }: { active?: boolean; payload?: Array<{
   )
 }
 
-export default function CalorieTrendChart({ history, goal, days = 14 }: { history: HistoryDay[]; goal: number; days?: number }) {
+export default function CalorieTrendChart({ history, goal, days = 14 }: { history: HistoryDay[]; goal?: number | null; days?: number }) {
+  // Honesty: only draw the dashed "goal" reference line when we actually know
+  // the goal. Callers used to pass `?? 2200` on a failed goals fetch, which
+  // painted a fabricated target the user never set (2026-08-04 honesty audit).
+  const hasGoal = typeof goal === 'number' && goal > 0
   const rows = useMemo<Row[]>(() => {
     const sorted = [...history].sort((a, b) => a.date.localeCompare(b.date)).slice(-days)
     return sorted.map(d => {
@@ -48,7 +52,7 @@ export default function CalorieTrendChart({ history, goal, days = 14 }: { histor
     )
   }
 
-  const max = Math.max(goal, ...rows.map(r => r.kcal))
+  const max = Math.max(hasGoal ? goal : 0, ...rows.map(r => r.kcal), 1)
 
   return (
     <div style={{ width: '100%', height: 180 }}>
@@ -70,19 +74,21 @@ export default function CalorieTrendChart({ history, goal, days = 14 }: { histor
             domain={[0, Math.ceil(max / 500) * 500]}
             tickFormatter={(v) => (v >= 1000 ? `${(v / 1000).toFixed(1)}k` : `${v}`)}
           />
-          <ReferenceLine
-            y={goal}
-            stroke="var(--c-label-dim)"
-            strokeDasharray="4 4"
-            strokeWidth={1}
-            label={{ value: `goal ${goal.toLocaleString()}`, position: 'insideTopRight', fill: 'var(--c-label-faint)', fontSize: 9 }}
-          />
+          {hasGoal && (
+            <ReferenceLine
+              y={goal}
+              stroke="var(--c-label-dim)"
+              strokeDasharray="4 4"
+              strokeWidth={1}
+              label={{ value: `goal ${goal.toLocaleString()}`, position: 'insideTopRight', fill: 'var(--c-label-faint)', fontSize: 9 }}
+            />
+          )}
           <Tooltip content={<TrendTooltip />} cursor={{ fill: 'var(--c-border)', opacity: 0.4 }} />
           <Bar dataKey="kcal" radius={[3, 3, 0, 0]} isAnimationActive={!prefersReducedMotion}>
             {rows.map((r, i) => (
               <Cell
                 key={i}
-                fill={!r.logged ? 'var(--c-border)' : r.kcal > goal * 1.05 ? 'var(--c-orange)' : 'var(--c-accent)'}
+                fill={!r.logged ? 'var(--c-border)' : (hasGoal && r.kcal > goal * 1.05) ? 'var(--c-orange)' : 'var(--c-accent)'}
               />
             ))}
           </Bar>
