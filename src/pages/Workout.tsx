@@ -889,6 +889,17 @@ export default function Workout({ onOpenSkill }: { onOpenSkill?: () => void }) {
     if (navigator.vibrate) navigator.vibrate([10, 10, 30])
   }
 
+  // Reopen the "how did it feel" picker for a set (clears its RIR).
+  function clearSetFeeling(exIdx: number, setIdx: number) {
+    setLive(w => {
+      if (!w) return w
+      const exercises = w.exercises.map((ex, ei) => ei !== exIdx ? ex : {
+        ...ex, sets: ex.sets.map((st, si) => si === setIdx ? { ...st, rir: undefined } : st),
+      })
+      return { ...w, exercises }
+    })
+  }
+
   // Adjust the reps recorded on a just-completed set (during rest, ±1).
   function adjustDoneReps(exIdx: number, setIdx: number, delta: number) {
     setLive(w => {
@@ -1497,45 +1508,86 @@ export default function Workout({ onOpenSkill }: { onOpenSkill?: () => void }) {
                     const doneEx = liveNonNull.exercises[fromExIdx]
                     const doneSet = doneEx?.sets[fromSetIdx]
                     if (!doneSet) return null
+                    const feelingGiven = doneSet.rir !== undefined
+                    // Once you've said how it felt, the buttons collapse to a
+                    // single personalized line + a get-ready cue for whatever's
+                    // next — so the rest screen becomes calm, not a form.
                     return (
                       <div style={{ marginTop: 22, paddingTop: 18, borderTop: '1px solid var(--separator)', textAlign: 'left' }}>
-                        <div style={{ fontSize: 17, fontWeight: 600, color: 'var(--label)' }}>How did that feel?</div>
-                        <div style={{ fontSize: 12, color: 'var(--label2)', marginBottom: 12 }}>{doneEx.name} · Set {fromSetIdx + 1}</div>
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 18, marginBottom: 14 }}>
-                          <button onClick={() => adjustDoneReps(fromExIdx, fromSetIdx, -1)} style={{ width: 42, height: 42, borderRadius: 12, border: '1px solid var(--separator)', background: 'var(--card)', color: 'var(--label)', fontSize: 22, cursor: 'pointer' }}>−</button>
-                          <div style={{ textAlign: 'center', minWidth: 72 }}>
-                            <div style={{ fontSize: 26, fontWeight: 800, color: 'var(--label)' }}>{doneSet.reps ?? 0}</div>
-                            <div style={{ fontSize: 11, color: 'var(--label2)' }}>reps done</div>
-                          </div>
-                          <button onClick={() => adjustDoneReps(fromExIdx, fromSetIdx, 1)} style={{ width: 42, height: 42, borderRadius: 12, border: '1px solid var(--separator)', background: 'var(--card)', color: 'var(--label)', fontSize: 22, cursor: 'pointer' }}>+</button>
-                        </div>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                          {TIER_LABEL.map(([k, label]) => {
-                            const sel = doneSet.rir === TIER_RIR[k]
-                            const proj = projectNext(fromExIdx, TIER_RIR[k])
-                            return (
-                              <button key={k} onClick={() => applySetFeedback(fromExIdx, fromSetIdx, k)}
-                                style={{ height: 58, background: sel ? 'var(--blue)' : 'var(--bg)', border: '1px solid ' + (sel ? 'var(--blue)' : 'var(--separator)'), borderRadius: 16, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 12, padding: '0 14px', textAlign: 'left' }}>
-                                <span style={{ width: 10, height: 10, borderRadius: 5, background: sel ? '#fff' : TIER_DOT[k], flexShrink: 0 }} />
-                                <span style={{ flex: 1, fontSize: 17, fontWeight: 600, color: sel ? '#fff' : 'var(--label)' }}>{label}</span>
-                                {proj !== undefined && (
-                                  <span style={{ fontSize: 14, fontWeight: 600, color: sel ? 'rgba(255,255,255,0.85)' : 'var(--label2)', whiteSpace: 'nowrap' }}>{proj}kg next</span>
-                                )}
-                              </button>
-                            )
-                          })}
-                        </div>
-                        {doneSet.rir === undefined && (
-                          <div style={{ fontSize: 13, color: 'var(--orange)', marginTop: 10, lineHeight: 1.35 }}>
-                            Skip this and the engine assumes you had ~2 left, and holds the weight.
-                          </div>
-                        )}
-                        {(doneSet.weight_kg ?? 0) > 0 && (
-                          <button
-                            onClick={() => dropAndContinue(fromExIdx, fromSetIdx)}
-                            style={{ width: '100%', marginTop: 12, background: 'var(--bg)', border: '1px dashed var(--separator)', borderRadius: 14, padding: '12px', fontSize: 14, fontWeight: 600, color: 'var(--label)', cursor: 'pointer' }}
-                          >Couldn&rsquo;t finish? Drop a notch &amp; keep going ↓</button>
-                        )}
+                        {!feelingGiven ? (
+                          <>
+                            <div style={{ fontSize: 17, fontWeight: 600, color: 'var(--label)' }}>How did that feel?</div>
+                            <div style={{ fontSize: 12, color: 'var(--label2)', marginBottom: 12 }}>{doneEx.name} · Set {fromSetIdx + 1}</div>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 18, marginBottom: 14 }}>
+                              <button onClick={() => adjustDoneReps(fromExIdx, fromSetIdx, -1)} style={{ width: 42, height: 42, borderRadius: 12, border: '1px solid var(--separator)', background: 'var(--card)', color: 'var(--label)', fontSize: 22, cursor: 'pointer' }}>−</button>
+                              <div style={{ textAlign: 'center', minWidth: 72 }}>
+                                <div style={{ fontSize: 26, fontWeight: 800, color: 'var(--label)' }}>{doneSet.reps ?? 0}</div>
+                                <div style={{ fontSize: 11, color: 'var(--label2)' }}>reps done</div>
+                              </div>
+                              <button onClick={() => adjustDoneReps(fromExIdx, fromSetIdx, 1)} style={{ width: 42, height: 42, borderRadius: 12, border: '1px solid var(--separator)', background: 'var(--card)', color: 'var(--label)', fontSize: 22, cursor: 'pointer' }}>+</button>
+                            </div>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                              {TIER_LABEL.map(([k, label]) => {
+                                const proj = projectNext(fromExIdx, TIER_RIR[k])
+                                return (
+                                  <button key={k} onClick={() => applySetFeedback(fromExIdx, fromSetIdx, k)}
+                                    style={{ height: 58, background: 'var(--bg)', border: '1px solid var(--separator)', borderRadius: 16, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 12, padding: '0 14px', textAlign: 'left' }}>
+                                    <span style={{ width: 10, height: 10, borderRadius: 5, background: TIER_DOT[k], flexShrink: 0 }} />
+                                    <span style={{ flex: 1, fontSize: 17, fontWeight: 600, color: 'var(--label)' }}>{label}</span>
+                                    {proj !== undefined && (
+                                      <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--label2)', whiteSpace: 'nowrap' }}>{proj}kg next</span>
+                                    )}
+                                  </button>
+                                )
+                              })}
+                            </div>
+                            {(doneSet.weight_kg ?? 0) > 0 && (
+                              <button
+                                onClick={() => dropAndContinue(fromExIdx, fromSetIdx)}
+                                style={{ width: '100%', marginTop: 12, background: 'var(--bg)', border: '1px dashed var(--separator)', borderRadius: 14, padding: '12px', fontSize: 14, fontWeight: 600, color: 'var(--label)', cursor: 'pointer' }}
+                              >Couldn&rsquo;t finish? Drop a notch &amp; keep going ↓</button>
+                            )}
+                          </>
+                        ) : (() => {
+                          // Personalized line from how the session is going + a
+                          // get-ready cue for the next machine / bench setup.
+                          const tier = doneSet.rir! >= 4 ? 'easy' : doneSet.rir! >= 2 ? 'good' : doneSet.rir! >= 1 ? 'hard' : 'fail'
+                          const lead = tier === 'easy' ? 'That one had more in it — nudged the next set up.'
+                            : tier === 'good' ? 'Dialled in — right where you want to be.'
+                            : tier === 'hard' ? 'Tough set — holding the weight and giving you a longer breather.'
+                            : 'Eased it down a notch — protect the form.'
+                          const pct = totalCount > 0 ? totalDone / totalCount : 0
+                          const pace = pct >= 0.85 ? 'Last few sets — finish strong.'
+                            : pct >= 0.5 ? `Over halfway — ${totalDone} of ${totalCount} done.`
+                            : `${totalDone} of ${totalCount} sets in. Settling into it.`
+                          const nextName = previewBase.kind === 'next-exercise' ? previewBase.exerciseName : null
+                          let setup: string | null = null
+                          if (nextName) {
+                            const nn = nextName.toLowerCase()
+                            if (nn.includes('incline')) setup = 'Set the bench to ~30–45°.'
+                            else if (nn.includes('decline')) setup = 'Set the bench to a slight decline.'
+                            else if (nn.includes('flat') || (nn.includes('bench') && nn.includes('press'))) setup = 'Flat bench.'
+                            else if (nn.includes('seated')) setup = 'Seated — set the seat so the handles sit at the right height.'
+                            const dbEx2 = findExercise(nextName)
+                            if (dbEx2?.equipment) setup = (setup ? setup + ' ' : '') + `(${dbEx2.equipment})`
+                          }
+                          return (
+                            <>
+                              <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--green)' }}>✓ Set {fromSetIdx + 1} logged</div>
+                              <div style={{ fontSize: 14, color: 'var(--label)', marginTop: 8, lineHeight: 1.45 }}>{lead}</div>
+                              <div style={{ fontSize: 13, color: 'var(--label2)', marginTop: 4 }}>{pace}</div>
+                              {nextName && (
+                                <div style={{ marginTop: 14, background: 'var(--bg)', borderRadius: 14, padding: '12px 14px' }}>
+                                  <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 1.2, textTransform: 'uppercase', color: 'var(--label3)', marginBottom: 3 }}>Get ready</div>
+                                  <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--label)' }}>{nextName}</div>
+                                  {setup && <div style={{ fontSize: 12.5, color: 'var(--label2)', marginTop: 3, lineHeight: 1.4 }}>{setup}</div>}
+                                </div>
+                              )}
+                              <button onClick={() => clearSetFeeling(fromExIdx, fromSetIdx)}
+                                style={{ marginTop: 12, background: 'none', border: 'none', color: 'var(--label2)', fontSize: 13, fontWeight: 600, cursor: 'pointer', padding: 0 }}>Change how it felt</button>
+                            </>
+                          )
+                        })()}
                       </div>
                     )
                   })()}
