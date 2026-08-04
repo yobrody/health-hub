@@ -17,6 +17,7 @@ import Chat from './pages/Chat'
 import Insights from './pages/Insights'
 import MealPlan from './pages/MealPlan'
 import Streaks from './pages/Streaks'
+import Stats from './pages/Stats'
 import SkillBlock from './pages/SkillBlock'
 import SmartScanner from './components/SmartScanner'
 import { UpdatePrompt } from './components/UpdatePrompt'
@@ -30,7 +31,7 @@ import { clampDragX, shouldDismiss, classifyGesture, DISMISS_DISTANCE_FRACTION }
 import type { Theme } from './main'
 import './App.css'
 
-type Tab = 'today' | 'nutrition' | 'fridge' | 'workout' | 'chat' | 'goals' | 'skincare' | 'lists' | 'agenda' | 'routines' | 'metrics' | 'timeline' | 'barcode' | 'weekly-report' | 'insights' | 'meal-plan' | 'streaks' | 'skill' | 'seasonings'
+type Tab = 'today' | 'nutrition' | 'fridge' | 'workout' | 'chat' | 'goals' | 'skincare' | 'lists' | 'agenda' | 'routines' | 'metrics' | 'timeline' | 'barcode' | 'weekly-report' | 'insights' | 'meal-plan' | 'streaks' | 'skill' | 'seasonings' | 'stats'
 
 // 4 visible tabs + camera FAB. Chat accessible via Today tile.
 const TABS: { id: Tab; label: string }[] = [
@@ -306,6 +307,7 @@ export default function App({ onToggleTheme, theme }: Props) {
       case 'barcode': return <Barcode onAddFood={handleBarcodeAddFood} />
       case 'weekly-report': return <WeeklyReport />
       case 'streaks': return <Streaks />
+      case 'stats': return <Stats />
       case 'skill': return <SkillBlock onBack={() => setTab('workout')} />
       case 'seasonings': return <Seasonings />
       default: return null
@@ -395,7 +397,7 @@ export default function App({ onToggleTheme, theme }: Props) {
   // Pages reachable only by tile-click (not in the bottom nav) get a small
   // back-to-Today chevron, fixed top-left, so the route isn't a one-way
   // trip (audit P1-5). The bottom nav still works for jumping anywhere.
-  const SECONDARY_TABS = new Set<Tab>(['skincare', 'goals', 'lists', 'agenda', 'routines', 'metrics', 'timeline', 'barcode', 'weekly-report', 'chat', 'insights', 'meal-plan', 'streaks', 'skill', 'seasonings'])
+  const SECONDARY_TABS = new Set<Tab>(['skincare', 'goals', 'lists', 'agenda', 'routines', 'metrics', 'timeline', 'barcode', 'weekly-report', 'chat', 'insights', 'meal-plan', 'streaks', 'skill', 'seasonings', 'stats'])
 
   // Drag progress 0→1 drives the portal's slide-out scale/opacity feedback.
   const portalW = (typeof window !== 'undefined' && window.innerWidth) || 400
@@ -443,6 +445,7 @@ export default function App({ onToggleTheme, theme }: Props) {
           {tab === 'barcode'   && <Barcode onAddFood={handleBarcodeAddFood} />}
         {tab === 'weekly-report' && <WeeklyReport />}
           {tab === 'streaks'       && <Streaks />}
+          {tab === 'stats'         && <Stats />}
           {tab === 'skill'         && <SkillBlock onBack={() => setTab('workout')} />}
           {tab === 'seasonings'    && <Seasonings />}
         </div>

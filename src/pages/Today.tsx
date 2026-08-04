@@ -571,7 +571,7 @@ function WaterTracker() {
   )
 }
 
-type Tab = 'today' | 'nutrition' | 'fridge' | 'workout' | 'chat' | 'goals' | 'skincare' | 'lists' | 'agenda' | 'routines' | 'metrics' | 'timeline' | 'barcode' | 'weekly-report' | 'insights' | 'meal-plan' | 'streaks' | 'seasonings' | 'skill'
+type Tab = 'today' | 'nutrition' | 'fridge' | 'workout' | 'chat' | 'goals' | 'skincare' | 'lists' | 'agenda' | 'routines' | 'metrics' | 'timeline' | 'barcode' | 'weekly-report' | 'insights' | 'meal-plan' | 'streaks' | 'seasonings' | 'skill' | 'stats'
 interface Props {
   onNavigate: (tab: Tab) => void
   onToggleTheme: () => void
@@ -1912,6 +1912,18 @@ export default function Today({ onNavigate, onToggleTheme, themeIcon }: Props) {
             </div>
             <div className="text-[13px] text-[var(--c-label-dim)]">7-day log</div>
             <div className="text-[12px] text-[var(--c-label-faint)] mt-0.5">Unified activity</div>
+          </Card>
+
+          {/* Progress / Stats tile */}
+          <Card onClick={() => onNavigate('stats')}>
+            <div className="flex items-center justify-between mb-2">
+              <CardLabel>Progress</CardLabel>
+              <svg width={16} height={16} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" className="text-[var(--c-label-faint)]">
+                <line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/>
+              </svg>
+            </div>
+            <div className="text-[13px] text-[var(--c-label-dim)]">All your stats</div>
+            <div className="text-[12px] text-[var(--c-label-faint)] mt-0.5">Strength · weight · nutrition</div>
           </Card>
 
           {/* Weekly Report tile */}
