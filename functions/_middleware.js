@@ -56,11 +56,12 @@ function isAllowed(request, env) {
   if (hostAllowed(request.headers.get('Referer'))) return true
   const key = request.headers.get('X-Health-Key')
   if (key && env.HEALTH_API_KEY && key === env.HEALTH_API_KEY) return true
-  // Scan self-improvement read: the analysis job fetches the last-10 window with
-  // a dedicated read-only token (query param, since WebFetch can't set headers).
-  // The scan-samples function re-checks the token; this only routes it through.
+  // Autonomous review jobs (nightly scan review, weekly coach digest) read a
+  // few GET-only endpoints with a dedicated read-only token as a query param
+  // (WebFetch can't set headers). Read-only, single-user, low-sensitivity.
   const u = new URL(request.url)
-  if (request.method === 'GET' && u.pathname === '/api/scan-samples') {
+  const READ_TOKEN_PATHS = ['/api/scan-samples', '/api/report/weekly']
+  if (request.method === 'GET' && READ_TOKEN_PATHS.includes(u.pathname)) {
     const t = u.searchParams.get('t')
     if (t && env.SCAN_SAMPLES_TOKEN && t === env.SCAN_SAMPLES_TOKEN) return true
   }
