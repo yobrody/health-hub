@@ -1050,8 +1050,11 @@ export interface AdaptiveTDEEData {
   bmr: number
   activity_level: string
   weight_kg: number
+  /** Where weight_kg came from: 'logged' (real weigh-in), 'profile', or 'default' (80kg placeholder). */
+  weight_source?: 'logged' | 'profile' | 'default'
+  goal_direction?: 'gain' | 'maintain' | 'lose'
   adaptive_tdee: number | null
-  source: 'adaptive' | 'estimated'
+  source: 'adaptive' | 'estimated' | 'tentative'
   avg_daily_intake?: number
   weight_change_kg?: number
   weekly_change_kg?: number
@@ -1068,5 +1071,14 @@ export interface AdaptiveTDEEData {
     target: number
     aggressive: number
     direction: 'lose' | 'gain' | 'maintain'
+  }
+  /** Server-derived baseline goals (mirrors src/lib/goal-suggestions.ts). */
+  suggested_goals?: {
+    calories: number | null
+    calorie_delta: number
+    protein: number | null
+    protein_per_kg: number
+    direction: 'gain' | 'maintain' | 'lose'
+    weight_source: 'logged' | 'profile' | 'default'
   }
 }

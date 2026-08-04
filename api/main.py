@@ -17,7 +17,13 @@ load_dotenv(Path(__file__).parent / ".env")
 API_KEY = os.getenv("HEALTH_API_KEY", "")  # empty => all requests refused (503)
 GEMINI_KEY = os.getenv("GEMINI_API_KEY", "")
 WORKSPACE = Path(os.getenv("HEALTH_WORKSPACE", "/home/lucky/.openclaw/workspace/health"))
-DATA_DIR = Path(__file__).parent / "data"
+# DATA_DIR holds ALL JSON state (workouts, weight, metrics, profile, lists,
+# routines, agenda…). In Docker it MUST point at a mounted volume or every
+# rebuild silently wipes the user's data — the container only mounts WORKSPACE,
+# and the old `__file__/data` default lived in the ephemeral image layer. The
+# env override lets prod pin it to a persistent path; the default keeps local
+# dev + tests self-contained.
+DATA_DIR = Path(os.getenv("HEALTH_DATA_DIR", str(Path(__file__).parent / "data")))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 def atomic_write_text(p: Path, text: str):
@@ -2145,6 +2151,61 @@ def get_latest_metric(key=Depends(require_key)):
 # ── TDEE CALCULATOR ──────────────────────────────────────────────────
 import math
 
+def _all_weighins() -> list:
+    """Unified, date-sorted (date, kg) weigh-ins across BOTH weight stores: the
+    Goals-page weight log (weight_log.json — the primary weigh-in path) and the
+    Metrics page (body_metrics.json). One entry per date; on a same-day
+    collision the dedicated weight log wins. Reading either store alone was the
+    source of a real bug: the Goals tile writes weight_log.json, but the TDEE
+    endpoints read body_metrics.json, so a real 62 kg user silently fell back
+    to the 80 kg placeholder."""
+    by_date: dict = {}
+    for m in load_metrics():
+        if m.get("weight_kg") is not None and m.get("date"):
+            by_date[m["date"]] = float(m["weight_kg"])
+    for w in load_weights():
+        if w.get("kg") is not None and w.get("date"):
+            by_date[w["date"]] = float(w["kg"])
+    return sorted(by_date.items(), key=lambda kv: kv[0])
+
+
+def _latest_weight_kg(profile_data: dict):
+    """Most recent real bodyweight, or the profile value, or a flagged fallback.
+    Returns (kg, source) so callers can tell a measured weight from a guess."""
+    weighins = _all_weighins()
+    if weighins:
+        return weighins[-1][1], "logged"
+    if profile_data.get("weight_kg") is not None:
+        return float(profile_data["weight_kg"]), "profile"
+    return 80.0, "default"
+
+
+# Lean-bulk surplus mirrors the frontend (src/lib/goal-suggestions.ts): the
+# midpoint of the workout engine's weekly gain band ≈ 200 kcal/day. Kept in
+# lockstep so the app and the API never suggest different goals.
+_GAIN_SURPLUS_KCAL = 200
+_LOSE_DEFICIT_KCAL = 500
+_PROTEIN_G_PER_KG = {"gain": 2.0, "maintain": 1.6, "lose": 2.2}
+
+
+def _suggested_goals(tdee, weight_kg: float, direction: str, weight_source: str) -> dict:
+    """Weight/TDEE-derived baseline goals, matching the frontend deriver so the
+    coach, meal-planner and Goals card all agree. Nulls out a metric when its
+    input is a guess rather than a real measurement."""
+    delta = _GAIN_SURPLUS_KCAL if direction == "gain" else -_LOSE_DEFICIT_KCAL if direction == "lose" else 0
+    calories = round((tdee + delta) / 50) * 50 if tdee else None
+    pk = _PROTEIN_G_PER_KG.get(direction, 1.6)
+    protein = round(weight_kg * pk) if weight_source != "default" else None
+    return {
+        "calories": calories,
+        "calorie_delta": delta if calories is not None else 0,
+        "protein": protein,
+        "protein_per_kg": pk,
+        "direction": direction,
+        "weight_source": weight_source,
+    }
+
+
 @app.get("/tdee")
 def calculate_tdee(key=Depends(require_key)):
     """Calculate TDEE from profile + activity level + adaptive adjustment from food log."""
@@ -2155,19 +2216,13 @@ def calculate_tdee(key=Depends(require_key)):
         except Exception:
             pass
 
-    weight_kg = profile_data.get("weight_kg", 80.0)
     height_cm = profile_data.get("height_cm", 180.0)
     age = profile_data.get("age", 25)
     sex = profile_data.get("sex", "male")
     activity_level = profile_data.get("activity_level", "moderate")
 
-    # Latest weight from body metrics if available
-    metrics = load_metrics()
-    if metrics:
-        for m in reversed(metrics):
-            if "weight_kg" in m:
-                weight_kg = m["weight_kg"]
-                break
+    # Current weight = most recent weigh-in across BOTH stores (see _all_weighins).
+    weight_kg, weight_source = _latest_weight_kg(profile_data)
 
     # Mifflin-St Jeor BMR
     if sex == "female":
@@ -2204,7 +2259,7 @@ def calculate_tdee(key=Depends(require_key)):
     # multiple days to avoid absurd extrapolations like "+28 kg/week" from a
     # single-day pair of weigh-ins.
     weight_trend = None
-    recent_weights = [(m["date"], m["weight_kg"]) for m in metrics if "weight_kg" in m][-30:]
+    recent_weights = _all_weighins()[-30:]
     if len(recent_weights) >= 3:
         first_w = recent_weights[0][1]
         last_w = recent_weights[-1][1]
@@ -2228,6 +2283,7 @@ def calculate_tdee(key=Depends(require_key)):
         "logged_days_14d": logged_days,
         "weight_trend": weight_trend,
         "weight_trend_message": weight_trend_msg,
+        "weight_source": weight_source,
         "recommendation": _tdee_recommendation(tdee, avg_intake, weight_trend),
     }
 
@@ -2250,7 +2306,8 @@ def update_tdee_profile(key=Depends(require_key),
                         height_cm: Optional[float] = None,
                         age: Optional[int] = None,
                         sex: Optional[str] = None,
-                        activity_level: Optional[str] = None):
+                        activity_level: Optional[str] = None,
+                        goal_direction: Optional[str] = None):
     """Update TDEE profile fields (stored in profile.json)."""
     existing = {}
     if PROFILE_FILE.exists():
@@ -2263,6 +2320,10 @@ def update_tdee_profile(key=Depends(require_key),
     if age is not None: existing["age"] = age
     if sex is not None: existing["sex"] = sex
     if activity_level is not None: existing["activity_level"] = activity_level
+    # Goal direction (gain/maintain/lose) drives the adaptive calorie targets
+    # and the suggested goals. The Goals-page direction picker persists it here
+    # so the server no longer silently assumes "maintain".
+    if goal_direction in ("gain", "maintain", "lose"): existing["goal_direction"] = goal_direction
     atomic_write_text(PROFILE_FILE, json.dumps(existing, indent=2))
     return {"ok": True, "profile": existing}
 
@@ -2322,18 +2383,14 @@ def adaptive_tdee(key=Depends(require_key)):
         except Exception:
             pass
 
-    weight_kg = profile_data.get("weight_kg", 80.0)
     height_cm = profile_data.get("height_cm", 180.0)
     age = profile_data.get("age", 25)
     sex = profile_data.get("sex", "male")
     activity_level = profile_data.get("activity_level", "moderate")
+    goal_direction = profile_data.get("goal_direction", "maintain")
 
-    # Latest weight from body metrics
-    metrics = load_metrics()
-    for m in reversed(metrics):
-        if "weight_kg" in m:
-            weight_kg = m["weight_kg"]
-            break
+    # Current weight = most recent weigh-in across BOTH stores (see _all_weighins).
+    weight_kg, weight_source = _latest_weight_kg(profile_data)
 
     # Mifflin-St Jeor BMR
     if sex == "female":
@@ -2352,11 +2409,9 @@ def adaptive_tdee(key=Depends(require_key)):
         if day_kcal > 0:
             daily_intake.append((d, day_kcal))
 
-    # --- Pull last 14 days of weight data ---
-    weights = load_weights()
+    # --- Pull last 14 days of weight data (both stores, deduped by date) ---
     cutoff_14d = (date.today() - timedelta(days=14)).isoformat()
-    recent_weights = [(w["date"], w["kg"]) for w in weights if w.get("date", "") >= cutoff_14d]
-    recent_weights.sort(key=lambda x: x[0])
+    recent_weights = [(d, kg) for d, kg in _all_weighins() if d >= cutoff_14d]
 
     food_days = len(daily_intake)
     weight_entries = len(recent_weights)
@@ -2368,6 +2423,8 @@ def adaptive_tdee(key=Depends(require_key)):
         "bmr": round(bmr),
         "activity_level": activity_level,
         "weight_kg": weight_kg,
+        "weight_source": weight_source,
+        "goal_direction": goal_direction,
         "data_status": {
             "food_days_logged": food_days,
             "weight_entries": weight_entries,
@@ -2387,6 +2444,8 @@ def adaptive_tdee(key=Depends(require_key)):
         result["adaptive_tdee"] = None
         result["source"] = "estimated"
         result["recommendation"] = _adaptive_recommendation(estimated_tdee, None, profile_data)
+        # Suggested baseline goals are still honest off the ESTIMATED TDEE.
+        result["suggested_goals"] = _suggested_goals(estimated_tdee, weight_kg, goal_direction, weight_source)
         return result
 
     # --- Calculate adaptive TDEE ---
@@ -2407,9 +2466,6 @@ def adaptive_tdee(key=Depends(require_key)):
 
     weekly_change_kg = round(weight_change_kg / days_span * 7, 2)
 
-    # Goal-based calorie recommendation
-    goal_direction = profile_data.get("goal_direction", "maintain")
-
     source = "adaptive" if sufficient_data else "tentative"
     caveat = "" if sufficient_data else " (tentative — based on limited data, log more for accuracy)"
 
@@ -2422,6 +2478,8 @@ def adaptive_tdee(key=Depends(require_key)):
         "days_span": days_span,
         "recommendation": _adaptive_recommendation(adaptive_tdee, goal_direction, profile_data) + caveat,
         "targets": _goal_targets(adaptive_tdee, goal_direction),
+        # Baseline goals derived from the adaptive TDEE now that we trust it.
+        "suggested_goals": _suggested_goals(adaptive_tdee, weight_kg, goal_direction, weight_source),
     })
     if not sufficient_data:
         result["data_status"]["message"] = f"Tentative estimate from {food_days} food days + {weight_entries} weight entries. Log more for full accuracy."

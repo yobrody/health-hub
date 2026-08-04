@@ -15,9 +15,17 @@ docker build -t health-hub-api .
 docker run -d --name health-hub-api \
   -p 8080:8080 \
   -v /home/lucky/.openclaw/workspace/health:/home/lucky/.openclaw/workspace/health \
+  -v /home/lucky/health-hub-data:/data \
   --env-file .env \
   health-hub-api
 ```
+
+**Both volume mounts are required.** `WORKSPACE` holds food logs + goals.md;
+the second holds `DATA_DIR` — workouts, weight, metrics, profile, lists,
+routines, agenda. `DATA_DIR` defaults to `./data` *inside the image*, which is
+ephemeral, so `.env` sets `HEALTH_DATA_DIR=/data` and we mount a host dir there.
+Miss this mount and every `docker build` + `run` wipes the user's non-food data
+(this happened — see `docs/audits/2026-08-04-honesty-audit.md`).
 
 ## Environment
 
@@ -25,12 +33,16 @@ docker run -d --name health-hub-api \
 
 ```
 HEALTH_API_KEY=...
-GEMINI_API_KEY=...   # Google AI Studio — free tier (gemini-2.5-flash)
+GEMINI_API_KEY=...        # Google AI Studio — free tier (gemini-2.5-flash)
+HEALTH_DATA_DIR=/data     # persistent DATA_DIR mount (see Deploy)
 ```
 
 ## Storage
 
-Data is read/written under `WORKSPACE` (default
-`/home/lucky/.openclaw/workspace/health`) — markdown files for food
-logs, JSON for goals/profile/lists/agenda/routines. The volume mount
-above keeps state across container rebuilds.
+Two roots:
+- `WORKSPACE` (default `/home/lucky/.openclaw/workspace/health`) — food-log
+  markdown, `goals.md`, `fridge.md`.
+- `DATA_DIR` (`HEALTH_DATA_DIR`, default `./data`) — JSON for
+  workouts/weight/metrics/profile/lists/routines/agenda/sleep/meal-plans.
+
+Both must be bind-mounted from the host or state is lost on rebuild.
