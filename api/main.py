@@ -893,6 +893,10 @@ async def smart_scan(input: ScanInput, key=Depends(require_key)):
         "    * A sandwich = typically 250-400 kcal depending on filling.\n"
         "  - For each item, the 'grams' field should reflect the actual visible portion weight.\n"
         "  - If multiple units of the same food are visible, combine them into one entry with total nutrition.\n"
+        "  - NUTRITION LABEL visible? READ the printed numbers exactly, don't estimate. Prefer per-serving/per-pack values. "
+        "If ONLY per-100g is shown, find the pack's net weight (e.g. '200g', '330ml', a single-serve pot) and SCALE the per-100g "
+        "numbers to that full pack, setting grams to it — a single-serve pot/bottle is eaten in one go (a 200g pot at 6.2g protein/100g "
+        "is ~24.8g for the pot, not 12.4g). Only fall back to per-100g with grams=100 if no pack size is visible.\n"
         '  confidence: "high" if clearly identifiable, "medium" if somewhat ambiguous, "low" if very uncertain\n'
     )
     parsed = gemini_call(prompt, image_b64=input.image, mime_type=media_type, max_tokens=2000, temperature=0.2)
