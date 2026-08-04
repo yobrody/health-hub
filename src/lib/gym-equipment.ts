@@ -150,9 +150,9 @@ export const SEED_PADDINGTON: Equipment[] = [
   { id: 'chest-press-machine', name: 'Flat Machine Chest Press', type: 'stack', stack: STACK_10LB, source: 'seed',
     aliases: ['chest press', 'flat machine chest press', 'machine chest press', 'iso chest press'] },
   { id: 'incline-press-machine', name: 'Incline Machine Press', type: 'stack', stack: STACK_10LB, source: 'seed',
-    aliases: ['incline machine press', 'incline chest press machine'] },
+    aliases: ['incline chest press', 'incline machine press', 'incline chest press machine'] },
   { id: 'shoulder-press-machine', name: 'Shoulder Press (machine)', type: 'stack', stack: SHOULDER_PRESS_STACK, source: 'seed',
-    aliases: ['shoulder press machine', 'machine shoulder press', 'overhead press machine', 'converging shoulder press', 'converging press'] },
+    aliases: ['shoulder press', 'seated shoulder press', 'shoulder press machine', 'machine shoulder press', 'overhead press machine', 'converging shoulder press', 'converging press'] },
   { id: 'pec-deck', name: 'Pec Deck', type: 'stack', stack: LF_ISO_STACK_25, source: 'seed',
     aliases: ['pec deck', 'pec fly', 'chest fly machine'] },
   { id: 'rear-delt-machine', name: 'Rear Delt Fly (machine)', type: 'stack', stack: LF_ISO_STACK_25, source: 'seed',
@@ -285,13 +285,16 @@ export function learnFromLogs(workouts: WorkoutData[]): Record<string, LearnedEn
 
 /** Match an exercise name to seed equipment by name + alias. Lowercase, includes-based. */
 export function findSeedEquipment(exerciseName: string): Equipment | undefined {
-  const n = exerciseName.toLowerCase()
-  // 1. Exact name match
-  const exact = SEED_PADDINGTON.find(e => e.name.toLowerCase() === n)
+  const raw = exerciseName.toLowerCase()
+  // Program names carry qualifiers like "(machine)" / "(plate-loaded)" that
+  // aren't in the aliases — strip them so "Seated Shoulder Press (machine)"
+  // resolves to its stack instead of falling back to off-stack rounding.
+  const n = raw.replace(/\([^)]*\)/g, '').replace(/\s+/g, ' ').trim()
+  const exact = SEED_PADDINGTON.find(e => e.name.toLowerCase() === raw || e.name.toLowerCase().replace(/\([^)]*\)/g, '').replace(/\s+/g, ' ').trim() === n)
   if (exact) return exact
-  // 2. Alias substring match
+  // Alias substring match against BOTH the raw and paren-stripped name.
   return SEED_PADDINGTON.find(e =>
-    e.aliases?.some(a => n.includes(a.toLowerCase())),
+    e.aliases?.some(a => { const al = a.toLowerCase(); return raw.includes(al) || n.includes(al) }),
   )
 }
 

@@ -20,7 +20,7 @@ import {
   findNextIncompleteSet,
   findFirstIncompleteSet,
 } from '../lib/workout-flow'
-import { genericIncrement, learnFromLogs, resolveEquipment, nextUpWeight, nextDownWeight } from '../lib/gym-equipment'
+import { genericIncrement, learnFromLogs, resolveEquipment, nextUpWeight, nextDownWeight, snapToStack } from '../lib/gym-equipment'
 import { diagnoseProgress, type WeighIn, type LiftTrend } from '../lib/progress-diagnosis'
 import { useWakeLock } from '../lib/useWakeLock'
 import { analyzeWorkout, type WorkoutAnalysis } from '../lib/gym-analysis'
@@ -764,9 +764,15 @@ export default function Workout({ onOpenSkill }: { onOpenSkill?: () => void }) {
         // 50% x 8 then 75% x 4 on the first compound only. Flagged so they are
         // excluded from volume, PRs and - critically - progression evaluation.
         const working = t.weight_kg
+        // Warm-up weights must snap to REAL machine notches too — rounding to
+        // 0.25kg produced off-stack warm-ups (13.5kg on a machine whose notches
+        // are 9/14/18/23/27). Caught by on-device verification 2026-08-04.
+        const rampStack = resolveEquipment(ex.name).effectiveStack
         const rampSets: LiveSet[] = (ex.rampUp && working != null && working > 0)
           ? RAMP_UP_SETS.map(r => ({
-              weight_kg: Math.round(working * r.pctOfWorking * 4) / 4,
+              weight_kg: rampStack
+                ? snapToStack(rampStack, working * r.pctOfWorking)
+                : Math.round(working * r.pctOfWorking * 4) / 4,
               reps: r.reps, done: false, ramp: true,
             }))
           : []

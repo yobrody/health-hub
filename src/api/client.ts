@@ -628,6 +628,7 @@ export interface SmartFoodResult {
   fiber_g?: number
   sugar_g?: number
   sodium_mg?: number
+  nutrients?: NutrientMap
   confidence: 'high' | 'medium' | 'low'
   confidence_reason?: string | null
   description: string

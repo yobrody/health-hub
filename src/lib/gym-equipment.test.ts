@@ -38,6 +38,18 @@ describe('imperial stacks land on real notches', () => {
     expect(vals).toContain(32)
   })
 
+  it('parenthesized program names resolve to their stack (regression)', () => {
+    // "Seated Shoulder Press (machine)" etc. used to miss the alias match and
+    // fall back to off-stack rounding (13.5kg warm-ups). Caught on-device.
+    for (const name of ['Seated Shoulder Press (machine)', 'Abdominal Crunch (machine)', 'Rear Delt Fly (machine)', 'Incline Chest Press (machine)']) {
+      const st = resolveEquipment(name).effectiveStack
+      expect(st, `${name} should resolve to a stack`).toBeTruthy()
+      // a mid weight snaps to a real notch, never a half-kg
+      const snapped = snapToStack(st!, 27)
+      expect(Number.isInteger(snapped), `${name} snap ${snapped} should be a whole-kg notch`).toBe(true)
+    }
+  })
+
   it('snapping any target always lands on a selectable weight', () => {
     const st = resolveEquipment('Seated Cable Row').effectiveStack!
     const vals = new Set(enumerateStack(st))

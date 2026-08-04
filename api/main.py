@@ -2001,6 +2001,7 @@ Respond ONLY as JSON:
   "fiber_g": 3,
   "sugar_g": 8,
   "sodium_mg": 450,
+  "nutrients": {{"saturated_fat_g": 4, "salt_g": 1.1, "potassium_mg": 200, "calcium_mg": 80, "iron_mg": 1.2}},
   "confidence": "high or medium or low",
   "confidence_reason": "why this confidence level (e.g. 'exact product nutrition available' or 'estimated from similar products')"
 }}
@@ -2011,7 +2012,8 @@ IMPORTANT:
 - "high" confidence = you know the exact product nutrition (chain restaurant, packaged food with known values).
 - "medium" = you're estimating from similar products.
 - "low" = rough guess, could be significantly off.
-- fiber_g, sugar_g, sodium_mg are estimates - provide best guesses based on the food type."""
+- ALWAYS fill fiber_g, sugar_g, sodium_mg with realistic non-zero estimates for the food (a whole food like oats or banana always has some fiber — never return 0 unless the food genuinely has none, like oil or honey).
+- "nutrients" = your best per-portion estimate of the key micros that apply: saturated_fat_g, salt_g, potassium_mg, calcium_mg, iron_mg, magnesium_mg, zinc_mg, vitamin_c_mg. Include only those that meaningfully apply to this food; omit ones that are ~0. These are estimates."""
 
     result = gemini_call(prompt)
 

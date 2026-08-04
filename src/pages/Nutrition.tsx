@@ -377,7 +377,7 @@ export default function Nutrition() {
       setFiberG(r.fiber_g)
       setSugarG(r.sugar_g)
       setSodiumMg(r.sodium_mg)
-      setEntryNutrients(buildNutrientMap({ fiber_g: r.fiber_g, sugar_g: r.sugar_g, sodium_mg: r.sodium_mg }))
+      setEntryNutrients(buildNutrientMap({ fiber_g: r.fiber_g, sugar_g: r.sugar_g, sodium_mg: r.sodium_mg, ...(r.nutrients ?? {}) }))
       setConfidence(r.confidence)
       if (navigator.vibrate) navigator.vibrate(8)
     } catch {
@@ -442,10 +442,26 @@ export default function Nutrition() {
       if (result.carbs_g > 0) setCarbsG(result.carbs_g)
       if (result.fat_g > 0) setFatG(result.fat_g)
       setConfidence(result.confidence)
-      // Packaged product without a readable label → these macros are a GUESS.
-      // Don't let the user log wrong numbers blind: prompt them to snap the label.
+      // Packaged product from a FRONT photo = a vision guess. Before falling back
+      // to "snap the label", try to reconcile it with the SAME source a barcode
+      // uses — look the identified product up in Open Food Facts and, on a
+      // confident match, swap the guess for the real per-100g values. This is
+      // what makes the front-photo, label and barcode paths agree.
+      if (result.needs_label && result.name) {
+        try {
+          const off = await api.searchFood(result.name)
+          const match = off.results?.[0]
+          if (match) {
+            applySearchResult(match)  // real per-100g + full micros + high confidence
+            setScanMsg(`✓ Matched “${match.name}” in the food database — using its real values (per 100g; set your portion below).`)
+            setTimeout(() => setScanMsg(null), 6000)
+            return
+          }
+        } catch { /* no DB match — fall through to the label prompt */ }
+      }
+      // Packaged product without a readable label and no DB match → still a GUESS.
       if (result.needs_label || (result.source === 'estimate' && result.confidence === 'low')) {
-        setScanMsg('\u{1F4CB} Looks packaged — these macros are an estimate. Snap the nutrition label and I’ll read the exact numbers.')
+        setScanMsg('\u{1F4CB} Looks packaged — these macros are an estimate. Snap the nutrition label or scan the barcode for exact numbers.')
         setTimeout(() => setScanMsg(null), 7000)
       } else if (result.source === 'label') {
         setScanMsg('✓ Read straight from the nutrition label')
