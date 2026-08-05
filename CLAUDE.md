@@ -8,11 +8,17 @@ Read **AGENTS.md** first for repo conventions, where the code lives, deploy targ
 - Backend: FastAPI single `api/main.py` in Docker on `lucky-vps` (ssh alias; user lucky@128.140.33.150 port 2222). Data: JSON under `~/.openclaw/workspace/health`. **Backend changes need a manual redeploy** (scp main.py + docker rebuild — block at bottom of the status doc).
 - Verification harness in-repo: `scripts/e2e-smoke/` (Playwright + mock server). Run after UI changes.
 
-## Status (as of 2026-08-04, latest commit `15d7266`)
+## Status (as of 2026-08-05, latest commit `982ac28`)
 Everything from the big 2026-08-04 feedback batch is shipped + deployed (backend redeploy done). Recent commits:
+- `e019d49` **scan-honesty fix** — packaged food no longer guesses (→ Open Food Facts lookup, else honest `~` + "snap the label"); micronutrients only shown when measured, else `—`. Backend `/scan/smart` on lucky-vps redeployed + verified (front-of-pack rule + per-item `source`/`needs_label` + real-grams rule live; both `-v` mounts intact, data intact, pywebpush + VAPID unaffected; added `--restart unless-stopped`). `982ac28` fix stale repo `api/Dockerfile` (drop unused `anthropic`, add `pywebpush`).
 - `71f53f2` workout persistence (no more lost sessions). `be5d89d` real machine weights + cardio no-weight + prone-leg-curl swap. `bf86111` warm-ups removed + rep-shortfall-as-miss. `579ed2a` weight logging via Today tile. `f4026d3` **new Progress/stats page** (`src/pages/Stats.tsx`). `b9dee04` + `15d7266` food label per-100g→pack scaling + branded front-of-pack names + graceful barcode failures.
 - Earlier: `e84c0e7` scan self-improvement telemetry + nightly review job (`trig_...`); `0692165` coach-insights + hydration; `a3d95c2` on-device gym fixes.
 - Health key rotated. Nightly backup installed. Skill block already matches Brody's routine.
+
+### ⚠️ VPS deploy tooling was drifted — fixed 2026-08-05 (during the `e019d49` deploy)
+Two landmines found on lucky-vps and defused; the on-disk (correct) Dockerfile was used for the deploy so nothing was at risk during it:
+1. **VPS `deploy.sh` was dangerous** — it overwrote the good Dockerfile with a stale inline one (no `pywebpush`), mounted `$API_DIR/data:/app/data` instead of `/data` (so `HEALTH_DATA_DIR=/data` was **unmounted → data loss on next rebuild**), and skipped `--env-file`. Fixed in place (stale backed up as `deploy.sh.bak-stale-*`); now uses the on-disk Dockerfile + correct BOTH mounts + `--env-file`.
+2. **Repo `api/Dockerfile` was stale** — listed unused `anthropic`, missing `pywebpush`. Fixed + pushed (`982ac28`).
 
 ## Web-push notifications — SHIPPED + DEPLOYED 2026-08-04 (commit `cf81f1a`)
 Real server→device push (readiness / weekly check-in / hydration), on top of the local-only `lib/notifications.ts`.
