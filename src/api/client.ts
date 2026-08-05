@@ -487,14 +487,14 @@ export const api = {
   getTDEE: () => request<TDEEData>('/tdee'),
   // Body profile behind the TDEE math. Without this call both TDEE cards run
   // on the hardcoded 80kg/180cm/25y defaults in main.py.
-  updateTdeeProfile: (data: { height_cm?: number; age?: number; sex?: string; activity_level?: string; weight_kg?: number; goal_direction?: string }) => {
+  updateTdeeProfile: (data: { height_cm?: number; age?: number; sex?: string; activity_level?: string; weight_kg?: number; goal_direction?: string; target_weight_kg?: number }) => {
     const qs = Object.entries(data).filter(([, v]) => v !== undefined && v !== null && v !== '')
       .map(([k, v]) => `${k}=${encodeURIComponent(String(v))}`).join('&')
     return request<{ ok: boolean; profile: Record<string, unknown> }>(`/tdee/profile?${qs}`, { method: 'PUT' })
   },
   getLatestMetric: () => request<{ metric: BodyMetric | null }>('/metrics/latest'),
   getMetrics: (days = 90) => request<{ metrics: BodyMetric[] }>(`/metrics?days=${days}`),
-  addMetric: (data: { weight_kg?: number; body_fat_pct?: number; waist_cm?: number }) =>
+  addMetric: (data: { weight_kg?: number; body_fat_pct?: number; waist_cm?: number; chest_cm?: number; arm_cm?: number; shoulders_cm?: number; hips_cm?: number; thigh_cm?: number; neck_cm?: number }) =>
     request<{ ok: boolean }>('/metrics', { method: 'POST', body: JSON.stringify(data) }),
 
   // Sleep
@@ -917,7 +917,13 @@ export interface ExerciseData { name: string; sets: ExerciseSet[] }
 export interface WorkoutData { id: string; title: string; start_time: string; end_time: string; exercises: ExerciseData[] }
 export interface WorkoutInput { title: string; start_time: string; end_time: string; exercises: ExerciseData[] }
 export interface PR { weight_kg: number; reps: number; date: string }
-export interface UserProfile { name: string; calories: number; protein: number }
+export interface UserProfile {
+  name: string; calories: number; protein: number
+  // Body profile behind the TDEE math + Transformation targets (present when set).
+  height_cm?: number; age?: number; sex?: string; activity_level?: string
+  goal_direction?: 'gain' | 'maintain' | 'lose'
+  target_weight_kg?: number
+}
 export interface WeekStats {
   food_by_day: HistoryDay[]; logged_days: number; avg_kcal: number
   goal_kcal: number; workout_count: number; goal_gym_days: number
@@ -953,6 +959,12 @@ export interface BodyMetric {
   weight_kg?: number | null
   body_fat_pct?: number | null
   waist_cm?: number | null
+  chest_cm?: number | null
+  arm_cm?: number | null
+  shoulders_cm?: number | null
+  hips_cm?: number | null
+  thigh_cm?: number | null
+  neck_cm?: number | null
 }
 
 /** Activity level derived from real Apple Health step counts. */
