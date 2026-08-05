@@ -10,8 +10,10 @@ import {
   isProperlyEating,
   predictNextWeight,
   parseRepRange,
+  evaluateProgressionFeedback,
   type DailyTotals,
 } from '../lib/workout-progression'
+import { celebrate } from '../lib/celebrations'
 import { decideNextSet, type DecisionResult } from '../lib/gym-decision'
 import {
   countCompletedSets,
@@ -524,7 +526,7 @@ function lastRirOf(sets?: Array<{ rir?: number }>): number | null {
   return null
 }
 
-export default function Workout({ onOpenSkill }: { onOpenSkill?: () => void }) {
+export default function Workout({ onOpenSkill, onOpenTransformation }: { onOpenSkill?: () => void; onOpenTransformation?: () => void }) {
   const [workouts, setWorkouts] = useState<WorkoutData[]>([])
   const [weighIns, setWeighIns] = useState<WeighIn[]>([])
   const [sleepEntries, setSleepEntries] = useState<SleepEntry[]>([])
@@ -596,6 +598,9 @@ export default function Workout({ onOpenSkill }: { onOpenSkill?: () => void }) {
   const [postWorkout, setPostWorkout] = useState<{ analysis: WorkoutAnalysis; weeklyVolume: MuscleVolume[] } | null>(null)
   const repsInputRef = useRef<HTMLInputElement>(null)
   const searchTimeout = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  // Fire the "you earned the jump" confetti at most once per exercise per
+  // session. Keyed by exIdx:name, reset when a new workout starts.
+  const celebratedExercisesRef = useRef<Set<string>>(new Set())
 
   useEffect(() => {
     // Seed instantly from the last-known cache so the engine always has history
@@ -866,6 +871,7 @@ export default function Workout({ onOpenSkill }: { onOpenSkill?: () => void }) {
       setLive({ title, startTime: new Date().toISOString(), exercises: [] })
     }
     // Always start a fresh workout at the very first set in active phase.
+    celebratedExercisesRef.current = new Set()
     setFocusExIdx(0)
     setFocusSetIdx(0)
     setPhase('active')
@@ -1014,12 +1020,13 @@ export default function Workout({ onOpenSkill }: { onOpenSkill?: () => void }) {
     const doneSet = live?.exercises[exIdx]?.sets[setIdx]
     const missedTarget = !!doneSet && doneSet.target != null && (doneSet.reps ?? 0) < doneSet.target
     const effTier: 'easy' | 'good' | 'hard' | 'fail' = (tier === 'easy' && missedTarget) ? 'good' : tier
+    const appliedRir = missedTarget ? Math.min(TIER_RIR[effTier], 1) : TIER_RIR[effTier]
     setLive(w => {
       if (!w) return w
       const exercises = w.exercises.map((ex, ei) => {
         if (ei !== exIdx) return ex
         const sets = ex.sets.map((s, si) => si === setIdx
-          ? { ...s, rir: missedTarget ? Math.min(TIER_RIR[effTier], 1) : TIER_RIR[effTier] }
+          ? { ...s, rir: appliedRir }
           : s)
         const doneWeight = sets[setIdx].weight_kg
         if (doneWeight != null && doneWeight > 0 && (effTier === 'easy' || effTier === 'fail')) {
@@ -1055,6 +1062,40 @@ export default function Workout({ onOpenSkill }: { onOpenSkill?: () => void }) {
     else if (effTier === 'good') showToast('Held the weight — dialled in')
     else if (effTier === 'hard') showToast('Holding the weight, giving you more rest')
     else showToast('Down a notch next set — or drop & keep going')
+    // When rating the effort finishes off an exercise, tell the engine and, if
+    // it earned a real weight jump, celebrate it in the moment (confetti).
+    maybeCelebrateProgression(exIdx, setIdx, appliedRir)
+  }
+
+  // Honesty-gated celebration: only when the engine would genuinely bump the
+  // weight next session (see evaluateProgressionFeedback). Topped-out-but-soft
+  // sets get a quiet "push harder" nudge instead — never a fake party.
+  function maybeCelebrateProgression(exIdx: number, ratedSetIdx: number, ratedRir: number) {
+    const ex = live?.exercises[exIdx]
+    if (!ex || live?.editingId) return
+    const key = `${exIdx}:${ex.name}`
+    if (celebratedExercisesRef.current.has(key)) return
+    const working = ex.sets.filter(s => !s.ramp)
+    if (working.length === 0) return
+    // The rated set is already `done` in state; fire only once everything's in.
+    if (!ex.sets.every(s => s.ramp || s.done)) return
+    const lastWorkingIdx = ex.sets.reduce((acc, s, i) => (s.ramp ? acc : i), -1)
+    const lastRir = lastWorkingIdx === ratedSetIdx ? ratedRir : (ex.sets[lastWorkingIdx]?.rir ?? null)
+    const fb = evaluateProgressionFeedback({
+      name: ex.name,
+      repRange: ex.repRange,
+      sets: working.map(s => ({ weight_kg: s.weight_kg, reps: s.reps })),
+      lastSetRIR: lastRir,
+      nextStackUp: ex.stackUp,
+    })
+    celebratedExercisesRef.current.add(key) // one signal per exercise either way
+    if (fb.earned) {
+      celebrate('confetti', fb.message)
+      showToast(fb.message, 'ok')
+      if (navigator.vibrate) navigator.vibrate([20, 40, 20, 40, 60])
+    } else if (fb.message) {
+      showToast(fb.message, 'info')
+    }
   }
 
   // Drop set: you couldn't finish at this weight, so log what you DID, then
@@ -1160,6 +1201,27 @@ export default function Workout({ onOpenSkill }: { onOpenSkill?: () => void }) {
         analysis: analyzeWorkout(saved, updated.filter(w => w.id !== saved.id), prevPRs),
         weeklyVolume: weeklyVolumeByMuscle(updated, 7),
       })
+    }
+    // Safety net: catch lifts that earned a jump but whose effort was never
+    // tapped (so the mid-session trigger didn't run). One combined confetti.
+    if (!live.editingId) {
+      const leveledUp: string[] = []
+      live.exercises.forEach((ex, i) => {
+        if (celebratedExercisesRef.current.has(`${i}:${ex.name}`)) return
+        const done = ex.sets.filter(s => !s.ramp && s.done)
+        if (!done.length) return
+        const lastRir = [...done].reverse().find(s => typeof s.rir === 'number')?.rir ?? null
+        const fb = evaluateProgressionFeedback({
+          name: ex.name, repRange: ex.repRange,
+          sets: done.map(s => ({ weight_kg: s.weight_kg, reps: s.reps })),
+          lastSetRIR: lastRir, nextStackUp: ex.stackUp,
+        })
+        if (fb.earned) leveledUp.push(ex.name)
+      })
+      if (leveledUp.length) {
+        celebrate('confetti', `${leveledUp.length} lift${leveledUp.length > 1 ? 's' : ''} leveled up`)
+        showToast(`Weight goes up next time: ${leveledUp.join(', ')} 🎉`, 'ok')
+      }
     }
     setLive(null)
     setRestTimer(null)
@@ -2102,6 +2164,25 @@ export default function Workout({ onOpenSkill }: { onOpenSkill?: () => void }) {
             </div>
           )
         })()}
+
+        {/* ── Transformation entry ─────────────────────────────────── */}
+        {onOpenTransformation && (
+          <button
+            onClick={onOpenTransformation}
+            style={{
+              width: '100%', textAlign: 'left', cursor: 'pointer', marginBottom: 12,
+              display: 'flex', alignItems: 'center', gap: 12,
+              background: 'var(--card)', border: '1px solid var(--separator)', borderRadius: 14, padding: '14px 16px',
+            }}
+          >
+            <div style={{ fontSize: 22 }}>🎯</div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--label)' }}>Transformation</div>
+              <div style={{ fontSize: 13, color: 'var(--label2)' }}>Your roadmap to the goal · targets · milestones</div>
+            </div>
+            <div style={{ color: 'var(--label3)', fontSize: 18 }}>›</div>
+          </button>
+        )}
 
         {/* ── Progress ─────────────────────────────────────────────── */}
         {(() => {

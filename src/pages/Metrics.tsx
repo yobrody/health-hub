@@ -180,6 +180,14 @@ export default function Metrics() {
   const [weight, setWeight] = useState('')
   const [bodyFat, setBodyFat] = useState('')
   const [waist, setWaist] = useState('')
+  // Monthly tape measurements — feed the Transformation physique milestones.
+  const [chest, setChest] = useState('')
+  const [shoulders, setShoulders] = useState('')
+  const [arm, setArm] = useState('')
+  const [hips, setHips] = useState('')
+  const [thigh, setThigh] = useState('')
+  const [neck, setNeck] = useState('')
+  const [showTape, setShowTape] = useState(false)
 
   // Sleep log form
   const [bedtime, setBedtime] = useState('23:00')
@@ -204,13 +212,21 @@ export default function Metrics() {
 
   async function handleLogWeight(e: React.FormEvent) {
     e.preventDefault()
-    if (!weight && !bodyFat && !waist) return
+    const num = (s: string) => s ? parseFloat(s) : undefined
+    const anyValue = [weight, bodyFat, waist, chest, shoulders, arm, hips, thigh, neck].some(Boolean)
+    if (!anyValue) return
     setSubmitting(true)
     try {
       await api.addMetric({
-        weight_kg: weight ? parseFloat(weight) : undefined,
-        body_fat_pct: bodyFat ? parseFloat(bodyFat) : undefined,
-        waist_cm: waist ? parseFloat(waist) : undefined,
+        weight_kg: num(weight),
+        body_fat_pct: num(bodyFat),
+        waist_cm: num(waist),
+        chest_cm: num(chest),
+        shoulders_cm: num(shoulders),
+        arm_cm: num(arm),
+        hips_cm: num(hips),
+        thigh_cm: num(thigh),
+        neck_cm: num(neck),
       })
       const [newLatest, newTdee, newMetrics] = await Promise.all([
         api.getLatestMetric(), api.getTDEE(), api.getMetrics(90)
@@ -219,7 +235,8 @@ export default function Metrics() {
       setTdee(newTdee)
       setMetrics(newMetrics.metrics)
       setWeight(''); setBodyFat(''); setWaist('')
-      setShowLog(false)
+      setChest(''); setShoulders(''); setArm(''); setHips(''); setThigh(''); setNeck('')
+      setShowLog(false); setShowTape(false)
       if (navigator.vibrate) navigator.vibrate(10)
     } catch {
       // Was try/finally with no catch — a failed log threw unhandled, the
@@ -259,6 +276,31 @@ export default function Metrics() {
     .filter(m => m.body_fat_pct != null)
     .map(m => ({ date: m.date, value: m.body_fat_pct! }))
     .filter(m => m.date >= rangeCutoff)
+  // Tape-measurement trends over the window — only render one when it has data.
+  const TAPE: { key: keyof typeof metrics[number]; label: string; color: string }[] = [
+    { key: 'shoulders_cm', label: 'Shoulders', color: 'var(--purple)' },
+    { key: 'chest_cm', label: 'Chest', color: 'var(--green)' },
+    { key: 'arm_cm', label: 'Arm', color: 'var(--blue)' },
+    { key: 'thigh_cm', label: 'Thigh', color: 'var(--orange)' },
+    { key: 'hips_cm', label: 'Hips', color: '#EC4899' },
+    { key: 'neck_cm', label: 'Neck', color: '#14B8A6' },
+  ]
+  const tapeSeries = TAPE.map(t => ({
+    ...t,
+    data: metrics
+      .filter(m => m[t.key] != null)
+      .map(m => ({ date: m.date, value: m[t.key] as number }))
+      .filter(m => m.date >= rangeCutoff),
+  })).filter(t => t.data.length >= 2)
+  // Monthly-cadence nudge: how long since ANY tape measurement was recorded.
+  const lastTapeDate = metrics
+    .filter(m => TAPE.some(t => m[t.key] != null))
+    .map(m => m.date)
+    .sort()
+    .at(-1) ?? null
+  const daysSinceTape = lastTapeDate
+    ? Math.floor((Date.now() - new Date(lastTapeDate).getTime()) / 86400000)
+    : null
   const latestWeight = weights.length > 0 ? weights[weights.length - 1] : null
   const weekAgoWeight = weights.find(w => {
     if (!latestWeight) return false
@@ -417,16 +459,32 @@ export default function Metrics() {
                 <input className="input-field" style={{ flex: 1, padding: '12px', fontSize: 16 }} placeholder="Weight (kg)" type="number" step="0.1" value={weight} onChange={e => setWeight(e.target.value)} autoFocus />
                 <input className="input-field" style={{ flex: 1, padding: '12px', fontSize: 16 }} placeholder="Body fat %" type="number" step="0.1" value={bodyFat} onChange={e => setBodyFat(e.target.value)} />
               </div>
-              <div style={{ display: 'flex', gap: 8 }}>
-                <input className="input-field" style={{ flex: 1, padding: '12px', fontSize: 16 }} placeholder="Waist (cm)" type="number" step="0.5" value={waist} onChange={e => setWaist(e.target.value)} />
-                <button type="submit" disabled={submitting || (!weight && !bodyFat && !waist)} style={{
-                  background: 'var(--blue)', color: '#fff', border: 'none', borderRadius: 10,
-                  padding: '12px 20px', fontSize: 15, fontWeight: 600, cursor: 'pointer',
-                  opacity: (!weight && !bodyFat && !waist) ? 0.5 : 1,
-                }}>
-                  {submitting ? '...' : 'Save'}
-                </button>
-              </div>
+              <input className="input-field" style={{ padding: '12px', fontSize: 16 }} placeholder="Waist (cm)" type="number" step="0.5" value={waist} onChange={e => setWaist(e.target.value)} />
+
+              {/* Tape measurements — logged ~monthly, not every weigh-in. */}
+              <button type="button" onClick={() => setShowTape(t => !t)} style={{
+                background: 'none', border: 'none', color: 'var(--blue)', fontSize: 13, fontWeight: 600,
+                textAlign: 'left', cursor: 'pointer', padding: '2px 0',
+              }}>
+                {showTape ? '− Tape measurements' : '+ Tape measurements (monthly)'}
+              </button>
+              {showTape && (
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                  <input className="input-field" style={{ padding: '12px', fontSize: 16 }} placeholder="Shoulders (cm)" type="number" step="0.5" value={shoulders} onChange={e => setShoulders(e.target.value)} />
+                  <input className="input-field" style={{ padding: '12px', fontSize: 16 }} placeholder="Chest (cm)" type="number" step="0.5" value={chest} onChange={e => setChest(e.target.value)} />
+                  <input className="input-field" style={{ padding: '12px', fontSize: 16 }} placeholder="Arm (cm)" type="number" step="0.5" value={arm} onChange={e => setArm(e.target.value)} />
+                  <input className="input-field" style={{ padding: '12px', fontSize: 16 }} placeholder="Thigh (cm)" type="number" step="0.5" value={thigh} onChange={e => setThigh(e.target.value)} />
+                  <input className="input-field" style={{ padding: '12px', fontSize: 16 }} placeholder="Hips (cm)" type="number" step="0.5" value={hips} onChange={e => setHips(e.target.value)} />
+                  <input className="input-field" style={{ padding: '12px', fontSize: 16 }} placeholder="Neck (cm)" type="number" step="0.5" value={neck} onChange={e => setNeck(e.target.value)} />
+                </div>
+              )}
+
+              <button type="submit" disabled={submitting} style={{
+                background: 'var(--blue)', color: '#fff', border: 'none', borderRadius: 10,
+                padding: '12px 20px', fontSize: 15, fontWeight: 600, cursor: 'pointer',
+              }}>
+                {submitting ? '...' : 'Save'}
+              </button>
             </form>
           </Card>
         )}
@@ -631,6 +689,38 @@ export default function Metrics() {
             </div>
           </Card>
         )}
+
+        {/* ─── Monthly measurements (tape) ─── */}
+        <Card>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: tapeSeries.length ? 14 : 0 }}>
+            <CardLabel>Measurements</CardLabel>
+            <span style={{ fontSize: 11, color: 'var(--c-label-faint)' }}>
+              {daysSinceTape == null ? 'not logged yet' : daysSinceTape === 0 ? 'logged today' : `${daysSinceTape}d ago`}
+            </span>
+          </div>
+          {(daysSinceTape == null || daysSinceTape >= 28) && (
+            <button
+              onClick={() => { setShowLog(true); setShowSleep(false); setShowTape(true) }}
+              style={{
+                width: '100%', textAlign: 'left', cursor: 'pointer', marginBottom: tapeSeries.length ? 14 : 0,
+                border: '1px solid var(--orange)', background: 'var(--orange)14', borderRadius: 10, padding: '11px 13px',
+              }}>
+              <div style={{ fontSize: 13, color: 'var(--orange)', fontWeight: 700 }}>
+                {daysSinceTape == null ? 'Take your first measurements' : 'Time for this month’s measurements'}
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--c-label-dim)', lineHeight: 1.5, marginTop: 3 }}>
+                Shoulders, chest, arm, thigh, hips, neck. Monthly is enough — it’s what proves the scale weight is turning into shape.
+              </div>
+            </button>
+          )}
+          {tapeSeries.length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+              {tapeSeries.map(t => (
+                <MeasurementTrend key={t.key as string} label={t.label} data={t.data} unit="cm" color={t.color} />
+              ))}
+            </div>
+          )}
+        </Card>
 
       </div>
     </div>

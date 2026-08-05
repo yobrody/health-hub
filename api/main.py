@@ -1481,7 +1481,7 @@ def get_profile(key=Depends(require_key)):
             name = data.get("name", name)
             # Body profile behind the TDEE math — exposed so the Goals page
             # can prefill its editor (PUT /tdee/profile writes these).
-            body = {k: data.get(k) for k in ("height_cm", "age", "sex", "activity_level", "goal_direction") if k in data}
+            body = {k: data.get(k) for k in ("height_cm", "age", "sex", "activity_level", "goal_direction", "target_weight_kg") if k in data}
         except Exception:
             pass
     return {"name": name, "calories": goals["calories"], "protein": goals["protein"], **body}
@@ -2134,6 +2134,11 @@ class BodyMetricIn(BaseModel):
     waist_cm: Optional[float] = None
     chest_cm: Optional[float] = None
     arm_cm: Optional[float] = None
+    # Monthly physique-tracking measurements (feed the Transformation roadmap).
+    shoulders_cm: Optional[float] = None
+    hips_cm: Optional[float] = None
+    thigh_cm: Optional[float] = None
+    neck_cm: Optional[float] = None
     notes: Optional[str] = None
     date: Optional[str] = None
 
@@ -2158,6 +2163,10 @@ def add_metric(entry: BodyMetricIn, key=Depends(require_key)):
     if entry.waist_cm is not None: record["waist_cm"] = entry.waist_cm
     if entry.chest_cm is not None: record["chest_cm"] = entry.chest_cm
     if entry.arm_cm is not None: record["arm_cm"] = entry.arm_cm
+    if entry.shoulders_cm is not None: record["shoulders_cm"] = entry.shoulders_cm
+    if entry.hips_cm is not None: record["hips_cm"] = entry.hips_cm
+    if entry.thigh_cm is not None: record["thigh_cm"] = entry.thigh_cm
+    if entry.neck_cm is not None: record["neck_cm"] = entry.neck_cm
     if entry.notes: record["notes"] = entry.notes
     metrics.append(record)
     save_metrics(metrics)
@@ -2405,7 +2414,8 @@ def update_tdee_profile(key=Depends(require_key),
                         age: Optional[int] = None,
                         sex: Optional[str] = None,
                         activity_level: Optional[str] = None,
-                        goal_direction: Optional[str] = None):
+                        goal_direction: Optional[str] = None,
+                        target_weight_kg: Optional[float] = None):
     """Update TDEE profile fields (stored in profile.json)."""
     existing = {}
     if PROFILE_FILE.exists():
@@ -2422,6 +2432,10 @@ def update_tdee_profile(key=Depends(require_key),
     # and the suggested goals. The Goals-page direction picker persists it here
     # so the server no longer silently assumes "maintain".
     if goal_direction in ("gain", "maintain", "lose"): existing["goal_direction"] = goal_direction
+    # Goal bodyweight (e.g. 72kg) — anchors the Transformation roadmap and the
+    # per-exercise strength targets. Guarded to a sane human range.
+    if target_weight_kg is not None and 30 <= target_weight_kg <= 300:
+        existing["target_weight_kg"] = target_weight_kg
     atomic_write_text(PROFILE_FILE, json.dumps(existing, indent=2))
     return {"ok": True, "profile": existing}
 

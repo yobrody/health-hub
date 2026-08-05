@@ -202,6 +202,85 @@ export function predictNextWeight(input: PredictInput): PredictResult {
   }
 }
 
+// -- Earned-progression feedback (drives the confetti) --------------------
+//
+// After an exercise's last working set, this asks the SAME engine what the next
+// session prescribes and reports whether that's a genuine, earned weight jump.
+// Confetti is honesty-gated: it fires only for a real increase (a 'bump-*'
+// verdict), never for a topped-out-but-soft set the engine chooses to hold.
+
+const EARNED_RATIONALES: ReadonlySet<PredictRationale> = new Set([
+  'bump-progressive-overload', 'bump-too-light', 'bump-overrun', 'bump-recalibrating',
+])
+
+export function isEarnedJump(rationale: PredictRationale): boolean {
+  return EARNED_RATIONALES.has(rationale)
+}
+
+export type ProgressionFeedbackInput = {
+  name: string
+  repRange?: string | null
+  /** Working sets just completed (ramps excluded), in order. */
+  sets: SetSummary[]
+  /** RIR reported on the last working set (the effort tap). */
+  lastSetRIR?: number | null
+  /** Adjacent real machine notch above the working weight, if known. */
+  nextStackUp?: number
+  recalibrating?: boolean
+}
+
+export type ProgressionFeedback = {
+  /** A genuine, earned weight increase → fire confetti. */
+  earned: boolean
+  fromKg?: number
+  toKg?: number
+  rationale: PredictRationale
+  /** '' when there's nothing worth surfacing; otherwise a one-liner for a toast
+   * (info when not earned, celebratory when earned). */
+  message: string
+}
+
+export function evaluateProgressionFeedback(input: ProgressionFeedbackInput): ProgressionFeedback {
+  const done = completed(input.sets)
+  // Working weight actually settled on this exercise (last completed set).
+  let settled: number | undefined
+  for (let i = done.length - 1; i >= 0; i--) {
+    const w = done[i].weight_kg
+    if (typeof w === 'number' && w > 0) { settled = w; break }
+  }
+
+  const result = predictNextWeight({
+    prevSets: input.sets,
+    repRange: input.repRange,
+    lastSessionRIR: input.lastSetRIR ?? null,
+    nextStackUp: input.nextStackUp,
+    recalibrating: input.recalibrating,
+  })
+
+  const earned =
+    isEarnedJump(result.rationale) &&
+    result.weight_kg != null &&
+    settled != null &&
+    result.weight_kg > settled
+
+  if (earned) {
+    return {
+      earned: true,
+      fromKg: settled,
+      toKg: result.weight_kg,
+      rationale: result.rationale,
+      message: `All sets topped out — ${input.name} → ${result.weight_kg}kg next time`,
+    }
+  }
+
+  // Not a jump, but the engine may still have something encouraging to say
+  // (e.g. "build reps toward the next notch", "push harder at this weight").
+  const message = result.rationale === 'hold-jump-too-big' || result.rationale === 'hold-rir-slack'
+    ? (result.note ?? '')
+    : ''
+  return { earned: false, rationale: result.rationale, message }
+}
+
 // -- Food (diagnostic only - NOT wired into progression) ------------------
 
 export type DailyTotals = {

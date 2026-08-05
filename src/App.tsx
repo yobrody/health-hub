@@ -18,6 +18,7 @@ import Insights from './pages/Insights'
 import MealPlan from './pages/MealPlan'
 import Streaks from './pages/Streaks'
 import Stats from './pages/Stats'
+import Transformation from './pages/Transformation'
 import SkillBlock from './pages/SkillBlock'
 import SmartScanner from './components/SmartScanner'
 import { UpdatePrompt } from './components/UpdatePrompt'
@@ -31,7 +32,7 @@ import { clampDragX, shouldDismiss, classifyGesture, DISMISS_DISTANCE_FRACTION }
 import type { Theme } from './main'
 import './App.css'
 
-type Tab = 'today' | 'nutrition' | 'fridge' | 'workout' | 'chat' | 'goals' | 'skincare' | 'lists' | 'agenda' | 'routines' | 'metrics' | 'timeline' | 'barcode' | 'weekly-report' | 'insights' | 'meal-plan' | 'streaks' | 'skill' | 'seasonings' | 'stats'
+type Tab = 'today' | 'nutrition' | 'fridge' | 'workout' | 'chat' | 'goals' | 'skincare' | 'lists' | 'agenda' | 'routines' | 'metrics' | 'timeline' | 'barcode' | 'weekly-report' | 'insights' | 'meal-plan' | 'streaks' | 'skill' | 'seasonings' | 'stats' | 'transformation'
 
 // 4 visible tabs + camera FAB. Chat accessible via Today tile.
 const TABS: { id: Tab; label: string }[] = [
@@ -293,7 +294,7 @@ export default function App({ onToggleTheme, theme }: Props) {
     switch (t) {
       case 'nutrition': return <Nutrition />
       case 'fridge': return <Fridge />
-      case 'workout': return <Workout onOpenSkill={() => setTab('skill')} />
+      case 'workout': return <Workout onOpenSkill={() => setTab('skill')} onOpenTransformation={() => setTab('transformation')} />
       case 'chat': return <Chat />
       case 'insights': return <Insights />
       case 'meal-plan': return <MealPlan />
@@ -308,6 +309,7 @@ export default function App({ onToggleTheme, theme }: Props) {
       case 'weekly-report': return <WeeklyReport />
       case 'streaks': return <Streaks />
       case 'stats': return <Stats />
+      case 'transformation': return <Transformation />
       case 'skill': return <SkillBlock onBack={() => setTab('workout')} />
       case 'seasonings': return <Seasonings />
       default: return null
@@ -397,7 +399,7 @@ export default function App({ onToggleTheme, theme }: Props) {
   // Pages reachable only by tile-click (not in the bottom nav) get a small
   // back-to-Today chevron, fixed top-left, so the route isn't a one-way
   // trip (audit P1-5). The bottom nav still works for jumping anywhere.
-  const SECONDARY_TABS = new Set<Tab>(['skincare', 'goals', 'lists', 'agenda', 'routines', 'metrics', 'timeline', 'barcode', 'weekly-report', 'chat', 'insights', 'meal-plan', 'streaks', 'skill', 'seasonings', 'stats'])
+  const SECONDARY_TABS = new Set<Tab>(['skincare', 'goals', 'lists', 'agenda', 'routines', 'metrics', 'timeline', 'barcode', 'weekly-report', 'chat', 'insights', 'meal-plan', 'streaks', 'skill', 'seasonings', 'stats', 'transformation'])
 
   // Drag progress 0→1 drives the portal's slide-out scale/opacity feedback.
   const portalW = (typeof window !== 'undefined' && window.innerWidth) || 400
@@ -431,7 +433,7 @@ export default function App({ onToggleTheme, theme }: Props) {
           {tab === 'today'     && <Today onNavigate={openPortal} onToggleTheme={onToggleTheme} themeIcon={themeIcon} />}
           {tab === 'nutrition' && <Nutrition />}
           {tab === 'fridge'    && <Fridge />}
-          {tab === 'workout'   && <Workout onOpenSkill={() => setTab('skill')} />}
+          {tab === 'workout'   && <Workout onOpenSkill={() => setTab('skill')} onOpenTransformation={() => setTab('transformation')} />}
           {tab === 'chat'      && <Chat />}
           {tab === 'insights'  && <Insights />}
           {tab === 'meal-plan' && <MealPlan />}
@@ -446,6 +448,7 @@ export default function App({ onToggleTheme, theme }: Props) {
         {tab === 'weekly-report' && <WeeklyReport />}
           {tab === 'streaks'       && <Streaks />}
           {tab === 'stats'         && <Stats />}
+          {tab === 'transformation' && <Transformation />}
           {tab === 'skill'         && <SkillBlock onBack={() => setTab('workout')} />}
           {tab === 'seasonings'    && <Seasonings />}
         </div>
