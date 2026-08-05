@@ -8,7 +8,18 @@ Read **AGENTS.md** first for repo conventions, where the code lives, deploy targ
 - Backend: FastAPI single `api/main.py` in Docker on `lucky-vps` (ssh alias; user lucky@128.140.33.150 port 2222). Data: JSON under `~/.openclaw/workspace/health`. **Backend changes need a manual redeploy** (scp main.py + docker rebuild — block at bottom of the status doc).
 - Verification harness in-repo: `scripts/e2e-smoke/` (Playwright + mock server). Run after UI changes.
 
-## Status (as of 2026-08-05, latest commit `982ac28`)
+## Status (as of 2026-08-05, latest commit `0c0066b`)
+**Transformation system SHIPPED + DEPLOYED (`0c0066b`, branch `feat/transformation-system` merged).** New "Transformation" tab (reachable from the Workout page 🎯 card) ties the gym to Brody's 72kg goal:
+- **Auto-progression confetti** — `evaluateProgressionFeedback` (in `lib/workout-progression.ts`) reuses the existing `predictNextWeight` verdict; confetti fires ONLY on a genuine earned weight jump (`bump-*`), never a topped-but-soft set. Wired into `Workout.tsx` `applySetFeedback` (per-exercise, once each) + a finish-of-session safety-net summary. This was the headline ask ("top of rep range on all sets → auto-increase + confetti"), done engine-honestly.
+- **Goal-aware per-exercise targets** — `lib/strength-targets.ts`: compounds get a bodyweight-ratio benchmark scaled to the goal; isolations scale from the user's own best; `null` when nothing honest to ground on. Shown as progress bars on the Transformation page.
+- **Roadmap** — `lib/transformation.ts` `projectRoadmap`: 62→72kg from the real weekly trend when reliable (≥14d) else a healthy default rate; ETA to month precision only.
+- **Physique milestones** — same file `physiqueMilestones`: weight-anchored for size, **body-fat-anchored for abs** (honest "a bulk raises body fat" caveat), `needs-data` when no BF reading.
+- **Monthly tape measurements** — shoulders/chest/arm/hips/thigh/neck on the Body page (`Metrics.tsx`) with a monthly-cadence nudge + trends. Backend `BodyMetricIn` extended.
+- **Goal weight** persisted to the profile (`target_weight_kg`, PUT `/tdee/profile`); **set to 72 on the VPS during deploy** (verified `profile.target_weight_kg = 72.0`).
+- New pure logic fully TDD'd (21 new tests); suite 382 green, tsc/eslint/build clean, health-hub-reviewer pass (its one blocker — unsaved-goal fallback — fixed: page now shows a "set your goal" prompt rather than projecting against a guess).
+- **Backend redeploy DONE 2026-08-05** via the fixed `~/health-hub/api/deploy.sh` (on-disk Dockerfile + BOTH mounts + `--env-file`). Data backed up to `~/health-hub-backups/20260805-122816/` first; verified after: container up + `unless-stopped` + both mounts, weight 62.0 intact, new metric fields (`shoulders_cm`/`hips_cm`/`thigh_cm`/`neck_cm`) + `target_weight_kg` param live in OpenAPI, VAPID key (`BBOWVHT…`) + push cron unaffected.
+
+### Earlier — 2026-08-04 batch (shipped + deployed)
 Everything from the big 2026-08-04 feedback batch is shipped + deployed (backend redeploy done). Recent commits:
 - `e019d49` **scan-honesty fix** — packaged food no longer guesses (→ Open Food Facts lookup, else honest `~` + "snap the label"); micronutrients only shown when measured, else `—`. Backend `/scan/smart` on lucky-vps redeployed + verified (front-of-pack rule + per-item `source`/`needs_label` + real-grams rule live; both `-v` mounts intact, data intact, pywebpush + VAPID unaffected; added `--restart unless-stopped`). `982ac28` fix stale repo `api/Dockerfile` (drop unused `anthropic`, add `pywebpush`).
 - `71f53f2` workout persistence (no more lost sessions). `be5d89d` real machine weights + cardio no-weight + prone-leg-curl swap. `bf86111` warm-ups removed + rep-shortfall-as-miss. `579ed2a` weight logging via Today tile. `f4026d3` **new Progress/stats page** (`src/pages/Stats.tsx`). `b9dee04` + `15d7266` food label per-100g→pack scaling + branded front-of-pack names + graceful barcode failures.
