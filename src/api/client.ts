@@ -29,7 +29,10 @@ function setConn(s: ConnStatus) {
 // reachable; a thrown fetch means still down.
 export async function probeBackend(): Promise<boolean> {
   try {
-    await fetch(`${BASE}/today`, { method: 'HEAD', cache: 'no-store' })
+    const res = await fetch(`${BASE}/today`, { method: 'HEAD', cache: 'no-store' })
+    // A 5xx means reachable-but-erroring — report 'degraded', not 'online', so a
+    // persistently-broken backend doesn't get papered over as healthy.
+    if (res.status >= 500) { setConn('degraded'); return false }
     setConn('online')
     void flushOutbox() // we're back — drain anything captured while offline
     return true
@@ -490,7 +493,7 @@ export const api = {
   updateTdeeProfile: (data: { height_cm?: number; age?: number; sex?: string; activity_level?: string; weight_kg?: number; goal_direction?: string; target_weight_kg?: number }) => {
     const qs = Object.entries(data).filter(([, v]) => v !== undefined && v !== null && v !== '')
       .map(([k, v]) => `${k}=${encodeURIComponent(String(v))}`).join('&')
-    return request<{ ok: boolean; profile: Record<string, unknown> }>(`/tdee/profile?${qs}`, { method: 'PUT' })
+    return request<{ ok: boolean; profile: Record<string, unknown> }>(`/tdee/profile?${qs}`, { method: 'PUT', queueLabel: 'profile' })
   },
   getLatestMetric: () => request<{ metric: BodyMetric | null }>('/metrics/latest'),
   getMetrics: (days = 90) => request<{ metrics: BodyMetric[] }>(`/metrics?days=${days}`),
@@ -532,12 +535,12 @@ export const api = {
   // Goals
   getGoals: () => request<GoalsResponse>('/goals'),
   updateGoals: (update: GoalsUpdateInput) =>
-    request('/goals', { method: 'PUT', body: JSON.stringify(update) }),
+    request('/goals', { method: 'PUT', body: JSON.stringify(update), queueLabel: 'goals' }),
 
   // User profile
   getProfile: () => request<UserProfile>('/users/profile'),
   saveProfile: (profile: UserProfile) =>
-    request('/users/profile', { method: 'POST', body: JSON.stringify(profile) }),
+    request('/users/profile', { method: 'POST', body: JSON.stringify(profile), queueLabel: 'profile' }),
 
   // Stats
   getWeekStats: () => request<WeekStats>('/stats/week'),

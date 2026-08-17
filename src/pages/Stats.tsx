@@ -177,9 +177,9 @@ export default function Stats() {
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
           <StatCard
             label="This week"
-            value={`${consistency.thisWeekCount}/${goals?.gym_days ?? 4}`}
-            sub={consistency.thisWeekCount >= (goals?.gym_days ?? 4) ? 'Goal hit 🎯' : 'workouts'}
-            color={consistency.thisWeekCount >= (goals?.gym_days ?? 4) ? 'var(--c-green)' : undefined}
+            value={goals?.gym_days != null ? `${consistency.thisWeekCount}/${goals.gym_days}` : `${consistency.thisWeekCount}`}
+            sub={goals?.gym_days != null && consistency.thisWeekCount >= goals.gym_days ? 'Goal hit 🎯' : 'workouts'}
+            color={goals?.gym_days != null && consistency.thisWeekCount >= goals.gym_days ? 'var(--c-green)' : undefined}
           />
           <StatCard label="Volume · 30d" value={consistency.volume30 >= 1000 ? `${(consistency.volume30 / 1000).toFixed(1)}t` : `${Math.round(consistency.volume30)}kg`} sub="lifted" />
           <StatCard label="Body weight" value={latestWeight !== null ? `${latestWeight.toFixed(1)}` : '—'} sub={weightDelta !== null ? `${weightDelta > 0 ? '+' : ''}${weightDelta.toFixed(1)}kg ${direction === 'gain' ? 'gained' : direction === 'lose' ? 'lost' : 'overall'}` : 'kg'} color={weightColor} />

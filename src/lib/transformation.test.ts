@@ -74,4 +74,20 @@ describe('physiqueMilestones', () => {
     expect(abs.progressPct).not.toBeNull()
     expect(abs.note.toLowerCase()).toMatch(/bulk|cut|body.?fat/)
   })
+
+  it('exposes the abs body-fat target so the UI never hardcodes it', () => {
+    const abs = physiqueMilestones({ startKg: 62, currentKg: 66, goalKg: 72 }).find(m => m.id === 'abs')!
+    expect(abs.targetBodyFatPct).toBe(12)
+  })
+
+  it('flags weight milestones that land BEYOND the current goal', () => {
+    // Goal is only +6kg (62→68) but the "chest & back" milestone needs +7kg
+    // (69kg) — it can never be reached within the plan, so mark it honestly
+    // rather than showing a forever-"approaching" partial bar.
+    const ms = physiqueMilestones({ startKg: 62, currentKg: 64, goalKg: 68 })
+    const chest = ms.find(m => m.id === 'chest-back')! // target 69 > goal 68
+    expect(chest.beyondGoal).toBe(true)
+    const shoulders = ms.find(m => m.id === 'shoulders')! // target 65 <= goal 68
+    expect(shoulders.beyondGoal).toBe(false)
+  })
 })

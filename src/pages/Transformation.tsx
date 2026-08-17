@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { api } from '../api/client'
 import type { WorkoutData, PR, BodyMetric, UserProfile } from '../api/client'
 import { showToast } from '../toast'
@@ -6,11 +6,6 @@ import { analyzeWeightTrend, type WeightEntry } from '../lib/calorie-target'
 import { strengthTargetFor } from '../lib/strength-targets'
 import { projectRoadmap, physiqueMilestones } from '../lib/transformation'
 import { PROGRAM, ROTATION } from '../program'
-
-// Brody's stated goal weight. Used ONLY to seed the profile once (below) — never
-// shown as his goal until it's a real, saved value. Honesty rule: no guessed
-// number is presented as the user's data.
-const DEFAULT_GOAL_KG = 72
 
 function Card({ children }: { children: React.ReactNode }) {
   return (
@@ -68,29 +63,19 @@ export default function Transformation() {
     }).finally(() => setLoading(false))
   }, [])
 
-  // The goal is REAL only once it's saved to the profile. Until then we show a
-  // "set your goal" prompt — never project against an unsaved fallback.
-  const savedGoal = profile?.target_weight_kg ?? null
-  const hasGoal = savedGoal != null
-  const goalKg = savedGoal ?? DEFAULT_GOAL_KG
-
-  // Brody explicitly stated 72kg, so seed it ONCE as his real saved goal (not an
-  // ephemeral fallback). If the write fails (offline) hasGoal stays false and the
-  // prompt shows instead of fake projections.
-  const seededRef = useRef(false)
-  useEffect(() => {
-    if (loading || seededRef.current) return
-    if (profile && profile.target_weight_kg == null) {
-      seededRef.current = true
-      api.updateTdeeProfile({ target_weight_kg: DEFAULT_GOAL_KG })
-        .then(() => setProfile(p => (p ? { ...p, target_weight_kg: DEFAULT_GOAL_KG } : p)))
-        .catch(() => { /* offline — the goal card's Save button is the fallback */ })
-    }
-  }, [loading, profile])
-
   const currentKg = weights.length ? weights[weights.length - 1].kg : null
   const startKg = weights.length ? weights[0].kg : currentKg
   const todayIso = new Date().toISOString().slice(0, 10)
+
+  // The goal is REAL only once the user saves it to their profile. Until then we
+  // show a "set your goal" prompt and never project against a guessed default —
+  // no hardcoded number is ever presented as the user's data or auto-written to
+  // their profile. The fallback below is only consumed by computations the
+  // render gates behind `hasGoal`; anchoring it to current weight keeps any
+  // stray value from being a fabricated target.
+  const savedGoal = profile?.target_weight_kg ?? null
+  const hasGoal = savedGoal != null
+  const goalKg = savedGoal ?? (currentKg ?? 0)
 
   const trend = useMemo(() => analyzeWeightTrend(weights), [weights])
   const roadmap = currentKg != null
@@ -206,7 +191,7 @@ export default function Transformation() {
               <span style={{ fontSize: 16, color: 'var(--c-label-dim)' }}>→ {goalKg}kg goal</span>
             </div>
           ) : (
-            <button onClick={() => { setEditingGoal(true); setGoalDraft(String(DEFAULT_GOAL_KG)) }} style={{
+            <button onClick={() => { setEditingGoal(true); setGoalDraft(currentKg != null ? String(Math.round(currentKg)) : '') }} style={{
               width: '100%', textAlign: 'left', cursor: 'pointer',
               border: '1px solid var(--c-accent)', background: 'var(--c-card)', borderRadius: 10, padding: '12px 14px',
             }}>
@@ -263,10 +248,13 @@ export default function Transformation() {
                         {reached ? '✓ ' : ''}{m.title}
                       </span>
                       <span style={{ fontSize: 11, color: 'var(--c-label-faint)', whiteSpace: 'nowrap', flexShrink: 0 }}>
-                        {m.anchor === 'weight' && m.targetWeightKg != null ? `~${m.targetWeightKg}kg` : m.status === 'needs-data' ? 'log body-fat' : `~${12}% BF`}
+                        {m.anchor === 'weight' && m.targetWeightKg != null ? `~${m.targetWeightKg}kg` : m.status === 'needs-data' ? 'log body-fat' : `~${m.targetBodyFatPct}% BF`}
                       </span>
                     </div>
-                    {m.progressPct != null ? <Bar pct={m.progressPct} color={color} /> : (
+                    {/* A milestone beyond the current goal isn't an active
+                        target — show a greyed stub (with its explaining note)
+                        rather than a partial bar stuck "approaching" forever. */}
+                    {m.progressPct != null && !m.beyondGoal ? <Bar pct={m.progressPct} color={color} /> : (
                       <div style={{ height: 7, background: 'var(--c-border)', borderRadius: 4, opacity: 0.5 }} />
                     )}
                     <div style={{ fontSize: 12, color: 'var(--c-label-dim)', lineHeight: 1.5, marginTop: 6 }}>{m.note}</div>

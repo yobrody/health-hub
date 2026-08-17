@@ -51,7 +51,12 @@ function hostAllowed(value) {
 
 function isAllowed(request, env) {
   const sfs = request.headers.get('Sec-Fetch-Site')
-  if (sfs === 'same-origin' || sfs === 'same-site' || sfs === 'none') return true
+  // NOTE: 'none' is deliberately NOT allowed. Browsers send it for
+  // address-bar/direct navigations, but any non-browser client (curl, a bot)
+  // can set it too — accepting it let anyone reach the proxied API + Gemini
+  // quota with no key. The PWA's own fetches are same-origin. Autonomous jobs
+  // use the read-only `?t=` token path below.
+  if (sfs === 'same-origin' || sfs === 'same-site') return true
   if (hostAllowed(request.headers.get('Origin'))) return true
   if (hostAllowed(request.headers.get('Referer'))) return true
   const key = request.headers.get('X-Health-Key')

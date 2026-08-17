@@ -6,6 +6,7 @@
 // elsewhere (two lifts stalled + bodyweight flat 3wk), never a gate.
 
 import { PROGRESSION } from '../program'
+import { nextUpWeight, type StackSpec } from './gym-equipment'
 
 export type RepRange = { min: number; max: number }
 
@@ -226,6 +227,10 @@ export type ProgressionFeedbackInput = {
   lastSetRIR?: number | null
   /** Adjacent real machine notch above the working weight, if known. */
   nextStackUp?: number
+  /** The exercise's real equipment stack. When provided, the next notch is
+   * derived from the ACTUAL working weight lifted (not a value seeded at the
+   * start of the session), so mid-session weight changes can't stale it. */
+  effectiveStack?: StackSpec | null
   recalibrating?: boolean
 }
 
@@ -249,11 +254,17 @@ export function evaluateProgressionFeedback(input: ProgressionFeedbackInput): Pr
     if (typeof w === 'number' && w > 0) { settled = w; break }
   }
 
+  // Prefer the notch derived from the weight ACTUALLY lifted this session over a
+  // value seeded before the working weight may have changed.
+  const nextStackUp = (input.effectiveStack && settled != null)
+    ? nextUpWeight(input.effectiveStack, settled)
+    : input.nextStackUp
+
   const result = predictNextWeight({
     prevSets: input.sets,
     repRange: input.repRange,
     lastSessionRIR: input.lastSetRIR ?? null,
-    nextStackUp: input.nextStackUp,
+    nextStackUp,
     recalibrating: input.recalibrating,
   })
 

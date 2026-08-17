@@ -59,4 +59,29 @@ describe('evaluateProgressionFeedback', () => {
     })
     expect(fb.earned).toBe(false)
   })
+
+  // The confetti bug: the "next notch" was seeded once at the START of the
+  // session, so if the user changed the working weight mid-session the notch
+  // went stale and an earned jump was silently suppressed. Passing the real
+  // equipment stack lets the evaluator derive the notch from the ACTUAL
+  // working weight instead.
+  const stack = { min: 17, max: 20.3, step: 1.1, values: [17, 18.1, 19.2, 20.3] }
+  const workedHeavier = {
+    name: 'Triceps Pushdown', repRange: '10–15',
+    sets: [{ weight_kg: 18.1, reps: 15 }, { weight_kg: 18.1, reps: 15 }, { weight_kg: 18.1, reps: 15 }],
+    lastSetRIR: 1,
+    nextStackUp: 18.1, // STALE seed — equals the actual working weight
+  }
+
+  it('derives the next notch from the ACTUAL working weight via effectiveStack', () => {
+    const fb = evaluateProgressionFeedback({ ...workedHeavier, effectiveStack: stack })
+    expect(fb.earned).toBe(true)
+    expect(fb.fromKg).toBe(18.1)
+    expect(fb.toKg).toBe(19.2) // real notch above the weight actually lifted
+  })
+
+  it('would MISS the earned jump with only the stale nextStackUp (documents the bug)', () => {
+    const fb = evaluateProgressionFeedback(workedHeavier)
+    expect(fb.earned).toBe(false)
+  })
 })

@@ -797,8 +797,8 @@ export default function Today({ onNavigate, onToggleTheme, themeIcon }: Props) {
       const isCoachQuery = /\bhow (much|many)\b[^.?]*\b(grams?|to (hit|reach)|hit|reach|each|goal|macros?|protein|target)\b/i.test(prompt)
         || /(hit|reach|to hit|to reach)[^.]*\b(goal|macro|macros|protein|target)\b/i.test(prompt)
         || /\bgrams?\b[^.]*\b(each|hit|reach|goal|macro|target)\b/i.test(prompt)
-      if (isCoachQuery) {
-        const goalsNow = data?.goals ?? { calories: 2800, protein: 140, gym_days: 4 }
+      if (isCoachQuery && data?.goals) {
+        const goalsNow = data.goals
         const totalNow = data?.total_kcal ?? 0
         const proteinNow = data?.entries?.reduce((acc, e) => acc + (e.protein_g ?? 0), 0) ?? 0
         const remaining = {

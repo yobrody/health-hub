@@ -41,6 +41,8 @@ import { useSwipeDown } from '../hooks/useSwipeDown'
 import Skeleton from '../components/Skeleton'
 import { rememberFood } from '../lib/food-memory'
 import { checkFoodPlausibility } from '../lib/food-plausibility'
+import { ringProgress } from '../lib/ring'
+import { parseServingGrams, isRelevantMatch } from '../lib/packaged-food'
 import { compressThumbnail } from '../lib/image'
 // Lazy so recharts (~100KB gz) only downloads when the trend chart renders,
 // keeping it off the initial load.
@@ -339,21 +341,40 @@ export default function Nutrition() {
 
   function applySearchResult(product: FoodSearchProduct) {
     const n = product.per_100g
-    setDesc(product.brand ? `${product.name} (${product.brand})` : product.name)
-    setKcal(String(n.kcal))
-    setProteinG(String(n.protein_g))
-    setCarbsG(n.carbs_g)
-    setFatG(n.fat_g)
-    setFiberG(n.fiber_g)
-    setSugarG(n.sugar_g)
-    setSodiumMg(n.sodium_mg)
-    // Carry every micro the database product supplied into the log.
+    // Honesty: Open Food Facts macros are PER 100g. Scale them to the product's
+    // real serving size so we log an actual portion — a 500g yogurt pot is
+    // ~295 kcal, not 59. When no gram serving is known, keep per-100g but
+    // disclose it in the name and don't badge it "verified": the user must set
+    // their portion. This mirrors the barcode path (SmartScanner) exactly.
+    const g = parseServingGrams(product.serving_size) ?? parseServingGrams(product.quantity)
+    const per100 = g == null
+    const scale = per100 ? 1 : g / 100
+    const s0 = (v?: number) => (typeof v === 'number' ? Math.round(v * scale) : undefined)
+    const s1 = (v?: number) => (typeof v === 'number' ? Math.round(v * scale * 10) / 10 : undefined)
+    const s2 = (v?: number) => (typeof v === 'number' ? Math.round(v * scale * 100) / 100 : undefined)
+    const baseName = product.brand ? `${product.name} (${product.brand})` : product.name
+    setDesc(per100 ? `${baseName} — per 100g` : baseName)
+    // Honesty: if the DB product genuinely lacks kcal/protein, leave the field
+    // BLANK for the user to fill — never prefill a fabricated 0 (which would log
+    // a real food as zero-calorie and understate intake).
+    const kcalV = s0(n.kcal)
+    const proteinV = s1(n.protein_g)
+    setKcal(kcalV != null ? String(kcalV) : '')
+    setProteinG(proteinV != null ? String(proteinV) : '')
+    setCarbsG(s1(n.carbs_g))
+    setFatG(s1(n.fat_g))
+    setFiberG(s1(n.fiber_g))
+    setSugarG(s1(n.sugar_g))
+    setSodiumMg(s0(n.sodium_mg))
+    // Carry every micro the database product supplied into the log — scaled.
     setEntryNutrients(buildNutrientMap({
-      saturated_fat_g: (n as { saturated_fat_g?: number }).saturated_fat_g,
-      fiber_g: n.fiber_g, sugar_g: n.sugar_g, salt_g: n.salt_g, sodium_mg: n.sodium_mg,
+      saturated_fat_g: s2((n as { saturated_fat_g?: number }).saturated_fat_g),
+      fiber_g: s2(n.fiber_g), sugar_g: s2(n.sugar_g), salt_g: s2(n.salt_g), sodium_mg: s0(n.sodium_mg),
     }))
-    setConfidence('high')
-    setSearchSource('verified')
+    // Scaled-to-serving = as trustworthy as a barcode. Raw per-100g is NOT the
+    // user's portion, so it isn't badged verified.
+    setConfidence(per100 ? 'low' : 'high')
+    setSearchSource(per100 ? null : 'verified')
     setSearchResults([])
   }
 
@@ -455,10 +476,12 @@ export default function Nutrition() {
       if (result.needs_label && result.name) {
         try {
           const off = await api.searchFood(result.name)
-          const match = off.results?.[0]
+          // Only adopt a hit that plausibly IS this product — never let an
+          // unrelated database row's real-but-wrong numbers stand in.
+          const match = off.results?.find(r => (r.per_100g?.kcal ?? 0) > 0 && isRelevantMatch(result.name!, r.name, r.brand))
           if (match) {
-            applySearchResult(match)  // real per-100g + full micros + high confidence
-            setScanMsg(`✓ Matched “${match.name}” in the food database — using its real values (per 100g; set your portion below).`)
+            applySearchResult(match)  // scaled-to-serving real values + full micros
+            setScanMsg(`✓ Matched “${match.name}” in the food database — using its real values (set your portion below).`)
             setTimeout(() => setScanMsg(null), 6000)
             return
           }
@@ -490,9 +513,11 @@ export default function Nutrition() {
   // charts/rings even when goals are unknown — never against a fabricated 2200.
   const hasGoal = data?.goals?.calories != null
   const goal = data?.goals.calories ?? 2200
-  const pct = Math.min(total / goal, 1)
-  const remaining = Math.max(goal - total, 0)
   const proteinGoal = data?.goals.protein ?? 140
+  // Honesty: ring fills + "remaining" only exist when a real goal loaded.
+  // Never draw a filled ring / show "left" against the fabricated fallback.
+  const calRing = ringProgress(total, hasGoal ? goal : null)
+  const remaining = hasGoal ? Math.max(goal - total, 0) : null
   // Compute macros from entries — prefer REAL stored macros per item, and
   // fall back to a calorie-based estimate only for legacy items missing data.
   const ents = data?.entries ?? []
@@ -535,6 +560,10 @@ export default function Nutrition() {
   // Macro goals (rough split: 30% protein, 40% carbs, 30% fat)
   const carbsGoal = Math.round(goal * 0.4 / 4)
   const fatGoal = Math.round(goal * 0.3 / 9)
+  // Honesty: macro ring fills are null (empty) unless a real goal loaded.
+  const proteinRing = ringProgress(totalProtein, hasGoal ? proteinGoal : null)
+  const carbsRing = ringProgress(estimatedCarbs, hasGoal ? carbsGoal : null)
+  const fatRing = ringProgress(estimatedFat, hasGoal ? fatGoal : null)
 
   const byMeal = (data?.entries ?? []).reduce((acc: Record<string, FoodEntry[]>, e) => {
     acc[e.meal] = [...(acc[e.meal] ?? []), e]
@@ -627,14 +656,14 @@ export default function Nutrition() {
               {/* Main ring */}
               <div style={{ position: 'relative', width: 120, height: 120, flexShrink: 0 }}>
                 <ProgressRing
-                  progress={pct}
+                  progress={calRing ?? 0}
                   size={120}
                   stroke={10}
-                  color={pct >= 1 ? 'var(--c-red)' : pct > 0.85 ? 'var(--c-orange)' : 'var(--c-accent)'}
+                  color={calRing == null ? 'var(--c-accent)' : calRing >= 1 ? 'var(--c-red)' : calRing > 0.85 ? 'var(--c-orange)' : 'var(--c-accent)'}
                 />
                 <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
                   <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--c-label)', ...mono }}>
-                    {showSkeleton ? <Skeleton w={52} h={22} /> : <span className="hh-reveal">{remaining > 0 ? remaining.toLocaleString() : '0'}</span>}
+                    {showSkeleton ? <Skeleton w={52} h={22} /> : <span className="hh-reveal">{remaining == null ? '—' : remaining > 0 ? remaining.toLocaleString() : '0'}</span>}
                   </div>
                   <div style={{ fontSize: 11, color: 'var(--c-label-dim)', marginTop: 2 }}>left</div>
                 </div>
@@ -649,7 +678,7 @@ export default function Nutrition() {
                   {/* Protein mini ring */}
                   <div style={{ textAlign: 'center' }}>
                     <div style={{ position: 'relative', width: 52, height: 52 }}>
-                      <ProgressRing progress={Math.min(totalProtein / proteinGoal, 1)} size={52} stroke={5} color="var(--c-accent)" />
+                      <ProgressRing progress={proteinRing ?? 0} size={52} stroke={5} color="var(--c-accent)" />
                       <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 600, color: 'var(--c-label)', ...mono }}>
                         {showSkeleton ? <Skeleton w={22} h={11} /> : <span className="hh-reveal">{`${totalProtein}g`}</span>}
                       </div>
@@ -659,7 +688,7 @@ export default function Nutrition() {
                   {/* Carbs mini ring */}
                   <div style={{ textAlign: 'center' }}>
                     <div style={{ position: 'relative', width: 52, height: 52 }}>
-                      <ProgressRing progress={Math.min(estimatedCarbs / carbsGoal, 1)} size={52} stroke={5} color="var(--c-green)" />
+                      <ProgressRing progress={carbsRing ?? 0} size={52} stroke={5} color="var(--c-green)" />
                       <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 600, color: 'var(--c-label)', ...mono }}>
                         {showSkeleton ? <Skeleton w={22} h={11} /> : <span className="hh-reveal">{`${estimatedCarbs}g`}</span>}
                       </div>
@@ -669,7 +698,7 @@ export default function Nutrition() {
                   {/* Fat mini ring */}
                   <div style={{ textAlign: 'center' }}>
                     <div style={{ position: 'relative', width: 52, height: 52 }}>
-                      <ProgressRing progress={Math.min(estimatedFat / fatGoal, 1)} size={52} stroke={5} color="var(--c-orange)" />
+                      <ProgressRing progress={fatRing ?? 0} size={52} stroke={5} color="var(--c-orange)" />
                       <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 600, color: 'var(--c-label)', ...mono }}>
                         {showSkeleton ? <Skeleton w={22} h={11} /> : <span className="hh-reveal">{`${estimatedFat}g`}</span>}
                       </div>
@@ -825,7 +854,7 @@ export default function Nutrition() {
                 {MEALS.map(mealName => {
                   const entries = byMeal[mealName] ?? []
                   const mealKcal = entries.reduce((a, e) => a + e.kcal, 0)
-                  const target = Math.round(goal * (mealSplit[mealName] ?? 0.25))
+                  const target = hasGoal ? Math.round(goal * (mealSplit[mealName] ?? 0.25)) : 0
                   const mealPct = target > 0 ? mealKcal / target : 0
                   const accentColor = mealPct > 1 ? 'var(--c-red)' : mealPct > 0.9 ? 'var(--c-orange)' : 'var(--c-green)'
                   const hasEntries = entries.length > 0
@@ -847,7 +876,7 @@ export default function Nutrition() {
                           )}
                         </div>
                         <div style={{ fontSize: 11, color: 'var(--c-label-faint)', ...mono }}>
-                          {hasEntries ? `${Math.round(mealPct * 100)}%` : `~${target} kcal`}
+                          {target > 0 ? (hasEntries ? `${Math.round(mealPct * 100)}%` : `~${target} kcal`) : ''}
                         </div>
                       </div>
 
@@ -1141,9 +1170,11 @@ export default function Nutrition() {
                   </button>
                 ))}
               </div>
-              <div style={{ marginTop: -6, marginBottom: 10, fontSize: 11, color: 'var(--c-label-faint)', ...mono }}>
-                Target: ~{mealTargetKcal} kcal · ~{mealTargetProtein}g protein
-              </div>
+              {hasGoal && (
+                <div style={{ marginTop: -6, marginBottom: 10, fontSize: 11, color: 'var(--c-label-faint)', ...mono }}>
+                  Target: ~{mealTargetKcal} kcal · ~{mealTargetProtein}g protein
+                </div>
+              )}
 
               {/* Home vs out — tags the entry so you can tell pantry meals from
                   eating out (and only home meals touch the fridge). */}

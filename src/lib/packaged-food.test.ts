@@ -1,5 +1,37 @@
 import { describe, expect, it } from 'vitest'
-import { isLikelyPackaged, sharedBrandToken } from './packaged-food'
+import { isLikelyPackaged, sharedBrandToken, parseServingGrams, isRelevantMatch } from './packaged-food'
+
+describe('parseServingGrams', () => {
+  it('reads a gram serving size', () => {
+    expect(parseServingGrams('30 g')).toBe(30)
+    expect(parseServingGrams('250g')).toBe(250)
+    expect(parseServingGrams('serving 45.5 g')).toBe(45.5)
+  })
+
+  it('returns null for missing/implausible/non-gram values', () => {
+    expect(parseServingGrams(undefined)).toBeNull()
+    expect(parseServingGrams('')).toBeNull()
+    expect(parseServingGrams('1 cup')).toBeNull()
+    expect(parseServingGrams('0 g')).toBeNull()
+    expect(parseServingGrams('5000 g')).toBeNull() // implausible portion
+  })
+})
+
+describe('isRelevantMatch', () => {
+  it('accepts a match sharing a real keyword (>=4 letters)', () => {
+    expect(isRelevantMatch('Grilled chicken breast', 'Chicken Breast Fillet', 'Tesco')).toBe(true)
+  })
+
+  it('accepts a match sharing a known short brand the keyword filter would drop', () => {
+    expect(isRelevantMatch('Pret tuna baguette', 'Tuna Nicoise', 'Pret')).toBe(true)
+  })
+
+  it('rejects an unrelated product with no shared keyword or brand', () => {
+    // The subtle dishonesty: "Tesco chicken club" adopting some unrelated
+    // "chicken soup" product's real-but-wrong numbers.
+    expect(isRelevantMatch('Banana', 'Chocolate Digestives', 'McVities')).toBe(false)
+  })
+})
 
 describe('isLikelyPackaged', () => {
   it('flags the Tesco Chicken Club box (the real front-of-pack bug)', () => {

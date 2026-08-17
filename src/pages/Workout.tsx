@@ -66,6 +66,10 @@ interface LiveExercise {
    * that does not physically exist. */
   stackUp?: number
   stackDown?: number
+  /** First real session after a seed/reset — the engine allows a larger,
+   * earned recalibration jump. Threaded into the confetti evaluator so that
+   * jump can still be celebrated. */
+  recalibrating?: boolean
 }
 interface LiveWorkout {
   title: string
@@ -864,7 +868,7 @@ export default function Workout({ onOpenSkill, onOpenTransformation }: { onOpenS
           target: t.repsTarget,  // prescribed reps — a shortfall counts as a miss, not "too easy"
           done: false,
         }))]
-        return { name: ex.name, sets, prevBest: pr, repRange: ex.repRange, rir: rirFor(ex.lift), restSeconds: ex.restSeconds, notes: ex.notes, swaps: ex.swaps, reason: t.reasonNote, stackUp: t.weightUp, stackDown: t.weightDown }
+        return { name: ex.name, sets, prevBest: pr, repRange: ex.repRange, rir: rirFor(ex.lift), restSeconds: ex.restSeconds, notes: ex.notes, swaps: ex.swaps, reason: t.reasonNote, stackUp: t.weightUp, stackDown: t.weightDown, recalibrating: ex.recalibrating }
       })
       setLive({ title, startTime: new Date().toISOString(), exercises })
     } else {
@@ -1086,7 +1090,10 @@ export default function Workout({ onOpenSkill, onOpenTransformation }: { onOpenS
       repRange: ex.repRange,
       sets: working.map(s => ({ weight_kg: s.weight_kg, reps: s.reps })),
       lastSetRIR: lastRir,
-      nextStackUp: ex.stackUp,
+      // Derive the next notch from the weight ACTUALLY lifted, not the value
+      // seeded at session start (which goes stale on a mid-session change).
+      effectiveStack: resolveEquipment(ex.name).effectiveStack,
+      recalibrating: ex.recalibrating,
     })
     celebratedExercisesRef.current.add(key) // one signal per exercise either way
     if (fb.earned) {
@@ -1214,7 +1221,9 @@ export default function Workout({ onOpenSkill, onOpenTransformation }: { onOpenS
         const fb = evaluateProgressionFeedback({
           name: ex.name, repRange: ex.repRange,
           sets: done.map(s => ({ weight_kg: s.weight_kg, reps: s.reps })),
-          lastSetRIR: lastRir, nextStackUp: ex.stackUp,
+          lastSetRIR: lastRir,
+          effectiveStack: resolveEquipment(ex.name).effectiveStack,
+          recalibrating: ex.recalibrating,
         })
         if (fb.earned) leveledUp.push(ex.name)
       })

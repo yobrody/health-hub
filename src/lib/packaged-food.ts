@@ -60,6 +60,30 @@ export function brandTokensIn(name: unknown): string[] {
   return BRAND_TOKENS.filter(tok => new RegExp(`(^|[^a-z])(${esc(tok)})([^a-z]|$)`, 'i').test(n))
 }
 
+// Parse a gram weight out of an Open Food Facts serving/quantity string
+// ("30 g", "250g", "serving 45.5 g"). Returns null for non-gram units
+// ("1 cup") or implausible portions, so callers fall back honestly rather than
+// scaling by a bogus number.
+export function parseServingGrams(serving?: string | null): number | null {
+  if (!serving) return null
+  const m = serving.match(/(\d+(?:\.\d+)?)\s*g/i)
+  if (m) { const g = parseFloat(m[1]); return g > 0 && g < 2000 ? g : null }
+  return null
+}
+
+// A database hit only counts if it plausibly IS the queried product — the query
+// and the matched product must share a real word (≥4 letters) or a known brand.
+// Without this, "Tesco chicken club" could silently adopt some unrelated
+// "chicken" product's real-but-wrong numbers — a subtler dishonesty than an open
+// guess. The brand check rescues short brands ("Pret", "M&S", "Co-op") the
+// ≥4-letter keyword filter drops.
+export function isRelevantMatch(query: string, name: string, brand: string): boolean {
+  const hay = `${name} ${brand}`
+  const words = query.toLowerCase().match(/[a-z]{4,}/g) ?? []
+  if (words.some(w => hay.toLowerCase().includes(w))) return true
+  return sharedBrandToken(query, hay)
+}
+
 // Do two strings share a known brand/retailer? Used to confirm a database match
 // really is the SAME product for short brands ("Pret", "M&S", "Co-op") that the
 // generic ≥4-letter keyword check would drop.

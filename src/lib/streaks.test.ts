@@ -13,6 +13,15 @@ function dayOf(today: Date, offsetDays: number): string {
 const TODAY = new Date('2026-05-02T12:00:00Z')
 
 describe('getStreak', () => {
+  it('counts the day by LOCAL calendar date, not the UTC date', () => {
+    // An early-morning "today" (00:30 local). East of UTC this instant is still
+    // the PREVIOUS day in UTC, so keying off toISOString() (UTC) misses the log,
+    // which is stored by LOCAL date. The streak must use the local day.
+    const today = new Date(2026, 4, 2, 0, 30) // local 2026-05-02 00:30
+    const days: DayLog[] = [{ date: '2026-05-02', morning: ['a', 'b', 'c'], evening: ['a', 'b', 'c', 'd'] }]
+    expect(getStreak(days, today, MORNING_STEPS, EVENING_STEPS)).toBe(1)
+  })
+
   it('returns 0 when there are no logs', () => {
     expect(getStreak([], TODAY, MORNING_STEPS, EVENING_STEPS)).toBe(0)
   })

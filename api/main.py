@@ -28,11 +28,26 @@ DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 def atomic_write_text(p: Path, text: str):
     """Write via tmp-then-rename so a crash mid-write can't corrupt the file.
-    Audit B (2026-08): most JSON/markdown stores were plain write_text."""
+    Audit B (2026-08): most JSON/markdown stores were plain write_text.
+    Hardened: fsync the tmp file before the rename so a power loss can't leave
+    a zero-length/stale file behind a 'successful' rename, and use a unique
+    per-write tmp name so two concurrent writers to the same file can't clobber
+    each other's tmp (which defeated the atomic-rename guarantee)."""
+    import tempfile
     p.parent.mkdir(parents=True, exist_ok=True)
-    tmp = p.with_name(p.name + ".tmp")
-    tmp.write_text(text)
-    tmp.replace(p)
+    fd, tmp_name = tempfile.mkstemp(dir=str(p.parent), prefix=p.name + ".", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(text)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp_name, p)
+    except Exception:
+        try:
+            os.unlink(tmp_name)
+        except OSError:
+            pass
+        raise
 
 app = FastAPI(title="Health Hub", version="1.0.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
@@ -203,6 +218,16 @@ def parse_entries(content: str) -> list:
                     pass
         entries.append(entry)
     return entries
+
+
+def _day_intake_kcal(content: str) -> int:
+    """Total calories logged in a day's food file. SINGLE source of truth for
+    daily intake — uses parse_entries so /tdee, /tdee/adaptive and /timeline
+    agree with /today. (The old `re.findall(r"~(\\d+) kcal\\)")` required a
+    closing paren and so silently counted 0 for meal-plan lines written as
+    `- ~N kcal | ~P g protein`.)"""
+    return sum(int(e.get("kcal") or 0) for e in parse_entries(content))
+
 
 def read_goals() -> dict:
     p = WORKSPACE / "goals.md"
@@ -2045,7 +2070,7 @@ IMPORTANT:
 - "high" confidence = you know the exact product nutrition (chain restaurant, packaged food with known values).
 - "medium" = you're estimating from similar products.
 - "low" = rough guess, could be significantly off.
-- ALWAYS fill fiber_g, sugar_g, sodium_mg with realistic non-zero estimates for the food (a whole food like oats or banana always has some fiber — never return 0 unless the food genuinely has none, like oil or honey).
+- Estimate fiber_g, sugar_g, sodium_mg only when you can do so honestly for this food (e.g. oats clearly have fiber, a banana has sugar). If you genuinely can't estimate one, return null for it rather than inventing a number — a fabricated micro is worse than an honest blank. Do NOT pad values just to avoid zeros.
 - "nutrients" = your best per-portion estimate of the key micros that apply: saturated_fat_g, salt_g, potassium_mg, calcium_mg, iron_mg, magnesium_mg, zinc_mg, vitamin_c_mg. Include only those that meaningfully apply to this food; omit ones that are ~0. These are estimates."""
 
     result = gemini_call(prompt)
@@ -2195,6 +2220,17 @@ def _all_weighins() -> list:
     for m in load_metrics():
         if m.get("weight_kg") is not None and m.get("date"):
             by_date[m["date"]] = float(m["weight_kg"])
+    # Apple Health weights (pushed via the Shortcut → healthkit.json) were
+    # previously invisible to TDEE and the roadmap. Fold them in AFTER metrics
+    # (so a HealthKit reading beats an older body_metrics one) but BEFORE the
+    # dedicated weight log, so a manual Goals-tile weigh-in still wins the day.
+    try:
+        for hk in _read_healthkit().get("weight_log", []):
+            at, kg = hk.get("at"), hk.get("kg")
+            if kg is not None and at:
+                by_date[str(at)[:10]] = float(kg)
+    except Exception:
+        pass  # never let a HealthKit read break the core weight math
     for w in load_weights():
         if w.get("kg") is not None and w.get("date"):
             by_date[w["date"]] = float(w["kg"])
@@ -2329,7 +2365,7 @@ def calculate_tdee(key=Depends(require_key)):
     for i in range(14):
         d = (date.today() - timedelta(days=i)).isoformat()
         content = read_food_file(d)
-        day_kcal = sum(int(m) for m in re.findall(r"~(\d+) kcal\)", content))
+        day_kcal = _day_intake_kcal(content)
         if day_kcal > 0:
             avg_intake += day_kcal
             logged_days += 1
@@ -2517,7 +2553,7 @@ def adaptive_tdee(key=Depends(require_key)):
     for i in range(14):
         d = (date.today() - timedelta(days=i)).isoformat()
         content = read_food_file(d)
-        day_kcal = sum(int(m) for m in re.findall(r"~(\d+) kcal\)", content))
+        day_kcal = _day_intake_kcal(content)
         if day_kcal > 0:
             daily_intake.append((d, day_kcal))
 
@@ -2647,12 +2683,23 @@ def get_sleep(days: int = 30, key=Depends(require_key)):
     recent = [e for e in entries if e.get("date", "") >= cutoff]
     return {"entries": recent}
 
+def _parse_hhmm(s) -> tuple:
+    """Validate & split a 'HH:MM' 24h time. Raises 400 (not an unhandled 500)
+    on anything malformed ('2330', '11:30 PM', '25:00', …)."""
+    if not isinstance(s, str) or not re.match(r"^\d{2}:\d{2}$", s):
+        raise HTTPException(status_code=400, detail=f"Invalid time '{s}', expected HH:MM")
+    h, m = int(s[:2]), int(s[3:5])
+    if h > 23 or m > 59:
+        raise HTTPException(status_code=400, detail=f"Invalid time '{s}', expected HH:MM")
+    return h, m
+
+
 @app.post("/sleep")
 def log_sleep(entry: SleepEntryIn, key=Depends(require_key)):
     entries = load_sleep()
     d = entry.date or date.today().isoformat()
-    bed_h, bed_m = map(int, entry.bedtime.split(":"))
-    wake_h, wake_m = map(int, entry.wake_time.split(":"))
+    bed_h, bed_m = _parse_hhmm(entry.bedtime)
+    wake_h, wake_m = _parse_hhmm(entry.wake_time)
     bed_mins = bed_h * 60 + bed_m
     wake_mins = wake_h * 60 + wake_m
     if wake_mins <= bed_mins:
@@ -3059,7 +3106,7 @@ def get_timeline(days: int = 7, key=Depends(require_key)):
         d = (date.today() - timedelta(days=i)).isoformat()
 
         content = read_food_file(d)
-        day_kcal = sum(int(m) for m in re.findall(r"~(\d+) kcal\)", content))
+        day_kcal = _day_intake_kcal(content)
         if day_kcal > 0:
             entries = parse_entries(content)
             events.append({"date": d, "type": "food", "summary": f"{day_kcal} kcal logged", "detail": f"{len(entries)} meals", "value": day_kcal})
@@ -3156,6 +3203,10 @@ def extract_off_nutrients(nutriments: dict) -> dict:
 def barcode_lookup(code: str, key=Depends(require_key)):
     """Look up a barcode via Open Food Facts (free, no API key needed)."""
     import urllib.request
+    # `code` is interpolated into an outbound URL — validate it's a plain
+    # numeric barcode so it can't smuggle path/query control characters.
+    if not re.fullmatch(r"\d{6,14}", code):
+        raise HTTPException(status_code=400, detail="Invalid barcode")
     url = f"https://world.openfoodfacts.org/api/v2/product/{code}.json"
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "HealthHub/1.0"})
@@ -3179,13 +3230,19 @@ If you don't recognize the barcode, make your best guess based on common UK prod
                 "serving_size": "",
                 "source": "ai_estimate",
                 "per_100g": {
-                    "kcal": ai_result.get("kcal", 0),
-                    "protein_g": ai_result.get("protein_g", 0),
-                    "carbs_g": ai_result.get("carbs_g", 0),
-                    "fat_g": ai_result.get("fat_g", 0),
-                    "fiber_g": 0,
-                    "sugar_g": 0,
-                    "salt_g": 0,
+                    # Honesty: a missing macro from the model means "unknown", not
+                    # zero — return null so it isn't logged as 0 kcal/protein.
+                    "kcal": ai_result.get("kcal"),
+                    "protein_g": ai_result.get("protein_g"),
+                    "carbs_g": ai_result.get("carbs_g"),
+                    "fat_g": ai_result.get("fat_g"),
+                    # Honesty: these micros were NOT estimated — return null, not a
+                    # fabricated 0 (0g fiber for an unknown food is a made-up
+                    # value). The client shows "—" for null and gates on
+                    # source == "ai_estimate".
+                    "fiber_g": None,
+                    "sugar_g": None,
+                    "salt_g": None,
                 },
                 "image_url": "",
             }

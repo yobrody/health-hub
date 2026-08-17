@@ -108,6 +108,12 @@ export interface PhysiqueMilestone {
   anchor: MilestoneAnchor
   /** Present only for weight-anchored milestones. */
   targetWeightKg?: number
+  /** Present only for body-fat-anchored milestones (the abs threshold). */
+  targetBodyFatPct?: number
+  /** True when a weight milestone's target sits BEYOND the current goal — it
+   * can't be reached within the plan, so the UI should say so rather than show
+   * a forever-"approaching" bar. Always false for body-fat milestones. */
+  beyondGoal: boolean
   /** Progress toward the signal, 0..1. null when it can't be measured honestly yet. */
   progressPct: number | null
   status: MilestoneStatus
@@ -136,16 +142,19 @@ export interface PhysiqueInput {
 }
 
 export function physiqueMilestones(input: PhysiqueInput): PhysiqueMilestone[] {
-  const { startKg, currentKg, bodyFatPct } = input
+  const { startKg, currentKg, goalKg, bodyFatPct } = input
   const gained = currentKg - startKg
 
   const weightOnes: PhysiqueMilestone[] = WEIGHT_MILESTONES.map(m => {
     const targetWeightKg = Math.round((startKg + m.deltaKg) * 2) / 2
     const reached = gained >= m.deltaKg
+    const beyondGoal = targetWeightKg > goalKg
     const progressPct = Math.max(0, Math.min(1, m.deltaKg > 0 ? gained / m.deltaKg : 1))
     return {
       id: m.id, title: m.title, signal: m.signal, anchor: 'weight' as const,
-      targetWeightKg, progressPct, status: reached ? 'reached' as const : 'approaching' as const, note: m.note,
+      targetWeightKg, beyondGoal, progressPct,
+      status: reached ? 'reached' as const : 'approaching' as const,
+      note: beyondGoal ? `${m.note} (This is beyond your current ${goalKg}kg goal — raise your goal to aim for it.)` : m.note,
     }
   })
 
@@ -153,6 +162,7 @@ export function physiqueMilestones(input: PhysiqueInput): PhysiqueMilestone[] {
   const abs: PhysiqueMilestone = (() => {
     const base = {
       id: 'abs', title: 'Visible abs', signal: `body fat below ~${ABS_BF_THRESHOLD}%`, anchor: 'bodyfat' as const,
+      targetBodyFatPct: ABS_BF_THRESHOLD, beyondGoal: false,
     }
     if (bodyFatPct == null) {
       return {

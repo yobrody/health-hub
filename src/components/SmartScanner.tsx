@@ -4,8 +4,8 @@ import { showToast } from '../toast'
 import { useSwipeDown } from '../hooks/useSwipeDown'
 import { rememberFood } from '../lib/food-memory'
 import { compressThumbnail } from '../lib/image'
-import { isLikelyPackaged, sharedBrandToken } from '../lib/packaged-food'
-import type { FridgeData, SmartScanResult, BarcodeLookupResult, ScannedItem, ScanFoodItem, FoodSearchProduct, NutrientMap } from '../api/client'
+import { isLikelyPackaged, parseServingGrams, isRelevantMatch } from '../lib/packaged-food'
+import type { FridgeData, SmartScanResult, BarcodeLookupResult, ScannedItem, ScanFoodItem, NutrientMap } from '../api/client'
 
 type Stage = 'idle' | 'analyzing' | 'barcode-result' | 'receipt-result' | 'food-result'
 
@@ -35,26 +35,6 @@ function saveDiaryEntry(datetime: string, thumbnail: string, foods: Array<{ name
 }
 
 // Parse grams from an Open Food Facts serving_size string ("30 g", "1 slice (25g)").
-function parseServingGrams(serving?: string): number | null {
-  if (!serving) return null
-  const m = serving.match(/(\d+(?:\.\d+)?)\s*g/i)
-  if (m) { const g = parseFloat(m[1]); return g > 0 && g < 2000 ? g : null }
-  return null
-}
-
-// A database hit only counts if it plausibly IS the scanned product — the query
-// and the matched product must share a real word (≥4 letters) or a known brand.
-// Without this, "Tesco chicken club" could silently adopt some unrelated
-// "chicken" product's real-but-wrong numbers — a subtler dishonesty than an open
-// guess. The brand check also rescues short brands ("Pret", "M&S", "Co-op") that
-// the ≥4-letter keyword filter drops.
-function isRelevantMatch(query: string, prod: FoodSearchProduct): boolean {
-  const hay = `${prod.name} ${prod.brand}`
-  const words = query.toLowerCase().match(/[a-z]{4,}/g) ?? []
-  if (words.some(w => hay.toLowerCase().includes(w))) return true
-  return sharedBrandToken(query, hay)
-}
-
 // True when this item's own flags mark it as an unreadable packaged product.
 // The backend sets `needs_label` (snake) per item; the enrichment sets
 // `needsLabel` (camel) — accept either.
@@ -76,7 +56,7 @@ async function enrichPackagedFoods(foods: ScanFoodItem[]): Promise<ScanFoodItem[
     if (!isLikelyPackaged(f.name) && !itemFlaggedForLabel(f)) return f
     try {
       const { results } = await api.searchFood(f.name)
-      const best = (results || []).find(r => (r.per_100g?.kcal ?? 0) > 0 && isRelevantMatch(f.name, r))
+      const best = (results || []).find(r => (r.per_100g?.kcal ?? 0) > 0 && isRelevantMatch(f.name, r.name, r.brand))
       if (best) {
         const p = best.per_100g
         // Portion weight, best source first: serving size → pack quantity → the
@@ -495,8 +475,11 @@ export default function SmartScanner({ open, onClose, onFridgeUpdated, fridgeDat
       }
       showToast(`Logged ${totalKcal} kcal${usedCount ? ` · used ${usedCount} from fridge` : ''}`)
       handleClose()
-    } catch {
-      showToast('Failed to save -- try again', 'err')
+    } catch (e) {
+      // A write that was safely queued offline is NOT a failure — telling the
+      // user "Failed" makes them re-log and double-count once the queue drains.
+      if (isQueuedError(e)) { showToast('Saved — will sync when you’re back online'); handleClose() }
+      else showToast('Failed to save -- try again', 'err')
     } finally {
       setSaving(false)
     }

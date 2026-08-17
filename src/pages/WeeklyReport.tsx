@@ -61,7 +61,7 @@ export default function WeeklyReport() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [tdee, setTdee] = useState<number | null>(null)
-  const [hydration, setHydration] = useState<{ avgMl: number; goalMl: number; loggedDays: number } | null>(null)
+  const [hydration, setHydration] = useState<{ avgMl: number; goalMl: number | null; loggedDays: number } | null>(null)
 
   useEffect(() => {
     api.getWeeklyReport()
@@ -89,7 +89,9 @@ export default function WeeklyReport() {
         if (cancelled) return
         const days = results.filter((r): r is NonNullable<typeof r> => !!r)
         const logged = days.filter(r => (r.total_ml || 0) > 0)
-        const goalMl = days.find(r => r.goal_ml)?.goal_ml || 2000
+        // Honesty: only chart against a REAL logged hydration goal, never an
+        // assumed 2000 ml.
+        const goalMl = days.find(r => r.goal_ml)?.goal_ml ?? null
         const avgMl = logged.length
           ? Math.round(logged.reduce((s, r) => s + (r.total_ml || 0), 0) / logged.length)
           : 0
@@ -187,12 +189,16 @@ export default function WeeklyReport() {
             background: 'var(--c-card)', border: '1px solid var(--c-border)', borderRadius: 14,
             padding: 16, marginBottom: 16,
           }}>
-            <ProgressBar
-              label="Hydration (avg/day)"
-              value={hydration.avgMl}
-              goal={hydration.goalMl}
-              color="#38bdf8"
-            />
+            {hydration.goalMl != null ? (
+              <ProgressBar
+                label="Hydration (avg/day)"
+                value={hydration.avgMl}
+                goal={hydration.goalMl}
+                color="#38bdf8"
+              />
+            ) : (
+              <div style={{ fontSize: 14, fontWeight: 600 }}>Hydration (avg/day): {(hydration.avgMl / 1000).toFixed(1)}L</div>
+            )}
             <div style={{ fontSize: 12, color: 'var(--c-label-faint)' }}>
               Logged {hydration.loggedDays}/7 days · {(hydration.avgMl / 1000).toFixed(1)}L/day average
             </div>

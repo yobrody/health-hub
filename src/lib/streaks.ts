@@ -8,8 +8,15 @@ export type DayLog = {
   evening: string[]
 }
 
+// Build the key from LOCAL date components — the cursor walks days in local
+// time (`setDate`) and logs are stored by the user's local date, so keying off
+// toISOString() (UTC) would drop or double-count a day near midnight for any
+// user not on UTC.
 function isoDate(d: Date): string {
-  return d.toISOString().slice(0, 10)
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
 }
 
 /**
