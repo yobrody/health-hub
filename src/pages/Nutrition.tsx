@@ -520,7 +520,10 @@ export default function Nutrition() {
   const remaining = hasGoal ? Math.max(goal - total, 0) : null
   // Compute macros from entries — prefer REAL stored macros per item, and
   // fall back to a calorie-based estimate only for legacy items missing data.
-  const ents = data?.entries ?? []
+  // Planned meals (confidence=planned, pre-filled by the meal planner) are NOT
+  // eaten, so they're excluded from every eaten-total on this view — matching
+  // the backend's total_kcal, which also excludes them.
+  const ents = (data?.entries ?? []).filter(e => e.confidence !== 'planned')
   const totalProtein = ents.reduce((a, e) => a + (e.protein_g ?? 0), 0)
   let realCarbs = 0, realFat = 0, totalFiber = 0, totalSugar = 0, totalSodium = 0
   let macrosEstimated = false  // at least one item had no real carbs/fat
@@ -565,7 +568,7 @@ export default function Nutrition() {
   const carbsRing = ringProgress(estimatedCarbs, hasGoal ? carbsGoal : null)
   const fatRing = ringProgress(estimatedFat, hasGoal ? fatGoal : null)
 
-  const byMeal = (data?.entries ?? []).reduce((acc: Record<string, FoodEntry[]>, e) => {
+  const byMeal = ents.reduce((acc: Record<string, FoodEntry[]>, e) => {
     acc[e.meal] = [...(acc[e.meal] ?? []), e]
     return acc
   }, {})

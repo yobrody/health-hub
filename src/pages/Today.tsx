@@ -191,8 +191,13 @@ function SleepCard() {
         }))
       } catch { /* quota */ }
       showToast('Sleep logged')
-    } catch {
-      showToast('Failed to log sleep', 'err')
+    } catch (e) {
+      if (isQueuedError(e)) {
+        setLogged({ bedtime, wake_time: wake, quality })
+        showToast('Saved offline — will sync', 'info')
+      } else {
+        showToast('Failed to log sleep', 'err')
+      }
     } finally {
       setBusy(false)
     }
@@ -346,8 +351,9 @@ function WeightTile({ onNavigate }: { onNavigate: (tab: Tab) => void }) {
       setWeightVal('')
       setShowInput(false)
       showToast(`Weight logged: ${kg.toFixed(1)} kg`)
-    } catch {
-      showToast('Failed to log weight', 'err')
+    } catch (e) {
+      if (isQueuedError(e)) { showToast('Saved offline — will sync', 'info'); setWeightVal(''); setShowInput(false) }
+      else showToast('Failed to log weight', 'err')
     } finally {
       setSaving(false)
     }

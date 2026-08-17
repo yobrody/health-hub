@@ -66,8 +66,16 @@ export function brandTokensIn(name: unknown): string[] {
 // scaling by a bogus number.
 export function parseServingGrams(serving?: string | null): number | null {
   if (!serving) return null
-  const m = serving.match(/(\d+(?:\.\d+)?)\s*g/i)
-  if (m) { const g = parseFloat(m[1]); return g > 0 && g < 2000 ? g : null }
+  // Grams first (authoritative). `\bg\b`-style: a digit then optional space then
+  // "g" not immediately followed by another letter, so "30 g" matches but the
+  // "g" inside a word doesn't. Handles "30 g", "250g", "serving 45.5 g".
+  const gm = serving.match(/(\d+(?:\.\d+)?)\s*g(?:rams?)?\b/i)
+  if (gm) { const g = parseFloat(gm[1]); return g > 0 && g < 2000 ? g : null }
+  // Fall back to ml for liquids (a 330 ml can). Treat ml as grams-equivalent
+  // (water density ~1 g/ml) so drinks scale to their serving instead of the
+  // disclosed per-100g. Good enough for logging; exact density is rarely known.
+  const mm = serving.match(/(\d+(?:\.\d+)?)\s*ml\b/i)
+  if (mm) { const ml = parseFloat(mm[1]); return ml > 0 && ml < 2000 ? ml : null }
   return null
 }
 

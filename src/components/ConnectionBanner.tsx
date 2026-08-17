@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { subscribeConn, getConnStatus, probeBackend, getOutbox, subscribeOutbox, type ConnStatus } from '../api/client'
+import { subscribeConn, getConnStatus, probeBackend, getOutbox, subscribeOutbox, getStale, subscribeStale, type ConnStatus } from '../api/client'
 import { summarize } from '../lib/outbox'
 
 // A slim, self-managing banner that slides down from the top whenever the
@@ -10,11 +10,14 @@ export default function ConnectionBanner() {
   const [status, setStatus] = useState<ConnStatus>(getConnStatus())
   const [recovered, setRecovered] = useState(false)
   const [pending, setPending] = useState(() => summarize(getOutbox()))
+  const [stale, setStale] = useState(getStale)
   const prev = useRef<ConnStatus>(getConnStatus())
   const recoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   // Track how many writes are waiting to sync.
   useEffect(() => subscribeOutbox(items => setPending(summarize(items))), [])
+  // Track whether the last read came from the SW cache (stale).
+  useEffect(() => subscribeStale(setStale), [])
 
   // One handler for every connectivity transition (API subscription + device
   // online/offline events). setState here is event-driven, not a synchronous
@@ -50,13 +53,18 @@ export default function ConnectionBanner() {
   }, [status])
 
   const isRecovered = recovered && status === 'online'
-  const visible = status !== 'online' || isRecovered
-  const bg = isRecovered ? '#16a34a' : status === 'offline' ? '#d97706' : '#ea580c'
+  // Online but the last read came from the SW cache — the numbers on screen may
+  // be old. Surface it (muted) rather than passing stale data off as live.
+  const showStale = status === 'online' && stale && !isRecovered
+  const visible = status !== 'online' || isRecovered || showStale
+  const bg = isRecovered ? '#16a34a' : status === 'offline' ? '#d97706' : showStale ? '#64748b' : '#ea580c'
   const msg = isRecovered
     ? 'Back online'
     : status === 'offline'
       ? (pending ? `Offline — ${pending} saved, will sync` : 'Offline — showing saved data.')
-      : 'Trouble reaching the server — retrying…'
+      : showStale
+        ? 'Showing saved data — refreshing…'
+        : 'Trouble reaching the server — retrying…'
 
   return (
     <div

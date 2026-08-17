@@ -31,3 +31,13 @@ def test_sums_across_multiple_meal_blocks():
 def test_empty_or_unparseable_content_is_zero():
     assert main._day_intake_kcal("") == 0
     assert main._day_intake_kcal("no blocks here") == 0
+
+
+def test_planned_meals_are_excluded_from_intake():
+    # /ai/meal-plan/use writes confidence=planned blocks. Planned != eaten, so
+    # they must NOT inflate the day's intake (was counted as eaten before).
+    content = (
+        "### 08:00 — Breakfast\n- Oats\n- ~300 kcal | ~20 g protein\n<!-- confidence=planned -->\n\n"
+        "### 12:30 — Lunch\n- Wrap (~500 kcal)\n"
+    )
+    assert main._day_intake_kcal(content) == 500  # only the actually-eaten lunch

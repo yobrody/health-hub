@@ -8,12 +8,25 @@ describe('parseServingGrams', () => {
     expect(parseServingGrams('serving 45.5 g')).toBe(45.5)
   })
 
-  it('returns null for missing/implausible/non-gram values', () => {
+  it('reads an ml serving size (liquids ~1 g/ml) so drinks scale too', () => {
+    // OFF often gives a drink's serving as "1 portion (330 ml)". Treat ml as
+    // grams-equivalent (water density) rather than falling back to per-100g.
+    expect(parseServingGrams('330 ml')).toBe(330)
+    expect(parseServingGrams('1 portion (330 ml)')).toBe(330)
+    expect(parseServingGrams('250ml')).toBe(250)
+  })
+
+  it('prefers a gram value when both are present', () => {
+    expect(parseServingGrams('30 g (30 ml)')).toBe(30)
+  })
+
+  it('returns null for missing/implausible/non-volumetric values', () => {
     expect(parseServingGrams(undefined)).toBeNull()
     expect(parseServingGrams('')).toBeNull()
     expect(parseServingGrams('1 cup')).toBeNull()
     expect(parseServingGrams('0 g')).toBeNull()
     expect(parseServingGrams('5000 g')).toBeNull() // implausible portion
+    expect(parseServingGrams('5000 ml')).toBeNull() // implausible portion
   })
 })
 

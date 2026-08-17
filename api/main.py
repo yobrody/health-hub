@@ -52,6 +52,21 @@ def atomic_write_text(p: Path, text: str):
 app = FastAPI(title="Health Hub", version="1.0.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
+import asyncio
+# Every JSON store is a read-modify-write (load → mutate → save). Two mutating
+# requests interleaving (e.g. a user action + the push cron) could each read the
+# old file and the second save would clobber the first — a lost update. Serialize
+# all mutating requests behind one async lock. Reads (GET) are never blocked, and
+# for a single-user app the throughput cost is nil.
+_write_lock = asyncio.Lock()
+
+@app.middleware("http")
+async def _serialize_writes(request, call_next):
+    if request.method in ("POST", "PUT", "PATCH", "DELETE"):
+        async with _write_lock:
+            return await call_next(request)
+    return await call_next(request)
+
 from collections import defaultdict, deque
 import time
 
@@ -225,8 +240,12 @@ def _day_intake_kcal(content: str) -> int:
     daily intake — uses parse_entries so /tdee, /tdee/adaptive and /timeline
     agree with /today. (The old `re.findall(r"~(\\d+) kcal\\)")` required a
     closing paren and so silently counted 0 for meal-plan lines written as
-    `- ~N kcal | ~P g protein`.)"""
-    return sum(int(e.get("kcal") or 0) for e in parse_entries(content))
+    `- ~N kcal | ~P g protein`.)
+
+    Planned meals (confidence=planned, written by /ai/meal-plan/use) are NOT
+    eaten, so they're excluded — counting them inflated real intake."""
+    return sum(int(e.get("kcal") or 0) for e in parse_entries(content)
+               if e.get("confidence") != "planned")
 
 
 def read_goals() -> dict:
@@ -403,7 +422,9 @@ class FoodEntry(BaseModel):
 def get_today(key=Depends(require_key)):
     content = read_food_file()
     entries = parse_entries(content)
-    total = sum(e["kcal"] for e in entries)
+    # Planned meals (confidence=planned) are pre-filled, not eaten — keep them in
+    # the list (flagged) but exclude them from the eaten-calorie total.
+    total = sum(e["kcal"] for e in entries if e.get("confidence") != "planned")
     goals = read_goals()
     return {"date": today(), "entries": entries, "total_kcal": total, "goals": goals}
 
@@ -2506,7 +2527,7 @@ def food_search(q: str, key=Depends(require_key)):
                     "fat_g": round(n.get("fat_100g", 0), 1),
                     "fiber_g": round(n.get("fiber_100g", 0), 1),
                     "sugar_g": round(n.get("sugars_100g", 0), 1),
-                    "sodium_mg": round(n.get("sodium_100g", 0) * 1000, 0),
+                    "sodium_mg": _sodium_mg_per_100g(n),
                     "salt_g": round(n.get("salt_100g", 0), 1),
                 },
                 "source": "open_food_facts",
@@ -3149,6 +3170,17 @@ def get_timeline(days: int = 7, key=Depends(require_key)):
 
 
 # ── BARCODE SCANNER (nutrition lookup) ────────────────────────────────
+def _sodium_mg_per_100g(n: dict) -> float:
+    """Sodium (mg per 100g) from OFF nutriments — derive from salt when OFF only
+    supplies salt (sodium = salt / 2.5), so /food/search carries sodium the same
+    way /barcode does. Returns 0 when neither is present."""
+    if n.get("sodium_100g"):
+        return round(n["sodium_100g"] * 1000)
+    if n.get("salt_100g"):
+        return round(n["salt_100g"] * 400)  # salt(g) / 2.5 * 1000
+    return 0
+
+
 def extract_off_nutrients(nutriments: dict) -> dict:
     """Pull the FULL per-100g micro/macro set Open Food Facts actually returned,
     with safe unit conversions. Only includes a nutrient when OFF has the key —

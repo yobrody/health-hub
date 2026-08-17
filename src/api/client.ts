@@ -1,6 +1,7 @@
 // Default to same-origin Pages Functions: keeps secrets server-side.
 import { showToast } from '../toast'
 import { addItem, bumpTries, dropExpired, loadOutbox, saveOutbox, newId, replayQueue, type OutboxItem } from '../lib/outbox'
+import { classifyFreshness } from '../lib/staleness'
 
 // For local debugging you can still set VITE_API_BASE to an absolute URL.
 const BASE = import.meta.env.VITE_API_BASE || '/api'
@@ -23,6 +24,24 @@ function setConn(s: ConnStatus) {
   if (s === _conn) return
   _conn = s
   for (const fn of _connSubs) { try { fn(s) } catch { /* ignore subscriber errors */ } }
+}
+
+// ── Stale-data signal ────────────────────────────────────────────────────────
+// A NetworkFirst service-worker cache hit returns a 200, so the fetch layer
+// can't otherwise tell live data from month-old cached data. We infer it from
+// the response `Date` header (see lib/staleness) and let <ConnectionBanner>
+// surface "showing saved data" so stale numbers are never presented as live.
+let _stale = false
+const _staleSubs = new Set<(s: boolean) => void>()
+export function getStale(): boolean { return _stale }
+export function subscribeStale(fn: (s: boolean) => void): () => void {
+  _staleSubs.add(fn)
+  return () => { _staleSubs.delete(fn) }
+}
+function setStale(s: boolean) {
+  if (s === _stale) return
+  _stale = s
+  for (const fn of _staleSubs) { try { fn(s) } catch { /* ignore */ } }
 }
 // Active recovery probe — the banner calls this while we're not 'online' so it
 // clears itself the instant the server returns. Any HTTP response means
@@ -145,6 +164,12 @@ async function request<T>(path: string, opts: ReqOpts = {}): Promise<T> {
       throw new QueuedError()
     }
     throw new Error(`API error ${res.status}: ${await res.text()}`)
+  }
+  // Detect a service-worker cache hit (stale data shown as live) from the
+  // response Date header — only meaningful for reads.
+  if (method === 'GET') {
+    const f = classifyFreshness(res.headers.get('date'), Date.now())
+    if (f !== 'unknown') setStale(f === 'stale')
   }
   // Opportunistic drain: any successful call means we're back — replay pending.
   if (!_flushing && _outbox.length > 0) void flushOutbox()
@@ -498,13 +523,13 @@ export const api = {
   getLatestMetric: () => request<{ metric: BodyMetric | null }>('/metrics/latest'),
   getMetrics: (days = 90) => request<{ metrics: BodyMetric[] }>(`/metrics?days=${days}`),
   addMetric: (data: { weight_kg?: number; body_fat_pct?: number; waist_cm?: number; chest_cm?: number; arm_cm?: number; shoulders_cm?: number; hips_cm?: number; thigh_cm?: number; neck_cm?: number }) =>
-    request<{ ok: boolean }>('/metrics', { method: 'POST', body: JSON.stringify(data) }),
+    request<{ ok: boolean }>('/metrics', { method: 'POST', body: JSON.stringify(data), queueLabel: 'measurement' }),
 
   // Sleep
   getSleepStats: (days = 7) => request<SleepStats>(`/sleep/stats?days=${days}`),
   getSleep: (days = 30) => request<{ entries: SleepEntry[] }>(`/sleep?days=${days}`),
   logSleep: (data: { bedtime: string; wake_time: string; quality: number; hrv_ms?: number }) =>
-    request<{ ok: boolean }>('/sleep', { method: 'POST', body: JSON.stringify(data) }),
+    request<{ ok: boolean }>('/sleep', { method: 'POST', body: JSON.stringify(data), queueLabel: 'sleep' }),
 
   // Push notifications (real web-push — see lib/push.ts)
   getPushKey: () => request<{ publicKey: string }>('/push/vapid_public'),

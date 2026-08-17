@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { api } from '../api/client'
+import { api, isQueuedError } from '../api/client'
 import { celebrate } from '../lib/celebrations'
 import { showToast } from '../toast'
 import { loadDirection } from '../lib/calorie-target'
@@ -238,10 +238,17 @@ export default function Metrics() {
       setChest(''); setShoulders(''); setArm(''); setHips(''); setThigh(''); setNeck('')
       setShowLog(false); setShowTape(false)
       if (navigator.vibrate) navigator.vibrate(10)
-    } catch {
-      // Was try/finally with no catch — a failed log threw unhandled, the
-      // sheet stayed open and the user got no signal.
-      showToast('Could not save — check connection', 'err')
+    } catch (e) {
+      // A write safely queued offline is NOT a failure — say so and close the
+      // sheet; it'll sync on reconnect (queueLabel: 'measurement').
+      if (isQueuedError(e)) {
+        showToast('Saved offline — will sync', 'info')
+        setWeight(''); setBodyFat(''); setWaist('')
+        setChest(''); setShoulders(''); setArm(''); setHips(''); setThigh(''); setNeck('')
+        setShowLog(false); setShowTape(false)
+      } else {
+        showToast('Could not save — check connection', 'err')
+      }
     } finally { setSubmitting(false) }
   }
 
@@ -254,8 +261,9 @@ export default function Metrics() {
       setSleepStats(stats)
       setShowSleep(false)
       if (navigator.vibrate) navigator.vibrate(10)
-    } catch {
-      showToast('Could not save sleep — check connection', 'err')
+    } catch (e) {
+      if (isQueuedError(e)) { showToast('Saved offline — will sync', 'info'); setShowSleep(false) }
+      else showToast('Could not save sleep — check connection', 'err')
     } finally { setSubmitting(false) }
   }
 
