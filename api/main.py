@@ -164,7 +164,7 @@ def food_file(d: str = None) -> Path:
 
 def read_food_file(d: str = None) -> str:
     p = food_file(d)
-    return p.read_text() if p.exists() else ""
+    return p.read_text(encoding="utf-8") if p.exists() else ""
 
 def parse_entries(content: str) -> list:
     entries = []
@@ -233,7 +233,7 @@ def read_goals() -> dict:
     p = WORKSPACE / "goals.md"
     if not p.exists():
         return {"calories": 2200, "protein": 160, "gym_days": 4}
-    content = p.read_text()
+    content = p.read_text(encoding="utf-8")
     goals = {}
     m = re.search(r"Daily calories: ~?(\d+)", content)
     goals["calories"] = int(m.group(1)) if m else 2200
@@ -255,7 +255,7 @@ def _read_fridge_meta() -> dict:
     if not p.exists():
         return {}
     try:
-        return json.loads(p.read_text())
+        return json.loads(p.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
         return {}
 
@@ -300,7 +300,7 @@ def read_fridge() -> dict:
     p = WORKSPACE / "fridge.md"
     if not p.exists():
         return {"fridge": [], "pantry": [], "condiments": [], "freezer": []}
-    content = p.read_text()
+    content = p.read_text(encoding="utf-8")
     result = {"fridge": [], "pantry": [], "condiments": [], "freezer": []}
     section_map = {"Fridge": "fridge", "Pantry": "pantry", "Condiments": "condiments", "Freezer": "freezer"}
     current = None
@@ -424,7 +424,7 @@ def add_food(entry: FoodEntry, key=Depends(require_key)):
     p = food_file(target_date)
     if not p.exists():
         atomic_write_text(p, f"# Food Log — {target_date}\n\n")
-    content = p.read_text()
+    content = p.read_text(encoding="utf-8")
     protein_str = f", ~{entry.protein_g} g protein" if entry.protein_g else ""
     # Extended macros stored as metadata comment for richer detail views
     macro_parts = []
@@ -491,7 +491,7 @@ def delete_food(payload: FoodDelete, key=Depends(require_key)):
     fp = food_file(target_date)
     if not fp.exists():
         raise HTTPException(status_code=404, detail="no log file for that day")
-    content = fp.read_text()
+    content = fp.read_text(encoding="utf-8")
     # Match block "### HH:MM -- Meal\n(items)\n**Subtotal: ...**\n".
     # Meal matched case-insensitively. Stops at the next "###" or "---".
     pattern = (
@@ -556,14 +556,14 @@ def read_slots() -> dict:
     if not SLOT_FILE.exists():
         return {}
     try:
-        return json.loads(SLOT_FILE.read_text() or "{}")
+        return json.loads(SLOT_FILE.read_text(encoding="utf-8") or "{}")
     except json.JSONDecodeError:
         return {}
 
 def write_slots(slots: dict):
     # Atomic write: tmp file then rename, so a crash mid-write can't corrupt.
     tmp = SLOT_FILE.with_suffix(".json.tmp")
-    tmp.write_text(json.dumps(slots, indent=2, sort_keys=True))
+    tmp.write_text(json.dumps(slots, indent=2, sort_keys=True), encoding="utf-8")
     tmp.replace(SLOT_FILE)
 
 def drop_slot_for(name: str):
@@ -1125,7 +1125,7 @@ MEAL_PLAN_FILE = DATA_DIR / "meal_plans.json"
 def load_meal_plans() -> dict:
     if MEAL_PLAN_FILE.exists():
         try:
-            return json.loads(MEAL_PLAN_FILE.read_text())
+            return json.loads(MEAL_PLAN_FILE.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError):
             pass
     return {}
@@ -1245,7 +1245,7 @@ async def use_meal_plan(body: dict = Body(...), key=Depends(require_key)):
     p = food_file(plan_date)
     lines = []
     if p.exists():
-        lines = [p.read_text()]
+        lines = [p.read_text(encoding="utf-8")]
     for meal in meals:
         slot = meal.get("slot", "meal")
         t = slot_times.get(slot, "12:00")
@@ -1307,7 +1307,7 @@ def _read_water(d: str = None) -> dict:
     p = _water_file(d)
     if p.exists():
         try:
-            return json.loads(p.read_text())
+            return json.loads(p.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError):
             pass
     return {"date": d or today(), "entries": [], "total_ml": 0, "goal_ml": 2000}
@@ -1344,7 +1344,7 @@ WORKOUTS_FILE = DATA_DIR / "workouts.json"
 
 def load_workouts() -> list:
     if WORKOUTS_FILE.exists():
-        return json.loads(WORKOUTS_FILE.read_text())
+        return json.loads(WORKOUTS_FILE.read_text(encoding="utf-8"))
     return []
 
 def save_workouts(workouts: list):
@@ -1420,7 +1420,7 @@ def get_prs(key=Depends(require_key)):
 @app.get("/goals")
 def get_goals(key=Depends(require_key)):
     p = WORKSPACE / "goals.md"
-    return {"content": p.read_text() if p.exists() else "", "parsed": read_goals()}
+    return {"content": p.read_text(encoding="utf-8") if p.exists() else "", "parsed": read_goals()}
 
 class GoalsUpdate(BaseModel):
     calories: Optional[int] = None
@@ -1502,7 +1502,7 @@ def get_profile(key=Depends(require_key)):
     body = {}
     if PROFILE_FILE.exists():
         try:
-            data = json.loads(PROFILE_FILE.read_text())
+            data = json.loads(PROFILE_FILE.read_text(encoding="utf-8"))
             name = data.get("name", name)
             # Body profile behind the TDEE math — exposed so the Goals page
             # can prefill its editor (PUT /tdee/profile writes these).
@@ -1517,7 +1517,7 @@ def save_profile(profile: UserProfileIn, key=Depends(require_key)):
     existing = {}
     if PROFILE_FILE.exists():
         try:
-            existing = json.loads(PROFILE_FILE.read_text())
+            existing = json.loads(PROFILE_FILE.read_text(encoding="utf-8"))
         except Exception:
             pass
     existing["name"] = profile.name.strip() or "Brody"
@@ -1542,7 +1542,7 @@ LISTS_FILE = DATA_DIR / "lists.json"
 
 def load_lists() -> dict:
     if LISTS_FILE.exists():
-        return json.loads(LISTS_FILE.read_text())
+        return json.loads(LISTS_FILE.read_text(encoding="utf-8"))
     return {}
 
 def save_lists(data: dict):
@@ -1598,7 +1598,7 @@ ROUTINES_FILE = DATA_DIR / "routines.json"
 
 def load_routines() -> dict:
     if ROUTINES_FILE.exists():
-        return json.loads(ROUTINES_FILE.read_text())
+        return json.loads(ROUTINES_FILE.read_text(encoding="utf-8"))
     return {}
 
 def save_routines(data: dict):
@@ -1639,7 +1639,7 @@ WEIGHT_FILE = DATA_DIR / "weight_log.json"
 def load_weights() -> list:
     if WEIGHT_FILE.exists():
         try:
-            return json.loads(WEIGHT_FILE.read_text())
+            return json.loads(WEIGHT_FILE.read_text(encoding="utf-8"))
         except json.JSONDecodeError:
             return []
     return []
@@ -1647,7 +1647,7 @@ def load_weights() -> list:
 def save_weights(weights: list):
     # Atomic write so a crash mid-write can't corrupt the log.
     tmp = WEIGHT_FILE.with_suffix(".json.tmp")
-    tmp.write_text(json.dumps(weights, indent=2))
+    tmp.write_text(json.dumps(weights, indent=2), encoding="utf-8")
     tmp.replace(WEIGHT_FILE)
 
 class WeightEntry(BaseModel):
@@ -1716,7 +1716,7 @@ AGENDA_FILE = DATA_DIR / "agenda.json"
 
 def load_agenda() -> list:
     if AGENDA_FILE.exists():
-        return json.loads(AGENDA_FILE.read_text())
+        return json.loads(AGENDA_FILE.read_text(encoding="utf-8"))
     return []
 
 def save_agenda(items: list):
@@ -1795,7 +1795,7 @@ def _read_healthkit() -> dict:
     if not HEALTHKIT_FILE.exists():
         return {"weight_log": [], "daily": [], "workouts": []}
     try:
-        return json.loads(HEALTHKIT_FILE.read_text())
+        return json.loads(HEALTHKIT_FILE.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
         return {"weight_log": [], "daily": [], "workouts": []}
 
@@ -2147,7 +2147,7 @@ METRICS_FILE = DATA_DIR / "body_metrics.json"
 
 def load_metrics() -> list:
     if METRICS_FILE.exists():
-        return json.loads(METRICS_FILE.read_text())
+        return json.loads(METRICS_FILE.read_text(encoding="utf-8"))
     return []
 
 def save_metrics(data: list):
@@ -2337,7 +2337,7 @@ def calculate_tdee(key=Depends(require_key)):
     profile_data = {}
     if PROFILE_FILE.exists():
         try:
-            profile_data = json.loads(PROFILE_FILE.read_text())
+            profile_data = json.loads(PROFILE_FILE.read_text(encoding="utf-8"))
         except Exception:
             pass
 
@@ -2456,7 +2456,7 @@ def update_tdee_profile(key=Depends(require_key),
     existing = {}
     if PROFILE_FILE.exists():
         try:
-            existing = json.loads(PROFILE_FILE.read_text())
+            existing = json.loads(PROFILE_FILE.read_text(encoding="utf-8"))
         except Exception:
             pass
     if weight_kg is not None: existing["weight_kg"] = weight_kg
@@ -2527,7 +2527,7 @@ def adaptive_tdee(key=Depends(require_key)):
     profile_data = {}
     if PROFILE_FILE.exists():
         try:
-            profile_data = json.loads(PROFILE_FILE.read_text())
+            profile_data = json.loads(PROFILE_FILE.read_text(encoding="utf-8"))
         except Exception:
             pass
 
@@ -2661,7 +2661,7 @@ SLEEP_FILE = DATA_DIR / "sleep.json"
 
 def load_sleep() -> list:
     if SLEEP_FILE.exists():
-        return json.loads(SLEEP_FILE.read_text())
+        return json.loads(SLEEP_FILE.read_text(encoding="utf-8"))
     return []
 
 def save_sleep(data: list):
@@ -2886,7 +2886,7 @@ def _weekly_suggestion(current_target: int, trend: Optional[dict], direction: st
 def _goal_direction() -> str:
     if PROFILE_FILE.exists():
         try:
-            gd = json.loads(PROFILE_FILE.read_text()).get("goal_direction")
+            gd = json.loads(PROFILE_FILE.read_text(encoding="utf-8")).get("goal_direction")
             if gd in ("gain", "maintain", "lose"):
                 return gd
         except (json.JSONDecodeError, OSError):
@@ -2910,7 +2910,7 @@ _PUSH_TYPES = ("readiness", "weekly", "hydration")
 def load_push_subs() -> list:
     if PUSH_FILE.exists():
         try:
-            return json.loads(PUSH_FILE.read_text())
+            return json.loads(PUSH_FILE.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError):
             return []
     return []
@@ -3282,7 +3282,7 @@ WITHINGS_FILE = DATA_DIR / "withings_config.json"
 def withings_status(key=Depends(require_key)):
     if WITHINGS_FILE.exists():
         try:
-            config = json.loads(WITHINGS_FILE.read_text())
+            config = json.loads(WITHINGS_FILE.read_text(encoding="utf-8"))
             return {"connected": bool(config.get("access_token")), "last_sync": config.get("last_sync")}
         except Exception:
             pass
@@ -3483,7 +3483,7 @@ def withings_auth_url(key=Depends(require_key)):
     """Generate OAuth2 authorization URL for Withings. Needs client_id in config."""
     if WITHINGS_FILE.exists():
         try:
-            config = json.loads(WITHINGS_FILE.read_text())
+            config = json.loads(WITHINGS_FILE.read_text(encoding="utf-8"))
             client_id = config.get("client_id")
             if client_id:
                 redirect_uri = config.get("redirect_uri", "https://health-hub-dwz.pages.dev/withings-callback")
