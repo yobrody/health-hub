@@ -26,14 +26,19 @@ Drove a full model lean-bulk day against an **isolated local instance** (not pro
 - **Honesty fixes re-confirmed live with real data:** readiness score after a fresh sleep log; `/tdee` uses the real logged 62.5 kg (`weight_source: logged`); `/food/smart` returned `fiber_g: null` for black coffee (the "don't fabricate micros" prompt fix, verified against real Gemini); barcode OFF lookup scales; `/tdee/adaptive` honestly reports `"Insufficient data"` + `adaptive_tdee: null` rather than guessing; `/sleep` bad-time → 400, `/barcode/<non-numeric>` → 400.
 - **Not covered:** the browser-driven UI leg (Playwright MCP was disconnected this session). Frontend honesty logic remains covered by the 396 unit tests + build; a live UI pass is still worth doing (see #2).
 
-### Still worth doing — ranked (1 = highest priority)
-1. **Planned-vs-eaten separation for `/ai/meal-plan/use`** — *active honesty bug.* Pre-filled planned meals are written into the food log and counted as **eaten** by `/today` + TDEE, inflating real intake. Store planned meals separately (or mark `confidence=planned` and exclude from intake totals).
-2. **CI-runnable integration test (FastAPI `TestClient`, no live server)** — highest-leverage prevention. Today `api/tests/test_api.py` needs a server on `localhost:8080` and `optimal_day.py` needs a running instance, so **no integration coverage runs in CI** — which is why the encoding bug slipped. Fold `optimal_day.py`'s flow into a `TestClient` pytest that runs offline.
-3. **SW cache staleness signal (`X-SW-Cache`)** — honesty: a NetworkFirst cache hit can show month-old workout/weight/food data as live with no marker; stamp SW-served responses and surface "showing saved data".
-4. **Queue `addMetric`/`logSleep` offline** — data-loss: a weigh-in or sleep log made offline is silently lost (only food/water/routine/list/goals/profile are queued via `outbox`).
-5. **Parse ml/volume serving sizes in `parseServingGrams`** — liquids (e.g. a 330 ml can, OFF serving `"1 portion (330 ml)"`) fall back to disclosed per-100g instead of scaling to the serving; add ml handling.
-6. **Per-file write locks in the backend** — concurrent read-modify-write on the same JSON store can lose an update (low risk single-user; `atomic_write_text` already fsyncs + uses a unique tmp).
-7. **`/food/search` sodium-from-salt fallback** — search results show `sodium_mg: 0` when OFF only supplies salt, while `/barcode` derives sodium from salt; cosmetic inconsistency.
+### Still worth doing — ✅ ALL DONE (`51983cb`, ranked 1→7 as they were completed)
+All seven were shipped in `51983cb` (frontend + Functions auto-deployed; backend `main.py` redeployed on lucky-vps, data backed up to `~/health-hub-backups/20260817-121248/`, verified live). +9 frontend tests (402 green), +5 backend incl. an offline integration test (31 green); tsc/eslint/build clean; a real Playwright UI pass on prod (Today + Nutrition render, 0 console errors, all API GETs 200).
+1. ✅ **Planned-vs-eaten** — `/ai/meal-plan/use` writes `confidence=planned` blocks; now excluded from `/today` `total_kcal` + `_day_intake_kcal` (backend) and from Nutrition's eaten macro sums + meal list (frontend). Asserted end-to-end in the new integration test.
+2. ✅ **CI integration test** — `api/tests/test_integration.py` drives the optimal-day flow via FastAPI `TestClient` (offline, no live server); `api/tests/conftest.py` isolates the whole suite to temp dirs. This is the offline twin of `scripts/optimal_day.py`.
+3. ✅ **SW cache staleness** — `lib/staleness.ts` `classifyFreshness` infers a cache-served response from its `Date` header (self-calibrating for clock skew, since `generateSW` can't inject a cache-stamping plugin); `client.ts` exposes a `stale` signal; `ConnectionBanner` shows "Showing saved data — refreshing…".
+4. ✅ **Offline queue** — `addMetric` + `logSleep` now `queueLabel`-queued; the four weigh-in/sleep callers (Metrics ×2, Today ×2) treat a queued write as success, not "failed".
+5. ✅ **ml servings** — `parseServingGrams` handles `"330 ml"` (liquids scale ~1 g/ml) instead of falling back to per-100g; grams still take precedence.
+6. ✅ **Backend write locks** — an `asyncio.Lock` middleware serializes all mutating requests (verified: 10 concurrent POSTs → no lost update, no deadlock; reads never blocked).
+7. ✅ **`/food/search` sodium** — `_sodium_mg_per_100g` derives sodium from salt when OFF only supplies salt, matching `/barcode` (verified live: a salted product now shows real sodium, was 0).
+
+_Plus a tiny a11y fix (`ConnectionBanner` no longer keeps a hidden "Trouble reaching…" string in its `aria-live` region while online)._
+
+**Nothing currently on the backlog.**
 
 ## Status (as of 2026-08-05, latest commit `0c0066b`)
 **Transformation system SHIPPED + DEPLOYED (`0c0066b`, branch `feat/transformation-system` merged).** New "Transformation" tab (reachable from the Workout page 🎯 card) ties the gym to Brody's 72kg goal:

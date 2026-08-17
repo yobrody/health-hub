@@ -82,7 +82,10 @@ export default function ConnectionBanner() {
         pointerEvents: 'none',
       }}
     >
-      {msg}
+      {/* Only render text when the banner is actually shown — otherwise the
+          aria-live region would announce a stale "Trouble reaching…" to screen
+          readers while everything is fine. */}
+      {visible ? msg : ''}
     </div>
   )
 }
