@@ -3307,19 +3307,6 @@ If you don't recognize the barcode, make your best guess based on common UK prod
     }
 
 
-# ── WITHINGS OAUTH STUB ─────────────────────────────────────────────
-WITHINGS_FILE = DATA_DIR / "withings_config.json"
-
-@app.get("/withings/status")
-def withings_status(key=Depends(require_key)):
-    if WITHINGS_FILE.exists():
-        try:
-            config = json.loads(WITHINGS_FILE.read_text(encoding="utf-8"))
-            return {"connected": bool(config.get("access_token")), "last_sync": config.get("last_sync")}
-        except Exception:
-            pass
-    return {"connected": False, "last_sync": None, "message": "Withings integration not configured. Requires Withings Body Smart scale + OAuth setup."}
-
 # ── HEALTH INSIGHTS ENGINE ─────���──────────────────────────────────────
 @app.get("/insights")
 def health_insights(key=Depends(require_key)):
@@ -3508,21 +3495,6 @@ def health_insights(key=Depends(require_key)):
     # Return the top 6 most interesting (prioritize positive + negative over neutral)
     insights.sort(key=lambda x: {"positive": 0, "negative": 1, "neutral": 2}[x["type"]])
     return {"insights": insights[:6], "period_days": 30, "generated_at": datetime.now().isoformat()}
-
-
-@app.get("/withings/auth-url")
-def withings_auth_url(key=Depends(require_key)):
-    """Generate OAuth2 authorization URL for Withings. Needs client_id in config."""
-    if WITHINGS_FILE.exists():
-        try:
-            config = json.loads(WITHINGS_FILE.read_text(encoding="utf-8"))
-            client_id = config.get("client_id")
-            if client_id:
-                redirect_uri = config.get("redirect_uri", "https://health-hub-dwz.pages.dev/withings-callback")
-                return {"url": f"https://account.withings.com/oauth2_user/authorize2?response_type=code&client_id={client_id}&scope=user.metrics&redirect_uri={redirect_uri}&state=healthhub"}
-        except Exception:
-            pass
-    return {"url": None, "message": "Configure Withings client_id first. Purchase scale + register at developer.withings.com."}
 
 
 # ── DATA EXPORT ──────────────────────────────────────────────────────
