@@ -94,11 +94,20 @@ export async function onRequest(context) {
   const { request } = context
   if (request.method === 'OPTIONS') return context.next()
 
+  const path = new URL(request.url).pathname
+
+  // ONLY the /api/* surface (the proxy to the VPS + Gemini) is gated. Static
+  // assets and the app shell must always load — a fresh page load / PWA launch
+  // is a top-level navigation that sends `Sec-Fetch-Site: none`, so gating the
+  // whole site would 403 every new visitor. (This scoping is also what makes it
+  // safe to drop `none` from the allowlist above: legit app→API calls are
+  // always same-origin.)
+  if (!path.startsWith('/api/')) return context.next()
+
   if (!isAllowed(request, context.env)) {
     return corsJson({ error: 'forbidden' }, 403)
   }
 
-  const path = new URL(request.url).pathname
   const limit = path.startsWith('/api/ai/') || path.startsWith('/api/fridge/enrich') || path.startsWith('/api/fridge/scan') || path.startsWith('/api/scan/')
     ? LIMIT_AI
     : LIMIT_DEFAULT
