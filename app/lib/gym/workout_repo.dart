@@ -14,6 +14,7 @@
 // interrupted session isn't lost (a real bug in the old app). The "fresh repo,
 // same store" test proves it.
 
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:shared_preferences/shared_preferences.dart';
@@ -47,6 +48,26 @@ class WorkoutRepo {
   final Outbox _outbox;
   final WorkoutStore _store;
 
+  // Serializes every store-mutating critical section (load→modify→save). Without
+  // it, two near-simultaneous writes — e.g. a double-tapped "Log Set", or two
+  // sets for different exercises — both read the same snapshot and the second
+  // save clobbers the first, silently dropping a logged set (the exact "never
+  // lose a session" bug this repo exists to prevent). Mutations chain on this
+  // tail future so no two run concurrently. Mirrors [Outbox]'s _synchronized.
+  Future<void> _mutation = Future.value();
+
+  Future<T> _synchronized<T>(Future<T> Function() action) {
+    final completer = Completer<T>();
+    _mutation = _mutation.then((_) async {
+      try {
+        completer.complete(await action());
+      } catch (e, st) {
+        completer.completeError(e, st);
+      }
+    });
+    return completer.future;
+  }
+
   /// The shared offline queue this repo enqueues into. Exposed so the
   /// composition root can confirm it is the SAME [Outbox] the SyncService
   /// flushes — otherwise a queued write would never be replayed.
@@ -57,6 +78,12 @@ class WorkoutRepo {
   /// Dedupe bucket per session — a newer mutation for the same session
   /// supersedes an older queued one (start→saveSet→finish collapse to the
   /// latest full-session snapshot).
+  ///
+  /// Forward-compat note: because the collapse keeps only the LATEST mutation,
+  /// the original `POST /workouts` is superseded by a `PUT /workouts/{id}`
+  /// carrying the full snapshot. When a real `/workouts` backend lands, its
+  /// replay handler MUST treat that `PUT` as an upsert (create-if-absent), or
+  /// the first offline-created session will 404 on sync.
   static String _dedupeKey(String id) => 'workout:$id';
 
   // ── Reads ──────────────────────────────────────────────────────────────────
@@ -85,8 +112,10 @@ class WorkoutRepo {
       at: now,
       exercises: const [],
     );
-    final sessions = await _store.load();
-    await _store.save([...sessions, session]);
+    await _synchronized(() async {
+      final sessions = await _store.load();
+      await _store.save([...sessions, session]);
+    });
     await _enqueue('POST', _basePath, session);
     return session;
   }
@@ -150,16 +179,26 @@ class WorkoutRepo {
     String sessionId,
     WorkoutSession Function(WorkoutSession) transform,
   ) async {
-    final sessions = await _store.load();
-    final idx = sessions.indexWhere((s) => s.id == sessionId);
-    if (idx < 0) return WriteOutcome.failed;
+    // The whole load→transform→save runs inside the mutation lock so concurrent
+    // writes serialize (no lost update). The enqueue happens after, keyed to the
+    // resulting snapshot; the Outbox serializes its own queue separately.
+    WorkoutSession? updated;
+    final outcome = await _synchronized<WriteOutcome>(() async {
+      final sessions = await _store.load();
+      final idx = sessions.indexWhere((s) => s.id == sessionId);
+      if (idx < 0) return WriteOutcome.failed;
 
-    final updated = transform(sessions[idx]);
-    final next = [...sessions];
-    next[idx] = updated;
-    await _store.save(next); // persist eagerly — survives restart.
-    await _enqueue('PUT', '$_basePath/$sessionId', updated);
-    return WriteOutcome.queued;
+      updated = transform(sessions[idx]);
+      final next = [...sessions];
+      next[idx] = updated!;
+      await _store.save(next); // persist eagerly — survives restart.
+      return WriteOutcome.queued;
+    });
+
+    if (outcome == WriteOutcome.queued && updated != null) {
+      await _enqueue('PUT', '$_basePath/$sessionId', updated!);
+    }
+    return outcome;
   }
 
   Future<void> _enqueue(String method, String path, WorkoutSession session) {

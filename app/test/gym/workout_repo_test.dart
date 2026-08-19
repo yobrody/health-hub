@@ -142,6 +142,25 @@ void main() {
     expect(await repo.activeSession(), isNull);
   });
 
+  test('concurrent saveSet calls for different exercises BOTH persist '
+      '(no lost write — the load→modify→save race)', () async {
+    final session = await repo.startSession();
+
+    // Fire two writes without awaiting between them — they interleave at the
+    // async load→save boundary. Without serialized store mutations the second
+    // save clobbers the first, silently dropping a logged set (the exact
+    // "never lose a logged set" bug this repo exists to prevent).
+    await Future.wait([
+      repo.saveSet(session.id, 'exA', 0, const SetEntry(reps: 8, done: true)),
+      repo.saveSet(session.id, 'exB', 0, const SetEntry(reps: 10, done: true)),
+    ]);
+
+    final all = await repo.all();
+    final ids = all.first.exercises.map((e) => e.exerciseId).toSet();
+    expect(ids, containsAll(<String>['exA', 'exB']),
+        reason: 'both concurrent writes must survive — neither clobbers the other');
+  });
+
   test('saveSet enqueues a PUT keyed to the session', () async {
     final session = await repo.startSession();
     await repo.saveSet(session.id, 'ex1', 0, const SetEntry(reps: 8));
