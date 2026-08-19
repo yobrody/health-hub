@@ -1,12 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../api/probe_status.dart';
+import '../app_providers.dart';
 import '../core/secrets.dart';
-import '../core/secure_store.dart';
 import '../health/health_service.dart';
 import '../health/health_types.dart';
-import '../offline/outbox.dart';
-import '../offline/outbox_store.dart';
+import '../onboarding/onboarding_flow.dart';
 import '../profile/profile_repo.dart';
 import 'goal_reset_controller.dart';
 import 'quiet_hours.dart';
@@ -23,9 +22,11 @@ import 'quiet_hours.dart';
 /// Placeholder sections (tappable, show a "coming soon" snackbar):
 ///   • Budget, Units, Gyms, Notifications, Privacy.
 ///
-/// [repo] and [secrets] are optional so the nav shell can construct the page
-/// without dependency wiring; tests inject fakes.
-class SettingsPage extends StatefulWidget {
+/// [repo], [secrets], and [healthService] are optional overrides so tests can
+/// inject fakes without a ProviderScope. In the running app [repo]/[secrets]
+/// come from the composition root ([profileRepoProvider] / [secretsProvider]),
+/// so the real [ApiClient] + shared [Outbox] are used.
+class SettingsPage extends ConsumerStatefulWidget {
   const SettingsPage({
     super.key,
     this.repo,
@@ -38,13 +39,11 @@ class SettingsPage extends StatefulWidget {
   final HealthService? healthService;
 
   @override
-  State<SettingsPage> createState() => _SettingsPageState();
+  ConsumerState<SettingsPage> createState() => _SettingsPageState();
 }
 
-class _SettingsPageState extends State<SettingsPage> {
-  // ── Dependency defaults (nav-shell path — no live wiring yet) ───────────────
-
-  // Initialised in initState so the `??` can call non-const constructors.
+class _SettingsPageState extends ConsumerState<SettingsPage> {
+  // Overrides win; otherwise read the shared composition-root providers.
   late final ProfileRepo _repo;
   late final Secrets _secrets;
   late final HealthService _healthService;
@@ -53,13 +52,8 @@ class _SettingsPageState extends State<SettingsPage> {
   @override
   void initState() {
     super.initState();
-    _repo = widget.repo ??
-        ProfileRepo(
-          api: _OfflineProfileApi(),
-          outbox: Outbox(const SharedPrefsOutboxStore()),
-          store: const SharedPrefsProfileStore(),
-        );
-    _secrets = widget.secrets ?? Secrets(FlutterSecureStoreAdapter());
+    _repo = widget.repo ?? ref.read(profileRepoProvider);
+    _secrets = widget.secrets ?? ref.read(secretsProvider);
     _healthService = widget.healthService ?? _NoopHealthService();
     _goalReset = GoalResetController(repo: _repo);
   }
@@ -130,6 +124,20 @@ class _SettingsPageState extends State<SettingsPage> {
         );
       }
     }
+  }
+
+  /// Re-open the onboarding flow so the user can revisit / complete their
+  /// profile even after a partial first run. Every field stays skippable and a
+  /// skipped field remains null — no value is ever fabricated on re-entry.
+  Future<void> _openOnboarding() async {
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) => OnboardingFlow(
+          repo: _repo,
+          onDone: () => Navigator.of(context).pop(),
+        ),
+      ),
+    );
   }
 
   Future<void> _onGoalReset() async {
@@ -256,6 +264,17 @@ class _SettingsPageState extends State<SettingsPage> {
             onTap: _onGoalReset,
           ),
 
+          // Edit profile — reopens the onboarding flow (re-entry even after a
+          // partial first run). Every field stays optional; nothing defaulted.
+          ListTile(
+            key: const Key('settings-edit-profile'),
+            leading: const Icon(Icons.person),
+            title: const Text('Edit profile'),
+            subtitle: const Text('Revisit your height, weight, goal and gym'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: _openOnboarding,
+          ),
+
           const Divider(),
 
           // 7. Notifications — placeholder (quiet-hours model defined in
@@ -292,15 +311,7 @@ class _SettingsPageState extends State<SettingsPage> {
 
 const _defaultQuietHours = QuietHours(startHour: 22, endHour: 7);
 
-// ── Default deps for the nav-shell construction path ─────────────────────────
-
-/// A [ProfileApi] that always reports offline, so goal-reset operations queue
-/// rather than hit a half-wired network layer. Same pattern as TodayPage.
-class _OfflineProfileApi implements ProfileApi {
-  @override
-  Future<ProbeStatus> putProfile(Map<String, dynamic> params) async =>
-      ProbeStatus.offline;
-}
+// ── Default deps for the construction path ───────────────────────────────────
 
 /// A [HealthService] whose [requestPermissions] is a no-op — used as the
 /// default in the nav shell where no real HealthDataSource is wired. Returns

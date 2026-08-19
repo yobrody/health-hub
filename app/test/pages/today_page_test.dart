@@ -5,6 +5,7 @@
 // "set this up" affordance that opens onboarding.
 
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:health_hub/api/probe_status.dart';
 import 'package:health_hub/offline/outbox.dart';
@@ -46,7 +47,7 @@ ProfileRepo _repo([Map<String, dynamic>? stored]) => ProfileRepo(
 void main() {
   testWidgets('renders today-page key', (tester) async {
     await tester.pumpWidget(
-      MaterialApp(home: TodayPage(repo: _repo())),
+      ProviderScope(child: MaterialApp(home: TodayPage(repo: _repo()))),
     );
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('today-page')), findsOneWidget);
@@ -55,7 +56,7 @@ void main() {
   testWidgets('with no profile, weight/goal render as em-dash (no fake defaults)',
       (tester) async {
     await tester.pumpWidget(
-      MaterialApp(home: TodayPage(repo: _repo())),
+      ProviderScope(child: MaterialApp(home: TodayPage(repo: _repo()))),
     );
     await tester.pumpAndSettle();
 
@@ -73,7 +74,7 @@ void main() {
   testWidgets('with a real weight, it renders the value, not a dash',
       (tester) async {
     await tester.pumpWidget(
-      MaterialApp(home: TodayPage(repo: _repo({'weight_kg': 62.5}))),
+      ProviderScope(child: MaterialApp(home: TodayPage(repo: _repo({'weight_kg': 62.5})))),
     );
     await tester.pumpAndSettle();
     expect(find.textContaining('62.5'), findsWidgets);

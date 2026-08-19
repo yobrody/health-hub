@@ -1,16 +1,20 @@
+// First-run gate (P1 Task 1).
+//
+// app.dart shows onboarding when no profile has ever been saved on this device
+// (ProfileRepo.hasProfile() == false), and the RootScaffold (Today) otherwise.
+// This is driven by a provider (hasProfileProvider) so tests — including the
+// existing nav test — can override it deterministically without a real store.
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:health_hub/app.dart';
 import 'package:health_hub/app_providers.dart';
+import 'package:health_hub/profile/profile_repo.dart';
 import 'package:health_hub/api/probe_status.dart';
 import 'package:health_hub/offline/outbox.dart';
 import 'package:health_hub/offline/outbox_store.dart';
 import 'package:health_hub/offline/pending_mutation.dart';
-import 'package:health_hub/profile/profile_repo.dart';
-
-// ── Fakes so the first-run gate resolves to the app (a profile "exists") and no
-//    page hits a platform channel (secure storage / shared_preferences). ───────
 
 class _FakeOutboxStore implements OutboxStore {
   List<PendingMutation> _items = [];
@@ -36,34 +40,38 @@ class _FakeProfileApi implements ProfileApi {
       ProbeStatus.online;
 }
 
-// A repo whose store already holds a profile → hasProfile() == true → the gate
-// shows the app immediately (the contract this test relies on).
-ProfileRepo _repoWithProfile() => ProfileRepo(
+ProfileRepo _repo([Map<String, dynamic>? stored]) => ProfileRepo(
       api: _FakeProfileApi(),
       outbox: Outbox(_FakeOutboxStore()),
-      store: _FakeProfileStore({'weight_kg': 62.5}),
+      store: _FakeProfileStore(stored),
     );
 
 void main() {
-  testWidgets('root nav switches tabs', (tester) async {
+  testWidgets('no profile → onboarding is shown', (tester) async {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
-          profileRepoProvider.overrideWithValue(_repoWithProfile()),
+          profileRepoProvider.overrideWithValue(_repo()),
         ],
         child: const HealthHubApp(),
       ),
     );
     await tester.pumpAndSettle();
-    // starts on Today (first-run gate resolved to the app, not onboarding)
-    expect(find.byKey(const Key('today-page')), findsOneWidget);
-    // has all 5 destinations
-    for (final label in ['Today', 'Food', 'Gym', 'Nutrition', 'Settings']) {
-      expect(find.text(label), findsWidgets);
-    }
-    // tapping Gym shows the gym page
-    await tester.tap(find.text('Gym'));
+    expect(find.byKey(const Key('onboarding-flow')), findsOneWidget);
+    expect(find.byKey(const Key('today-page')), findsNothing);
+  });
+
+  testWidgets('existing profile → the app (Today) is shown', (tester) async {
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          profileRepoProvider.overrideWithValue(_repo({'weight_kg': 62.5})),
+        ],
+        child: const HealthHubApp(),
+      ),
+    );
     await tester.pumpAndSettle();
-    expect(find.byKey(const Key('gym-page')), findsOneWidget);
+    expect(find.byKey(const Key('today-page')), findsOneWidget);
+    expect(find.byKey(const Key('onboarding-flow')), findsNothing);
   });
 }
