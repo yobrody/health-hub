@@ -1,13 +1,3 @@
-import 'package:flutter/material.dart';
-
-class SettingsPage extends StatelessWidget {
-  const SettingsPage({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return const Scaffold(
-      key: Key('settings-page'),
-      body: Center(child: Text('Settings')),
-    );
-  }
-}
+// Thin re-export so existing imports (root_scaffold.dart) keep working.
+// The real implementation lives in lib/settings/settings_page.dart.
+export '../settings/settings_page.dart';
