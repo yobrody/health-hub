@@ -236,6 +236,48 @@ void main() {
     });
   });
 
+  // ── Concurrency — the lost-update race (C1) ───────────────────────────────
+  group('Outbox concurrency', () {
+    test('two un-awaited enqueues with distinct keys BOTH survive', () async {
+      final store = FakeOutboxStore();
+      final outbox = Outbox(store);
+
+      // Fire both without awaiting between them (e.g. user logs food + water
+      // back-to-back). Without serialization both read the same empty snapshot
+      // and the second persist clobbers the first → one write is lost.
+      final f1 = outbox.enqueue(makeMutation(id: 'food', dedupeKey: 'food/today'));
+      final f2 = outbox.enqueue(makeMutation(id: 'water', dedupeKey: 'water/today'));
+      await Future.wait([f1, f2]);
+
+      final pending = await outbox.pending();
+      expect(pending, hasLength(2), reason: 'both offline writes must survive');
+      expect(
+        pending.map((m) => m.id).toSet(),
+        {'food', 'water'},
+      );
+    });
+
+    test('interleaving an enqueue with a flush loses/resurrects no item', () async {
+      final store = FakeOutboxStore();
+      final outbox = Outbox(store);
+      await outbox.enqueue(makeMutation(id: '1', dedupeKey: 'a'));
+      await outbox.enqueue(makeMutation(id: '2', dedupeKey: 'b'));
+
+      // Start a flush that removes '1' and '2', and concurrently enqueue a
+      // fresh item. The new enqueue must not be dropped by flush's persist,
+      // and flush must not resurrect an item it already removed.
+      final flushFut = outbox.flush((m) async => true); // removes 1 and 2
+      final enqFut = outbox.enqueue(makeMutation(id: '3', dedupeKey: 'c'));
+      await Future.wait([flushFut, enqFut]);
+
+      final ids = (await outbox.pending()).map((m) => m.id).toSet();
+      // '1' and '2' were sent → gone. '3' was enqueued → must still be present.
+      expect(ids, contains('3'), reason: 'concurrent enqueue must not be lost');
+      expect(ids, isNot(contains('1')), reason: 'sent item must not resurrect');
+      expect(ids, isNot(contains('2')), reason: 'sent item must not resurrect');
+    });
+  });
+
   // ── MAX_TRIES (parity with legacy) ────────────────────────────────────────
   group('maxTries / dropExpired', () {
     test('dropExpired removes items at or over MAX_TRIES', () {

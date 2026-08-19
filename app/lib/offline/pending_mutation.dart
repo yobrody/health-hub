@@ -63,7 +63,7 @@ class PendingMutation {
         body: json['body'] != null
             ? Map<String, dynamic>.from(json['body'] as Map)
             : null,
-        createdAt: json['createdAt'] as int,
+        createdAt: (json['createdAt'] as num).toInt(),
         tries: json['tries'] as int? ?? 0,
       );
 }

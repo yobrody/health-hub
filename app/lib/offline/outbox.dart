@@ -16,6 +16,8 @@
 //     is preserved here via [bumpTries]/[dropExpired].
 //   – [kMaxTries] = 8, matching `MAX_TRIES` in the legacy.
 
+import 'dart:async';
+
 import 'pending_mutation.dart';
 import 'outbox_store.dart';
 
@@ -107,6 +109,25 @@ class Outbox {
   // In-memory cache — avoids a load() round-trip on every enqueue/pending call.
   List<PendingMutation>? _cache;
 
+  // Serializes all mutating critical sections (load→modify→persist). Without
+  // this, two near-simultaneous enqueue calls — or an enqueue interleaved with
+  // a flush — both read the same cache snapshot and the second persist clobbers
+  // the first, permanently losing a queued write (data loss). Mutations chain
+  // on this tail future so no two run concurrently.
+  Future<void> _mutation = Future.value();
+
+  Future<T> _synchronized<T>(Future<T> Function() action) {
+    final completer = Completer<T>();
+    _mutation = _mutation.then((_) async {
+      try {
+        completer.complete(await action());
+      } catch (e, st) {
+        completer.completeError(e, st);
+      }
+    });
+    return completer.future;
+  }
+
   Future<List<PendingMutation>> _load() async {
     _cache ??= await _store.load();
     return _cache!;
@@ -121,10 +142,10 @@ class Outbox {
   ///
   /// This is the "offline success" path — callers should treat the returned
   /// [Future] completing without error as [WriteOutcome.queued].
-  Future<void> enqueue(PendingMutation mutation) async {
-    final current = await _load();
-    await _persist(enqueueInto(current, mutation));
-  }
+  Future<void> enqueue(PendingMutation mutation) => _synchronized(() async {
+        final current = await _load();
+        await _persist(enqueueInto(current, mutation));
+      });
 
   /// Returns the current pending mutations in FIFO order.
   Future<List<PendingMutation>> pending() async => List.unmodifiable(await _load());
@@ -153,7 +174,11 @@ class Outbox {
         break;
       }
       if (succeeded) {
-        await _persist(removeItem(await _load(), item.id));
+        // Atomic load→remove→persist so a concurrent enqueue is not clobbered
+        // and a sent item is never resurrected by a stale snapshot.
+        await _synchronized(() async {
+          await _persist(removeItem(await _load(), item.id));
+        });
       } else {
         break; // Still offline — leave remaining items untouched.
       }
