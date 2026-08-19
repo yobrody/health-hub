@@ -10,6 +10,15 @@
 	     P0, so NSHealthUpdateUsageDescription is intentionally omitted. -->
 	<key>NSHealthShareUsageDescription</key>
 	<string>Health Hub reads your steps and sleep from Apple Health to track your daily activity and recovery. Your health data stays on your device unless you choose to sync it.</string>
+	<!-- image_picker: camera capture for food scanning and progress photos. -->
+	<key>NSCameraUsageDescription</key>
+	<string>Health Hub uses the camera to scan food barcodes and capture progress photos. Photos are processed on-device and are not uploaded without your permission.</string>
+	<!-- image_picker: photo library access for picking existing progress photos. -->
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Health Hub can read photos from your library so you can choose an existing progress photo. We only access photos you select.</string>
+	<!-- geolocator: coarse location for gym-proximity and regional features. -->
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>Health Hub uses your approximate location to suggest nearby gyms and personalise regional health content. Location is only used while the app is open.</string>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
