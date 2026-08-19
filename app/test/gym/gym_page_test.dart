@@ -138,8 +138,9 @@ void main() {
       final log = session.exercises.first;
       expect(log.exerciseId, firstExercise.id);
       expect(log.sets, hasLength(1));
-      // The set must not be null.
       expect(log.sets.first.reps, 8);
+      // bench-press is freeWeight; 60 kg snaps to 60.0 (valid plate step) — not null.
+      expect(log.sets.first.weightKg, 60.0);
     });
 
     // ── Machine weight snaps to real stack increment ───────────────────────

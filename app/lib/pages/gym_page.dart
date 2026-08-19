@@ -144,11 +144,16 @@ class GymPageState extends ConsumerState<GymPage> {
       done: true,
     );
 
-    // Determine which set index to use (append to existing sets for this exercise).
-    final session = _session!;
-    final exLog = session.exercises
-        .where((e) => e.exerciseId == ex.id)
-        .toList();
+    // Reload the PERSISTED session to compute the next set index — never the
+    // stale in-memory _session. Two rapid "Log Set" taps both reading _session
+    // would compute nextIndex = 0 twice and the second save would overwrite the
+    // first (violating "never lose a logged set").
+    final persisted = await _repo.activeSession();
+    if (!mounted) return;
+    final exLog = persisted?.exercises
+            .where((e) => e.exerciseId == ex.id)
+            .toList() ??
+        [];
     final nextIndex = exLog.isEmpty ? 0 : exLog.first.sets.length;
 
     await _repo.saveSet(sid, ex.id, nextIndex, entry);
