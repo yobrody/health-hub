@@ -1,0 +1,75 @@
+name: app-ci
+
+on:
+  push:
+    paths:
+      - 'app/**'
+      - '.github/workflows/app-ci.yml'
+  pull_request:
+    paths:
+      - 'app/**'
+      - '.github/workflows/app-ci.yml'
+
+jobs:
+  analyze-test:
+    name: Analyze & Test (Flutter)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.0'
+          channel: stable
+          cache: true
+
+      - name: Flutter version
+        working-directory: app
+        run: flutter --version
+
+      - name: Get dependencies
+        working-directory: app
+        run: flutter pub get
+
+      - name: Analyze
+        working-directory: app
+        run: flutter analyze
+
+      - name: Test
+        working-directory: app
+        run: flutter test
+
+  # ---------------------------------------------------------------------------
+  # ios-build: (DEFERRED — placeholder, not active)
+  #
+  # Requires Codemagic / App Store Connect signing before this job can run.
+  # Un-comment and configure once provisioning profiles + certificates are set up.
+  #
+  # ios-build:
+  #   name: iOS Build
+  #   runs-on: macos-latest
+  #   needs: analyze-test
+  #   timeout-minutes: 60
+  #
+  #   steps:
+  #     - uses: actions/checkout@v4
+  #
+  #     - uses: subosito/flutter-action@v2
+  #       with:
+  #         flutter-version: '3.47.0'
+  #         channel: stable
+  #         cache: true
+  #
+  #     - name: Get dependencies
+  #       working-directory: app
+  #       run: flutter pub get
+  #
+  #     # TODO: install App Store Connect API key + provisioning profile
+  #     # (via Codemagic secrets or a GitHub Actions secret + fastlane)
+  #
+  #     - name: Build iOS (no-codesign)
+  #       working-directory: app
+  #       run: flutter build ios --release --no-codesign
+  # ---------------------------------------------------------------------------
