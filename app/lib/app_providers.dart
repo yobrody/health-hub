@@ -6,6 +6,8 @@ import 'core/config.dart';
 import 'core/secrets.dart';
 import 'core/secure_store.dart';
 import 'meals/eat_in_service.dart';
+import 'nutrition/nutrition_repo.dart';
+import 'nutrition/off_client.dart';
 import 'offline/outbox.dart';
 import 'offline/outbox_store.dart';
 import 'pantry/pantry_repo.dart';
@@ -78,6 +80,32 @@ final pantryRepoProvider = Provider<PantryRepo>((ref) {
     outbox: ref.watch(outboxProvider),
     store: ref.watch(pantryStoreProvider),
   );
+});
+
+/// Local nutrition/food-log persistence (survives restart).
+final nutritionStoreProvider = Provider<NutritionStore>((ref) {
+  return const SharedPrefsNutritionStore();
+});
+
+/// The nutrition repository — the food-log data layer. Wired to the SAME shared
+/// [Outbox] every other repo uses (so its queued mutations are replayed by
+/// [syncServiceProvider] once a `/nutrition` backend exists) and the real local
+/// store. Deliberately pantry-agnostic: an eating-out entry records spend and
+/// never touches the pantry (deduction lives in [eatInServiceProvider]).
+/// Overridable in tests via `ProviderScope(overrides: [...])`.
+final nutritionRepoProvider = Provider<NutritionRepo>((ref) {
+  return NutritionRepo(
+    outbox: ref.watch(outboxProvider),
+    store: ref.watch(nutritionStoreProvider),
+  );
+});
+
+/// Open Food Facts barcode-lookup client. Uses its OWN [Dio] (NOT [dioProvider]/
+/// the authed [ApiClient]) because OFF is a separate public host — no
+/// `X-Health-Key`, no [Config.baseUrl] prefix. A dedicated instance keeps the
+/// OFF User-Agent + host isolated from the Health Hub backend client.
+final offClientProvider = Provider<OffClient>((ref) {
+  return OffClient(Dio());
 });
 
 /// The eating-in service — the WRITE half of the ingredient graph. Wired to the
