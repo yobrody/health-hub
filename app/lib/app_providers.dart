@@ -5,6 +5,7 @@ import 'api/client.dart';
 import 'core/config.dart';
 import 'core/secrets.dart';
 import 'core/secure_store.dart';
+import 'meals/eat_in_service.dart';
 import 'offline/outbox.dart';
 import 'offline/outbox_store.dart';
 import 'pantry/pantry_repo.dart';
@@ -77,6 +78,15 @@ final pantryRepoProvider = Provider<PantryRepo>((ref) {
     outbox: ref.watch(outboxProvider),
     store: ref.watch(pantryStoreProvider),
   );
+});
+
+/// The eating-in service — the WRITE half of the ingredient graph. Wired to the
+/// same [pantryRepoProvider], so a logged home meal deducts its ingredients
+/// through the SAME outbox-queued repo everything else uses. Overridable in
+/// tests via `ProviderScope(overrides: [...])`. (No UI wires this yet — a later
+/// phase calls it from the nutrition/meal-log flow.)
+final eatInServiceProvider = Provider<EatInService>((ref) {
+  return EatInService(ref.watch(pantryRepoProvider));
 });
 
 /// Device connectivity, wrapped behind a testable interface.
