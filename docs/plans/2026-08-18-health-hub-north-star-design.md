@@ -1,7 +1,7 @@
 # Health Hub — North-Star Design (v1.1, 2026-08-19)
 
 > Status: **FINAL.** All decisions locked; completeness pass folded in. One app: **"Health Hub."** Single-user now; social deferred behind a clean seam (§14). Roadmap in §12 is the ordered build plan.
-> **Locked:** Flutter (+ Rive avatar) · ingredient-graph model = yes · destination "C" (proactive daily plan on cross-linked sections, plumbing-first) · clean rewrite (current React/PWA retired).
+> **Locked:** Flutter (+ **3D low-poly avatar** — glTF morph-targets, NOT Rive/2D; decided 2026-08-19) · ingredient-graph model = yes · destination "C" (proactive daily plan on cross-linked sections, plumbing-first) · clean rewrite (current React/PWA retired).
 
 ## 0. The goal
 Make Health Hub feel **alive** and fully **interconnected**: gym ↔ nutrition ↔ food/pantry ↔ shopping ↔ reorder all read/write one shared state, in service of one thing — getting Brody to his physique goal **as fast as honestly possible**. Honesty rule is inviolable (`health-hub-reviewer`): never show guessed/default/stale data as real; a missing signal degrades to `—`/`~` with a note — never fabricated.
@@ -10,7 +10,7 @@ Destination = **C: a proactive daily plan on top of cross-linked sections**, bui
 
 ## 1. Platform — a real native mobile app: Flutter
 Native for **iPhone + Android**. Framework = **Flutter** (clean rewrite; React/PWA retired) — best-in-class animation smoothness (Impeller) for an animation-heavy app, pixel-identical cross-platform, unified `health` package. Dart is written by the AI builder, so language is a non-factor.
-- **Avatar tech = Rive** — state-machine animation driven by real `PhysiqueState` (§3).
+- **Avatar tech = 3D low-poly** (LOCKED 2026-08-19; NOT Rive/2D) — AI-generated low-poly body **+ clothing** with **glTF morph-targets**, rendered via a Flutter 3D path (`flutter_scene`/`flutter_3d_controller`), driven by real `PhysiqueState` (§3). Morph-targets power the cosmetics fit-engine. Best-AI-generator research (Meshy/Tripo/Luma/Rodin) owed at P4 start.
 - **Backend stays** FastAPI on lucky-vps. Rebuild the offline queue in Dart.
 - **Location** (consent-gated) powers location-aware reorder (§7) + gym research (§9).
 - **Richer Health import** (one permission): **steps, sleep, active energy (→ TDEE), resting HR + HRV (→ readiness), body weight, body-fat (smart scale), logged workouts.**
@@ -44,7 +44,7 @@ The brain also runs a **periodic recalibration** (weekly): is goal pace on track
 ### 4b. Ingredient graph — the keystone (LOCKED: yes)
 Home meals = **compositions of pantry ingredients in grams**. Read → **suggests** ("can I make this from stock, given time/habits/DayPlan/workout?"); write → **deducts** ("ate this → remove grams → qty ↓, £ ↓, visual ↓") + computes macros. Eating-*out* stays a single estimated line. Powers suggestions, inventory, spend, macro accuracy, and shopping-gap detection.
 
-## 3. Home screen — the living avatar (My Little Universe style, Rive) + progress photos
+## 3. Home screen — the living avatar (My Little Universe style, 3D low-poly) + progress photos
 - **Center = a cute low-poly stylized character**, **morphing via a Rive state machine driven by `PhysiqueState`** (weight→size, body-fat→leanness, shoulder/waist→V-taper, progression→muscle). Deterministic, no AI. Unlockable **skins** as rewards.
 - **Honesty:** "you now" reflects only measured data; missing measurements interpolate conservatively; no earned abs without a real body-fat reading.
 - **Goal preview = one-time "prize":** seen once when you set/reset goals (reset lives in Settings §11), then hidden until reset. Day to day you watch *your* avatar move toward the remembered prize — rewarding the logging of weight/measurements; **we lean into that loop.**
@@ -102,7 +102,7 @@ A conversational coach that **sees your full context** — "why this plan?", "sw
 - **P1 — Pantry keystone + ingredient graph:** `Pantry` + `MealComposition` (+ social-seam owner fields), test-first; log CRUD.
 - **P2 — Capture + accuracy tiers:** barcode-first, label OCR, grams/Guess, In/Out (+ eating-out spend), receipt→pantry, hydration, supplements, food DB search.
 - **P3 — Cross-links (plumbing):** ingredient deduction + spend + budget, gym↔nutrition link, pantry-low→list, effort emojis + soreness→progression, gym-equipment+overrides→exercise engine, meal schedule.
-- **P4 — Avatar + PhysiqueState (Rive) + progress photos:** morphing home + goal-prize mechanic + photo timeline + widget.
+- **P4 — Avatar + PhysiqueState (3D low-poly, glTF morph-targets) + progress photos:** morphing home + goal-prize mechanic + photo timeline + widget. Start with the best-AI-generator research + a clothed morphing-character spike (cosmetics need clothing morph-targets).
 - **P5 — Brain: DayPlan + Today tab + program layer + recalibration:** ordered Train/Eat/Buy, `Program` arc/deloads, weekly recalibration, wired to push/widget/coach chat.
 - **P6 — Reorder + Recipe creator:** location-aware share-sheet hand-off; recipe creator.
 - **Cross-cutting:** AI coach chat; progress-reveal-on-nav animations; consistency trackers; accessibility (semantics, dynamic type, contrast).
