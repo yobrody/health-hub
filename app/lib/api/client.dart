@@ -74,4 +74,40 @@ class ApiClient {
       return const ApiResult(status: ProbeStatus.degraded, data: null);
     }
   }
+
+  /// Save the user's profile via `PUT /tdee/profile`.
+  ///
+  /// [params] must already contain ONLY the fields the user actually provided
+  /// (non-null). It is the caller's job (see `ProfileRepo`) to strip nulls and
+  /// map field names to the backend's contract — this method sends verbatim.
+  /// Nothing here fabricates a value.
+  ///
+  /// The backend binds these query params (all optional):
+  ///   weight_kg, height_cm, age, sex, activity_level, goal_direction,
+  ///   target_weight_kg
+  /// Unknown params (e.g. `primary_gym`, which the backend has no field for
+  /// yet) are simply ignored by FastAPI — harmless, and a later phase can add
+  /// server support.
+  ///
+  /// Returns:
+  ///  - [ProbeStatus.online]   on 2xx.
+  ///  - [ProbeStatus.degraded] on 5xx.
+  ///  - [ProbeStatus.offline]  on a network failure.
+  /// A degraded/offline result signals the caller to queue the write instead of
+  /// treating it as a hard failure.
+  Future<ProbeStatus> putProfile(Map<String, dynamic> params) async {
+    try {
+      await _dio.put<dynamic>(
+        '${Config.baseUrl}/tdee/profile',
+        queryParameters: params,
+      );
+      return ProbeStatus.online;
+    } on DioException catch (e) {
+      final statusCode = e.response?.statusCode;
+      if (statusCode != null && statusCode >= 500) {
+        return ProbeStatus.degraded;
+      }
+      return ProbeStatus.offline;
+    }
+  }
 }
