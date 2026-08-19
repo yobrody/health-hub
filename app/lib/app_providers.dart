@@ -6,6 +6,7 @@ import 'core/config.dart';
 import 'core/secrets.dart';
 import 'core/secure_store.dart';
 import 'meals/eat_in_service.dart';
+import 'nutrition/nutrition_repo.dart';
 import 'offline/outbox.dart';
 import 'offline/outbox_store.dart';
 import 'pantry/pantry_repo.dart';
@@ -77,6 +78,24 @@ final pantryRepoProvider = Provider<PantryRepo>((ref) {
   return PantryRepo(
     outbox: ref.watch(outboxProvider),
     store: ref.watch(pantryStoreProvider),
+  );
+});
+
+/// Local nutrition/food-log persistence (survives restart).
+final nutritionStoreProvider = Provider<NutritionStore>((ref) {
+  return const SharedPrefsNutritionStore();
+});
+
+/// The nutrition repository — the food-log data layer. Wired to the SAME shared
+/// [Outbox] every other repo uses (so its queued mutations are replayed by
+/// [syncServiceProvider] once a `/nutrition` backend exists) and the real local
+/// store. Deliberately pantry-agnostic: an eating-out entry records spend and
+/// never touches the pantry (deduction lives in [eatInServiceProvider]).
+/// Overridable in tests via `ProviderScope(overrides: [...])`.
+final nutritionRepoProvider = Provider<NutritionRepo>((ref) {
+  return NutritionRepo(
+    outbox: ref.watch(outboxProvider),
+    store: ref.watch(nutritionStoreProvider),
   );
 });
 
