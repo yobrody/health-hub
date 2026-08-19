@@ -7,6 +7,7 @@ import 'core/secrets.dart';
 import 'core/secure_store.dart';
 import 'offline/outbox.dart';
 import 'offline/outbox_store.dart';
+import 'pantry/pantry_repo.dart';
 import 'profile/profile_repo.dart';
 import 'sync/connectivity_monitor.dart';
 import 'sync/sync_service.dart';
@@ -59,6 +60,22 @@ final profileRepoProvider = Provider<ProfileRepo>((ref) {
     api: ref.watch(apiClientProvider),
     outbox: ref.watch(outboxProvider),
     store: ref.watch(profileStoreProvider),
+  );
+});
+
+/// Local pantry persistence (the inventory list, survives restart).
+final pantryStoreProvider = Provider<PantryStore>((ref) {
+  return const SharedPrefsPantryStore();
+});
+
+/// The pantry repository — the inventory keystone. Wired to the SAME shared
+/// [Outbox] every other repo uses (so its queued mutations are replayed by
+/// [syncServiceProvider] once a `/pantry` backend exists) and the real local
+/// store. Overridable in tests via `ProviderScope(overrides: [...])`.
+final pantryRepoProvider = Provider<PantryRepo>((ref) {
+  return PantryRepo(
+    outbox: ref.watch(outboxProvider),
+    store: ref.watch(pantryStoreProvider),
   );
 });
 
