@@ -45,7 +45,7 @@ The avatar + clothing reflect real body state, but **always framed supportively 
 ## 8. What this REQUIRES: Accounts + multi-user + own-domain backend (the prep)
 Selling on the App Store + adding users + cosmetic ownership all require a real backend the current single-user setup can't provide. **`pestdispatch.co.uk` is retired for this** (it was another project's domain).
 - **Own domain** — register a Health Hub domain; the backend + API live there.
-- **Per-user accounts + auth** — recommend **Sign in with Apple** (Apple mandates it when you offer third-party login; cleanest on iOS) + email.
+- **Per-user accounts + auth** — **Sign in with Apple, email, or phone (SMS OTP)** (Brody's choice, 2026-08-19). Apple is mandatory to *offer* if you also offer other third-party logins, and cleanest on iOS; phone auth needs an SMS provider (Supabase/Firebase phone auth via Twilio/MessageBird). All three are supported by the recommended Supabase backend.
 - **Multi-tenant backend + real DB** (userId-scoped; the JSON/single-user FastAPI won't scale). **DECISION:**
   - (A) **Managed BaaS — Supabase** (Postgres + auth + row-level-security + storage): fast path to multi-tenant, you keep SQL, RLS enforces per-user isolation. **Leaning rec.**
   - (B) Firebase (Firestore + Auth): fastest, but NoSQL + lock-in.

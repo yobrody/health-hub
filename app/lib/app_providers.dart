@@ -5,6 +5,7 @@ import 'api/client.dart';
 import 'core/config.dart';
 import 'core/secrets.dart';
 import 'core/secure_store.dart';
+import 'gym/workout_repo.dart';
 import 'meals/eat_in_service.dart';
 import 'nutrition/nutrition_repo.dart';
 import 'nutrition/off_client.dart';
@@ -97,6 +98,23 @@ final nutritionRepoProvider = Provider<NutritionRepo>((ref) {
   return NutritionRepo(
     outbox: ref.watch(outboxProvider),
     store: ref.watch(nutritionStoreProvider),
+  );
+});
+
+/// Local workout persistence — live gym sessions that must survive an app
+/// restart (an interrupted session is never lost). Overridable in tests.
+final workoutStoreProvider = Provider<WorkoutStore>((ref) {
+  return const SharedPrefsWorkoutStore();
+});
+
+/// The workout repository — the gym data layer. Wired to the SAME shared
+/// [Outbox] every other repo uses (so its queued mutations are replayed by
+/// [syncServiceProvider] once a `/workouts` backend exists) and the real local
+/// store. Overridable in tests via `ProviderScope(overrides: [...])`.
+final workoutRepoProvider = Provider<WorkoutRepo>((ref) {
+  return WorkoutRepo(
+    outbox: ref.watch(outboxProvider),
+    store: ref.watch(workoutStoreProvider),
   );
 });
 
