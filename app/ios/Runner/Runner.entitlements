@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!--
+	  HealthKit entitlement required by the `health` package to read from
+	  Apple Health. Enabling the "HealthKit" capability in Xcode normally
+	  writes this key; we add it here so it is version-controlled and present
+	  for the TestFlight build.
+
+	  NOTE for on-device verification (cannot be checked in `flutter test`):
+	   * In Xcode → Runner target → Signing & Capabilities, confirm the
+	     "HealthKit" capability is present (it should pick up this file).
+	   * `com.apple.developer.healthkit.access` is an array only for CLINICAL
+	     record types; steps + sleep are NOT clinical, so it stays empty/absent.
+	   * `com.apple.developer.healthkit.background-delivery` is NOT included:
+	     P0 does foreground reads only. Add it (and the background auth calls)
+	     if/when background sync lands.
+	   * The App ID / provisioning profile in the Apple Developer portal must
+	     also have the HealthKit capability enabled, or signing will fail.
+	-->
+	<key>com.apple.developer.healthkit</key>
+	<true/>
+</dict>
+</plist>

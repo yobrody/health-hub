@@ -4,6 +4,12 @@
 <dict>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
+	<!-- HealthKit (health package): read steps + sleep from Apple Health.
+	     NSHealthShareUsageDescription is REQUIRED for reads; its string is
+	     shown in the Health permission sheet. We do not write health data in
+	     P0, so NSHealthUpdateUsageDescription is intentionally omitted. -->
+	<key>NSHealthShareUsageDescription</key>
+	<string>Health Hub reads your steps and sleep from Apple Health to track your daily activity and recovery. Your health data stays on your device unless you choose to sync it.</string>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
