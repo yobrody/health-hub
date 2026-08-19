@@ -10,6 +10,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:health_hub/app.dart';
 import 'package:health_hub/app_providers.dart';
+import 'package:health_hub/gym/workout_repo.dart';
+import 'package:health_hub/gym/workout_session.dart';
 import 'package:health_hub/profile/profile_repo.dart';
 import 'package:health_hub/api/probe_status.dart';
 import 'package:health_hub/offline/outbox.dart';
@@ -46,12 +48,29 @@ ProfileRepo _repo([Map<String, dynamic>? stored]) => ProfileRepo(
       store: _FakeProfileStore(stored),
     );
 
+// In-memory workout store so GymPage's initState async never hits a platform
+// channel → pumpAndSettle does not time out.
+class _FakeWorkoutStore implements WorkoutStore {
+  List<WorkoutSession> _sessions = [];
+  @override
+  Future<List<WorkoutSession>> load() async => List.unmodifiable(_sessions);
+  @override
+  Future<void> save(List<WorkoutSession> sessions) async =>
+      _sessions = List.of(sessions);
+}
+
+WorkoutRepo _workoutRepo() => WorkoutRepo(
+      outbox: Outbox(_FakeOutboxStore()),
+      store: _FakeWorkoutStore(),
+    );
+
 void main() {
   testWidgets('no profile → onboarding is shown', (tester) async {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
           profileRepoProvider.overrideWithValue(_repo()),
+          workoutRepoProvider.overrideWithValue(_workoutRepo()),
         ],
         child: const HealthHubApp(),
       ),
@@ -66,6 +85,7 @@ void main() {
       ProviderScope(
         overrides: [
           profileRepoProvider.overrideWithValue(_repo({'weight_kg': 62.5})),
+          workoutRepoProvider.overrideWithValue(_workoutRepo()),
         ],
         child: const HealthHubApp(),
       ),
