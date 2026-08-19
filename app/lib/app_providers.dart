@@ -7,6 +7,7 @@ import 'core/secrets.dart';
 import 'core/secure_store.dart';
 import 'meals/eat_in_service.dart';
 import 'nutrition/nutrition_repo.dart';
+import 'nutrition/off_client.dart';
 import 'offline/outbox.dart';
 import 'offline/outbox_store.dart';
 import 'pantry/pantry_repo.dart';
@@ -97,6 +98,14 @@ final nutritionRepoProvider = Provider<NutritionRepo>((ref) {
     outbox: ref.watch(outboxProvider),
     store: ref.watch(nutritionStoreProvider),
   );
+});
+
+/// Open Food Facts barcode-lookup client. Uses its OWN [Dio] (NOT [dioProvider]/
+/// the authed [ApiClient]) because OFF is a separate public host — no
+/// `X-Health-Key`, no [Config.baseUrl] prefix. A dedicated instance keeps the
+/// OFF User-Agent + host isolated from the Health Hub backend client.
+final offClientProvider = Provider<OffClient>((ref) {
+  return OffClient(Dio());
 });
 
 /// The eating-in service — the WRITE half of the ingredient graph. Wired to the
