@@ -32,6 +32,15 @@ library;
 import 'exercise.dart';
 import 'workout_session.dart';
 
+// ── Default rep range ────────────────────────────────────────────────────────
+
+/// Default hypertrophy rep range used until the program layer sets per-exercise
+/// targets (P-later). A documented product default, not fabricated user data:
+/// the [Exercise] model carries no rep range yet, so the live UI passes these
+/// into [evaluateProgression] rather than inventing/storing a per-exercise one.
+const int kDefaultRepTargetLow = 8;
+const int kDefaultRepTargetHigh = 12;
+
 // ── Tunables (ported verbatim from PROGRESSION in src/program.ts) ────────────
 
 /// Top of range but 2+ left in the tank → same weight, "push harder".

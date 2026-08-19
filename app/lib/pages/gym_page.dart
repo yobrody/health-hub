@@ -1,22 +1,30 @@
-// Gym page — live workout tracking (P3-T3).
+// Gym page — live workout tracking (P3-T3 + P3-T4).
 //
-// Replaces the placeholder with a real session surface:
-//   • No active session → shows a "Start Workout" button.
-//   • Active session → shows an exercise picker (from kExerciseCatalog), a
-//     set-entry form (weight/reps), a "Log Set" button, and a "Finish" button.
+// T3 surface: start session, exercise picker (kExerciseCatalog), set-entry
+// form (weight/reps), Log Set, Finish, logged-set list.
+//
+// T4 additions (this file):
+//   • After logging a set the page enters a "rest" phase for that set:
+//     – a tailored countdown rest timer (restSecondsFor) with a Skip button;
+//     – three OPTIONAL effort emojis (easy / contempt / angry), each with a
+//       little tap animation, that record SetEffort onto the just-logged set;
+//     – a next-weight suggestion line from the progression engine;
+//     – confetti ONLY on a genuine earned `bump` verdict, at most once per
+//       exercise per session.
 //
 // Honesty rules (load-bearing — do NOT weaken):
 //   • An unset weight/reps renders as '—' (em dash), NEVER '0'.
-//   • A weight entered for a machine or free-weight exercise is snapped to the
-//     nearest real stack increment via [snapToStack] BEFORE being saved.
-//     Bodyweight/cardio pass through unchanged.
-//   • Weight field is hidden for bodyweight/cardio exercises (no external
-//     load → null in the stored set, not a fabricated 0).
-//
-// NOT built here (YAGNI — reserved for later tasks):
-//   • Progression verdict / confetti (T4).
-//   • Rest timer or effort emojis (T4).
-//   • Any gym-location personalization or program layer.
+//   • A machine/free-weight is snapped via [snapToStack] BEFORE being saved;
+//     bodyweight/cardio pass through as null (no fabricated 0).
+//   • Confetti fires IFF the engine returns [ProgressionVerdict.bump] — a
+//     topped-but-soft set the engine rules hold/deload/recalibrating gets NONE.
+//     (This is the exact old-app bug this task exists to prevent.)
+//   • The next-weight number is whatever the engine returns; recalibrating /
+//     null → the reason is shown WITHOUT a fabricated number.
+//   • A set stays effort == null until the user taps an emoji (the emoji is
+//     optional; skipping rest is allowed).
+
+import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -25,6 +33,7 @@ import '../app_providers.dart';
 import '../gym/exercise.dart';
 import '../gym/exercise_catalog.dart';
 import '../gym/progression.dart';
+import '../gym/rest_timer.dart';
 import '../gym/workout_repo.dart';
 import '../gym/workout_session.dart';
 import '../profile/profile_model.dart'; // showOrDash
@@ -49,6 +58,37 @@ class GymPageState extends ConsumerState<GymPage> {
   /// has been picked in this session.
   Exercise? _selectedExercise;
 
+  // ── Rest / effort / progression state (T4) ─────────────────────────────────
+
+  /// True while the just-logged set is in its rest phase (timer + effort +
+  /// suggestion shown instead of the entry form). Cleared by Skip / finish.
+  bool _resting = false;
+
+  /// The exercise the rest phase belongs to (the one whose set was just
+  /// logged) — progression is evaluated over ITS working sets.
+  Exercise? _restExercise;
+
+  /// The set index (within [_restExercise]'s log) that the effort emojis rate.
+  int _restSetIndex = -1;
+
+  /// Seconds left on the rest countdown.
+  int _restRemaining = 0;
+
+  /// The live rest countdown timer. Cancelled in [dispose] and on phase end.
+  Timer? _restTimer;
+
+  /// The latest progression evaluation for the resting exercise (drives the
+  /// suggestion line + whether confetti shows).
+  ProgressionResult? _suggestion;
+
+  /// Whether the confetti overlay is currently shown (a genuine bump was just
+  /// earned for an as-yet-uncelebrated exercise).
+  bool _showConfetti = false;
+
+  /// Exercise ids already celebrated THIS session — confetti fires at most once
+  /// per exercise per session. Reset on start/finish.
+  final Set<String> _celebrated = <String>{};
+
   // ── Controllers ────────────────────────────────────────────────────────────
 
   final _weightCtrl = TextEditingController();
@@ -70,6 +110,7 @@ class GymPageState extends ConsumerState<GymPage> {
 
   @override
   void dispose() {
+    _restTimer?.cancel();
     _weightCtrl.dispose();
     _repsCtrl.dispose();
     super.dispose();
@@ -95,19 +136,23 @@ class GymPageState extends ConsumerState<GymPage> {
     setState(() {
       _session = session;
       _selectedExercise = null;
+      _celebrated.clear();
       _loading = false;
     });
+    _endRestPhase();
   }
 
   Future<void> _finishSession() async {
     final sid = _session?.id;
     if (sid == null) return;
+    _endRestPhase();
     setState(() => _loading = true);
     await _repo.finishSession(sid);
     if (!mounted) return;
     setState(() {
       _session = null;
       _selectedExercise = null;
+      _celebrated.clear();
       _weightCtrl.clear();
       _repsCtrl.clear();
       _loading = false;
@@ -117,6 +162,7 @@ class GymPageState extends ConsumerState<GymPage> {
   // ── Exercise selection ─────────────────────────────────────────────────────
 
   void _selectExercise(Exercise ex) {
+    _endRestPhase();
     setState(() {
       _selectedExercise = ex;
       _weightCtrl.clear();
@@ -140,7 +186,8 @@ class GymPageState extends ConsumerState<GymPage> {
     // machine". Treat ≤0 as "no weight entered" → null (never a fabricated 0.0).
     final parsed = double.tryParse(_weightCtrl.text.trim());
     final rawWeight = (parsed != null && parsed > 0) ? parsed : null;
-    final double? snappedWeight = _snapWeightForEquipment(rawWeight, ex.equipment);
+    final double? snappedWeight =
+        _snapWeightForEquipment(rawWeight, ex.equipment);
 
     final entry = SetEntry(
       weightKg: snappedWeight,
@@ -154,10 +201,8 @@ class GymPageState extends ConsumerState<GymPage> {
     // first (violating "never lose a logged set").
     final persisted = await _repo.activeSession();
     if (!mounted) return;
-    final exLog = persisted?.exercises
-            .where((e) => e.exerciseId == ex.id)
-            .toList() ??
-        [];
+    final exLog =
+        persisted?.exercises.where((e) => e.exerciseId == ex.id).toList() ?? [];
     final nextIndex = exLog.isEmpty ? 0 : exLog.first.sets.length;
 
     await _repo.saveSet(sid, ex.id, nextIndex, entry);
@@ -168,9 +213,14 @@ class GymPageState extends ConsumerState<GymPage> {
     if (!mounted) return;
     setState(() {
       _session = updated;
-      _weightCtrl.clear();
-      _repsCtrl.clear();
     });
+
+    // Enter the rest phase for the just-logged set. Effort not yet rated → the
+    // timer starts from the no-effort base and the suggestion reflects a null
+    // effort until the user taps an emoji.
+    _enterRestPhase(ex, nextIndex);
+    _weightCtrl.clear();
+    _repsCtrl.clear();
   }
 
   /// Snap a raw weight to the equipment's real stack increment.
@@ -187,6 +237,117 @@ class GymPageState extends ConsumerState<GymPage> {
         if (rawWeight == null) return null;
         return snapToStack(rawWeight, equipment);
     }
+  }
+
+  // ── Rest phase (T4) ─────────────────────────────────────────────────────────
+
+  /// Enter the rest phase for [ex]'s set at [setIndex]. Starts the countdown at
+  /// the no-effort base rest and evaluates progression (which fires confetti if
+  /// the verdict is a genuine bump).
+  void _enterRestPhase(Exercise ex, int setIndex) {
+    _restTimer?.cancel();
+    final start = restSecondsFor(ex.equipment, null);
+    setState(() {
+      _resting = true;
+      _restExercise = ex;
+      _restSetIndex = setIndex;
+      _restRemaining = start;
+    });
+    _evaluateForExercise(ex);
+    _startRestTicker();
+  }
+
+  void _startRestTicker() {
+    _restTimer?.cancel();
+    _restTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+      if (_restRemaining <= 1) {
+        timer.cancel();
+        setState(() => _restRemaining = 0);
+      } else {
+        setState(() => _restRemaining -= 1);
+      }
+    });
+  }
+
+  /// End the rest phase, cancel the countdown, and clear the transient
+  /// suggestion/confetti. The logged set (and any rated effort) persists.
+  void _endRestPhase() {
+    _restTimer?.cancel();
+    _restTimer = null;
+    if (!_resting && !_showConfetti && _suggestion == null) return;
+    setState(() {
+      _resting = false;
+      _restExercise = null;
+      _restSetIndex = -1;
+      _restRemaining = 0;
+      _suggestion = null;
+      _showConfetti = false;
+    });
+  }
+
+  /// Record [effort] onto the just-logged set, then re-tailor the rest timer,
+  /// re-evaluate progression, and update the suggestion + confetti.
+  Future<void> _rateEffort(SetEffort effort) async {
+    final sid = _session?.id;
+    final ex = _restExercise;
+    final idx = _restSetIndex;
+    if (sid == null || ex == null || idx < 0) return;
+
+    // Read the just-logged set from the persisted session and re-save it at the
+    // SAME index with the chosen effort (copyWith preserves weight/reps/done).
+    final persisted = await _repo.activeSession();
+    if (!mounted) return;
+    final log = persisted?.exercises
+        .where((e) => e.exerciseId == ex.id)
+        .toList();
+    if (log == null || log.isEmpty || idx >= log.first.sets.length) return;
+    final lastSet = log.first.sets[idx];
+
+    await _repo.saveSet(sid, ex.id, idx, lastSet.copyWith(effort: effort));
+
+    final updated = await _repo.activeSession();
+    if (!mounted) return;
+    setState(() {
+      _session = updated;
+      // Re-tailor the countdown to the newly-rated effort.
+      _restRemaining = restSecondsFor(ex.equipment, effort);
+    });
+    _startRestTicker();
+    _evaluateForExercise(ex);
+  }
+
+  /// Evaluate progression over the working sets of [ex] in the current session
+  /// and update the suggestion. Fires confetti IFF the verdict is a genuine
+  /// [ProgressionVerdict.bump] AND [ex] hasn't been celebrated this session.
+  /// Returns the result (exposed for testability of the gating).
+  ProgressionResult _evaluateForExercise(Exercise ex) {
+    final log = _session?.exercises
+        .where((e) => e.exerciseId == ex.id)
+        .toList();
+    final sets = (log == null || log.isEmpty) ? <SetEntry>[] : log.first.sets;
+
+    final result = evaluateProgression(
+      sets: sets,
+      repTargetLow: kDefaultRepTargetLow,
+      repTargetHigh: kDefaultRepTargetHigh,
+      equipment: ex.equipment,
+    );
+
+    final earned = result.verdict == ProgressionVerdict.bump;
+    final celebrate = earned && !_celebrated.contains(ex.id);
+    if (celebrate) _celebrated.add(ex.id);
+
+    setState(() {
+      _suggestion = result;
+      // NEVER show confetti for hold/deload/recalibrating — only a real bump,
+      // and only the first time for this exercise this session.
+      _showConfetti = celebrate;
+    });
+    return result;
   }
 
   // ── Build ──────────────────────────────────────────────────────────────────
@@ -206,11 +367,16 @@ class GymPageState extends ConsumerState<GymPage> {
             ),
         ],
       ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : _session == null
-              ? _buildNoSession()
-              : _buildActiveSession(),
+      body: Stack(
+        children: [
+          _loading
+              ? const Center(child: CircularProgressIndicator())
+              : _session == null
+                  ? _buildNoSession()
+                  : _buildActiveSession(),
+          if (_showConfetti) _buildConfetti(),
+        ],
+      ),
     );
   }
 
@@ -245,7 +411,12 @@ class GymPageState extends ConsumerState<GymPage> {
         _buildExercisePicker(),
         const SizedBox(height: 16),
         if (_selectedExercise != null) ...[
-          _buildSetEntryForm(),
+          // During the rest phase we swap the entry form for the rest panel so
+          // the user rates the set they just did; otherwise show the form.
+          if (_resting)
+            _buildRestPanel()
+          else
+            _buildSetEntryForm(),
           const SizedBox(height: 16),
           _buildLoggedSets(),
         ],
@@ -321,8 +492,8 @@ class GymPageState extends ConsumerState<GymPage> {
                         ? 'Snaps to 5 kg'
                         : 'Snaps to plate',
                   ),
-                  keyboardType: const TextInputType.numberWithOptions(
-                      decimal: true),
+                  keyboardType:
+                      const TextInputType.numberWithOptions(decimal: true),
                 ),
               ),
               const SizedBox(width: 8),
@@ -364,6 +535,190 @@ class GymPageState extends ConsumerState<GymPage> {
     );
   }
 
+  // ── Rest panel (T4) ─────────────────────────────────────────────────────────
+
+  Widget _buildRestPanel() {
+    final ex = _restExercise;
+    final theme = Theme.of(context);
+    return Container(
+      key: const Key('gym-rest-panel'),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            ex == null ? 'Rest' : 'Rest — ${ex.name}',
+            style: theme.textTheme.titleMedium
+                ?.copyWith(fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 8),
+          // Countdown.
+          Row(
+            children: [
+              const Icon(Icons.timer_outlined, size: 20),
+              const SizedBox(width: 8),
+              Text(
+                key: const Key('gym-rest-timer'),
+                _formatRest(_restRemaining),
+                style: theme.textTheme.headlineSmall
+                    ?.copyWith(fontFeatures: const []),
+              ),
+              const Spacer(),
+              TextButton(
+                key: const Key('gym-rest-skip-btn'),
+                onPressed: _endRestPhase,
+                child: const Text('Skip'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          // Effort emojis.
+          Text(
+            'How did that set feel?',
+            style: theme.textTheme.bodySmall,
+          ),
+          const SizedBox(height: 6),
+          Row(
+            children: [
+              _EffortButton(
+                key: const Key('gym-effort-easy'),
+                emoji: '🙂',
+                label: 'Easy',
+                selected: _currentEffort() == SetEffort.easy,
+                onTap: () => _rateEffort(SetEffort.easy),
+              ),
+              const SizedBox(width: 12),
+              _EffortButton(
+                key: const Key('gym-effort-contempt'),
+                emoji: '😑',
+                label: 'Grind',
+                selected: _currentEffort() == SetEffort.contempt,
+                onTap: () => _rateEffort(SetEffort.contempt),
+              ),
+              const SizedBox(width: 12),
+              _EffortButton(
+                key: const Key('gym-effort-angry'),
+                emoji: '😠',
+                label: 'Failed',
+                selected: _currentEffort() == SetEffort.angry,
+                onTap: () => _rateEffort(SetEffort.angry),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          _buildSuggestion(),
+        ],
+      ),
+    );
+  }
+
+  /// The effort currently rated on the resting set (for highlighting the emoji).
+  SetEffort? _currentEffort() {
+    final ex = _restExercise;
+    final idx = _restSetIndex;
+    if (ex == null || idx < 0) return null;
+    final log = _session?.exercises
+        .where((e) => e.exerciseId == ex.id)
+        .toList();
+    if (log == null || log.isEmpty || idx >= log.first.sets.length) return null;
+    return log.first.sets[idx].effort;
+  }
+
+  Widget _buildSuggestion() {
+    final s = _suggestion;
+    if (s == null) return const SizedBox.shrink();
+
+    // Honesty: only append a number when the engine actually returned one.
+    // recalibrating / null → the reason alone, never a fabricated weight.
+    final reason = s.reason ?? '';
+    final next = s.nextWeightKg;
+    final text = (next != null)
+        ? '$reason · next: ${_num(next)} kg'
+        : reason;
+
+    return Row(
+      children: [
+        Icon(
+          _iconForVerdict(s.verdict),
+          size: 18,
+          color: Theme.of(context).colorScheme.primary,
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            key: const Key('gym-next-suggestion'),
+            text,
+            style: Theme.of(context).textTheme.bodyMedium,
+          ),
+        ),
+      ],
+    );
+  }
+
+  IconData _iconForVerdict(ProgressionVerdict v) {
+    switch (v) {
+      case ProgressionVerdict.bump:
+        return Icons.trending_up;
+      case ProgressionVerdict.hold:
+        return Icons.trending_flat;
+      case ProgressionVerdict.deload:
+        return Icons.trending_down;
+      case ProgressionVerdict.recalibrating:
+        return Icons.help_outline;
+    }
+  }
+
+  // ── Confetti overlay (T4) ────────────────────────────────────────────────────
+
+  /// A lightweight custom celebration overlay (no external package). Present in
+  /// the tree ONLY when a genuine bump was just earned — the [Key] is the
+  /// gating contract the tests assert against.
+  Widget _buildConfetti() {
+    return Positioned.fill(
+      child: IgnorePointer(
+        child: Center(
+          child: TweenAnimationBuilder<double>(
+            key: const Key('gym-confetti'),
+            tween: Tween(begin: 0.6, end: 1.0),
+            duration: const Duration(milliseconds: 400),
+            curve: Curves.elasticOut,
+            builder: (context, scale, child) => Transform.scale(
+              scale: scale,
+              child: child,
+            ),
+            child: Container(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.primaryContainer,
+                borderRadius: BorderRadius.circular(16),
+              ),
+              child: const Text(
+                '🎉  New weight earned!',
+                style: TextStyle(
+                    fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  String _formatRest(int seconds) {
+    final m = seconds ~/ 60;
+    final s = seconds % 60;
+    return '$m:${s.toString().padLeft(2, '0')}';
+  }
+
+  /// Format a weight without a trailing `.0`.
+  String _num(double n) =>
+      n == n.roundToDouble() ? n.round().toString() : '$n';
+
   // ── Logged sets for the selected exercise ──────────────────────────────────
 
   Widget _buildLoggedSets() {
@@ -373,9 +728,8 @@ class GymPageState extends ConsumerState<GymPage> {
     final session = _session;
     if (session == null) return const SizedBox.shrink();
 
-    final logEntry = session.exercises
-        .where((e) => e.exerciseId == ex.id)
-        .toList();
+    final logEntry =
+        session.exercises.where((e) => e.exerciseId == ex.id).toList();
     if (logEntry.isEmpty) return const SizedBox.shrink();
 
     final sets = logEntry.first.sets;
@@ -398,6 +752,55 @@ class GymPageState extends ConsumerState<GymPage> {
           return _SetRow(index: i, set: s);
         }),
       ],
+    );
+  }
+}
+
+// ── _EffortButton ─────────────────────────────────────────────────────────────
+
+/// One effort emoji with a little scale/fade animation when selected. Tapping
+/// records the effort onto the just-logged set (via the parent's onTap).
+class _EffortButton extends StatelessWidget {
+  const _EffortButton({
+    super.key,
+    required this.emoji,
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String emoji;
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedScale(
+        scale: selected ? 1.25 : 1.0,
+        duration: const Duration(milliseconds: 200),
+        curve: Curves.easeOut,
+        child: AnimatedOpacity(
+          opacity: selected ? 1.0 : 0.7,
+          duration: const Duration(milliseconds: 200),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(emoji, style: const TextStyle(fontSize: 28)),
+              const SizedBox(height: 2),
+              Text(
+                label,
+                style: theme.textTheme.labelSmall?.copyWith(
+                  fontWeight: selected ? FontWeight.bold : FontWeight.normal,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
@@ -430,6 +833,11 @@ class _SetRow extends StatelessWidget {
           ),
           const SizedBox(width: 12),
           Text('$weight  ×  $reps reps'),
+          if (set.effort != null)
+            Padding(
+              padding: const EdgeInsets.only(left: 8),
+              child: Text(_effortEmoji(set.effort!)),
+            ),
           if (set.done)
             Padding(
               padding: const EdgeInsets.only(left: 8),
@@ -442,5 +850,16 @@ class _SetRow extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  String _effortEmoji(SetEffort e) {
+    switch (e) {
+      case SetEffort.easy:
+        return '🙂';
+      case SetEffort.contempt:
+        return '😑';
+      case SetEffort.angry:
+        return '😠';
+    }
   }
 }
