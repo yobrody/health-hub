@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:dio/dio.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:health_hub/api/client.dart';
@@ -37,8 +39,8 @@ class FakeSecureStore implements SecureStore {
 // ---------------------------------------------------------------------------
 
 /// Build a minimal [Response] for mocktail stubs.
-Response<Map<String, dynamic>> _jsonResponse(
-  Map<String, dynamic> data, {
+Response<dynamic> _jsonResponse(
+  dynamic data, {
   int statusCode = 200,
 }) {
   return Response(
@@ -101,6 +103,25 @@ void main() {
       expect(today.proteinG, 142.5);
       expect(today.weightKg, 62.0);
     });
+
+    test('coerces a whole-number double total_kcal to int (does not throw)', () {
+      // JSON has no int/double distinction; the Python backend can emit a
+      // whole number as a double. This MUST NOT throw a TypeError.
+      final today = Today.fromJson(const {'total_kcal': 1800.0});
+      expect(today.totalKcal, 1800);
+      expect(today.totalKcal, isA<int>());
+    });
+
+    test('parses a real jsonDecode\'d body with a double total_kcal', () {
+      // Exercise the actual decode path a real HTTP response goes through.
+      final decoded = jsonDecode('{"total_kcal": 1800.0, "protein_g": 142.5}')
+          as Map<String, dynamic>;
+      final today = Today.fromJson(decoded);
+      expect(today.totalKcal, 1800);
+      expect(today.totalKcal, isA<int>());
+      expect(today.proteinG, 142.5);
+      expect(today.weightKg, isNull);
+    });
   });
 
   // ── Test 2: On 5xx DioException → degraded, data == null ─────────────────
@@ -125,7 +146,7 @@ void main() {
     });
 
     test('returns degraded + null data on 5xx response', () async {
-      when(() => mockDio.get<Map<String, dynamic>>(any()))
+      when(() => mockDio.get<dynamic>(any()))
           .thenThrow(_dioError(500, DioExceptionType.badResponse));
 
       final result = await client.getToday();
@@ -135,7 +156,7 @@ void main() {
     });
 
     test('returns degraded + null data on 503 response', () async {
-      when(() => mockDio.get<Map<String, dynamic>>(any()))
+      when(() => mockDio.get<dynamic>(any()))
           .thenThrow(_dioError(503, DioExceptionType.badResponse));
 
       final result = await client.getToday();
@@ -145,7 +166,7 @@ void main() {
     });
 
     test('returns offline + null data on connection error', () async {
-      when(() => mockDio.get<Map<String, dynamic>>(any()))
+      when(() => mockDio.get<dynamic>(any()))
           .thenThrow(_dioError(null, DioExceptionType.connectionError));
 
       final result = await client.getToday();
@@ -155,7 +176,7 @@ void main() {
     });
 
     test('returns online + Today data on success', () async {
-      when(() => mockDio.get<Map<String, dynamic>>(any())).thenAnswer(
+      when(() => mockDio.get<dynamic>(any())).thenAnswer(
         (_) async => _jsonResponse({
           'total_kcal': 1800,
           'protein_g': 142.5,
@@ -168,6 +189,52 @@ void main() {
       expect(result.status, ProbeStatus.online);
       expect(result.data, isNotNull);
       expect(result.data!.totalKcal, 1800);
+    });
+
+    test('returns online + all-null Today on a null 200 body', () async {
+      when(() => mockDio.get<dynamic>(any()))
+          .thenAnswer((_) async => _jsonResponse(null));
+
+      final result = await client.getToday();
+
+      // A null body is honest emptiness, not a failure and not zeros.
+      expect(result.status, ProbeStatus.online);
+      expect(result.data, isNotNull);
+      expect(result.data!.totalKcal, isNull);
+      expect(result.data!.proteinG, isNull);
+      expect(result.data!.weightKg, isNull);
+    });
+
+    test('returns degraded on a non-JSON-object body (HTML string)', () async {
+      when(() => mockDio.get<dynamic>(any()))
+          .thenAnswer((_) async => _jsonResponse('<html>oops</html>'));
+
+      final result = await client.getToday();
+
+      expect(result.status, ProbeStatus.degraded);
+      expect(result.data, isNull);
+    });
+
+    test('returns degraded on a JSON array body', () async {
+      when(() => mockDio.get<dynamic>(any()))
+          .thenAnswer((_) async => _jsonResponse(<dynamic>[1, 2, 3]));
+
+      final result = await client.getToday();
+
+      expect(result.status, ProbeStatus.degraded);
+      expect(result.data, isNull);
+    });
+
+    test('parses a double total_kcal from a live-style 200 body', () async {
+      when(() => mockDio.get<dynamic>(any())).thenAnswer(
+        (_) async => _jsonResponse({'total_kcal': 1800.0, 'protein_g': 142.5}),
+      );
+
+      final result = await client.getToday();
+
+      expect(result.status, ProbeStatus.online);
+      expect(result.data!.totalKcal, 1800);
+      expect(result.data!.totalKcal, isA<int>());
     });
 
     // ── Test 3: X-Health-Key header is attached when key is stored ────────

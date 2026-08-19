@@ -36,9 +36,15 @@ class Today {
   ///
   /// Absent keys and explicit `null` values both produce Dart `null`.
   /// Numeric values are read as-is; no defaulting to 0.
+  ///
+  /// `total_kcal` is read as `num?` before `.toInt()` because JSON has no
+  /// int/double distinction and the Python backend can emit a whole number
+  /// as a double (e.g. `1800.0`). A hard `as int?` would throw on that,
+  /// escaping the caller's error handling on an otherwise-successful 200.
+  /// `?.toInt()` preserves `null` as `null` (no coalesce-to-0).
   factory Today.fromJson(Map<String, dynamic> json) {
     return Today(
-      totalKcal: json['total_kcal'] as int?,
+      totalKcal: (json['total_kcal'] as num?)?.toInt(),
       proteinG: json['protein_g'] as num?,
       weightKg: json['weight_kg'] as num?,
     );

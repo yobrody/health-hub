@@ -40,12 +40,11 @@ class ApiClient {
   ///  - `ApiResult(status: degraded, data: null)`        on 5xx.
   ///  - `ApiResult(status: offline,  data: null)`        on network failure.
   Future<ApiResult<Today>> getToday() async {
+    Response<dynamic> response;
     try {
-      final response =
-          await _dio.get<Map<String, dynamic>>('${Config.baseUrl}/today');
-      final data = response.data;
-      final today = Today.fromJson(data ?? const {});
-      return ApiResult(status: ProbeStatus.online, data: today);
+      // Fetch as dynamic (not a hard Map cast, which would itself throw a
+      // TypeError on an HTML/array body) so we can validate the shape below.
+      response = await _dio.get<dynamic>('${Config.baseUrl}/today');
     } on DioException catch (e) {
       final statusCode = e.response?.statusCode;
       if (statusCode != null && statusCode >= 500) {
@@ -54,6 +53,25 @@ class ApiClient {
       // Connection errors (no response): connectionError, sendTimeout,
       // receiveTimeout, connectionTimeout, cancel, unknown.
       return const ApiResult(status: ProbeStatus.offline, data: null);
+    }
+
+    // The transport succeeded (2xx). Any failure parsing the body is a
+    // server contract problem, not a success — map it to degraded, never
+    // crash the caller and never fabricate an online result.
+    try {
+      final data = response.data;
+      if (data == null) {
+        // A null 200 body is treated as an all-null (honest) Today, not 0s.
+        return const ApiResult(status: ProbeStatus.online, data: Today());
+      }
+      if (data is! Map<String, dynamic>) {
+        // Non-JSON-object body (HTML error page, array, string): degraded.
+        return const ApiResult(status: ProbeStatus.degraded, data: null);
+      }
+      final today = Today.fromJson(data);
+      return ApiResult(status: ProbeStatus.online, data: today);
+    } catch (_) {
+      return const ApiResult(status: ProbeStatus.degraded, data: null);
     }
   }
 }
