@@ -135,3 +135,10 @@ String showOrDash(Object? v) {
   if (v is String && v.trim().isEmpty) return '—';
   return v.toString();
 }
+
+/// Format a kilogram value for display, stripping a trailing `.0` so a whole
+/// number reads as `60` not `60.0`. The single shared formatter used wherever a
+/// weight is rendered (set rows, progression reasons, the next-weight
+/// suggestion) — do not re-inline the `% 1 == 0` dance.
+String formatKg(double kg) =>
+    kg == kg.roundToDouble() ? kg.round().toString() : kg.toString();

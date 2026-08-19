@@ -29,6 +29,7 @@
 ///    an effective RIR (see [_rirFromEffort]) fed into the same legacy rules.
 library;
 
+import '../profile/profile_model.dart'; // formatKg
 import 'exercise.dart';
 import 'workout_session.dart';
 
@@ -266,7 +267,7 @@ ProgressionResult evaluateProgression({
         return ProgressionResult(
           verdict: ProgressionVerdict.bump,
           nextWeightKg: target,
-          reason: '$achieved reps at ${_num(baseline)}kg earns the jump.',
+          reason: '$achieved reps at ${formatKg(baseline)}kg earns the jump.',
         );
       }
       // Otherwise the notch is unaffordable — hold and build reps first.
@@ -309,6 +310,3 @@ bool _allAtTop(List<SetEntry> sets, int high) =>
     sets.isNotEmpty && sets.every((s) => (s.reps ?? 0) >= high);
 
 double _round2(double n) => (n * 100).round() / 100;
-
-/// Format a weight for a reason string without a trailing `.0`.
-String _num(double n) => n == n.roundToDouble() ? n.round().toString() : '$n';

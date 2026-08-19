@@ -435,6 +435,33 @@ void main() {
       await tester.pumpAndSettle();
     });
 
+    testWidgets(
+        'topped range + contempt effort → hold, NO confetti (symmetry with angry)',
+        (tester) async {
+      final store = _FakeWorkoutStore();
+      final repo = _makeRepo(store);
+
+      await logOneSet(tester, repo, 'leg-press', '100', '12');
+
+      // Tap "contempt" (a grind — maximal for these reps, no honest headroom)
+      // → engine rules a topped-but-soft set as a HOLD, not a bump.
+      await tester.tap(find.byKey(const Key('gym-effort-contempt')));
+      await tester.pump();
+      await tester.pump();
+
+      // Suggestion is present (a hold reason)...
+      expect(find.byKey(const Key('gym-next-suggestion')), findsOneWidget);
+      // ...but confetti is ABSENT — a topped-but-soft set NEVER celebrates.
+      expect(find.byKey(const Key('gym-confetti')), findsNothing);
+
+      // Effort persisted.
+      final all = await repo.all();
+      expect(all.first.exercises.first.sets.first.effort, SetEffort.contempt);
+
+      await tester.tap(find.byKey(const Key('gym-rest-skip-btn')));
+      await tester.pumpAndSettle();
+    });
+
     testWidgets('tapping an emoji records effort onto the correct set',
         (tester) async {
       final store = _FakeWorkoutStore();

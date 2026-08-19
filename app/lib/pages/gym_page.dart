@@ -86,7 +86,8 @@ class GymPageState extends ConsumerState<GymPage> {
   bool _showConfetti = false;
 
   /// Exercise ids already celebrated THIS session — confetti fires at most once
-  /// per exercise per session. Reset on start/finish.
+  /// per exercise per session. Reset on start/finish only — deliberately NOT on
+  /// exercise switch, since the per-session dedup spans all exercises.
   final Set<String> _celebrated = <String>{};
 
   // ── Controllers ────────────────────────────────────────────────────────────
@@ -214,13 +215,14 @@ class GymPageState extends ConsumerState<GymPage> {
     setState(() {
       _session = updated;
     });
+    _weightCtrl.clear();
+    _repsCtrl.clear();
 
     // Enter the rest phase for the just-logged set. Effort not yet rated → the
     // timer starts from the no-effort base and the suggestion reflects a null
-    // effort until the user taps an emoji.
-    _enterRestPhase(ex, nextIndex);
-    _weightCtrl.clear();
-    _repsCtrl.clear();
+    // effort until the user taps an emoji. Pass the freshly-reloaded session so
+    // progression evaluates the just-persisted set, never a stale field.
+    if (updated != null) _enterRestPhase(ex, nextIndex, updated);
   }
 
   /// Snap a raw weight to the equipment's real stack increment.
@@ -243,8 +245,10 @@ class GymPageState extends ConsumerState<GymPage> {
 
   /// Enter the rest phase for [ex]'s set at [setIndex]. Starts the countdown at
   /// the no-effort base rest and evaluates progression (which fires confetti if
-  /// the verdict is a genuine bump).
-  void _enterRestPhase(Exercise ex, int setIndex) {
+  /// the verdict is a genuine bump). [session] is the freshly-reloaded session
+  /// the just-logged set lives in — passed explicitly so the honesty-critical
+  /// evaluation never reads a possibly-stale field.
+  void _enterRestPhase(Exercise ex, int setIndex, WorkoutSession session) {
     _restTimer?.cancel();
     final start = restSecondsFor(ex.equipment, null);
     setState(() {
@@ -253,7 +257,7 @@ class GymPageState extends ConsumerState<GymPage> {
       _restSetIndex = setIndex;
       _restRemaining = start;
     });
-    _evaluateForExercise(ex);
+    _evaluateForExercise(ex, session);
     _startRestTicker();
   }
 
@@ -313,22 +317,30 @@ class GymPageState extends ConsumerState<GymPage> {
     if (!mounted) return;
     setState(() {
       _session = updated;
-      // Re-tailor the countdown to the newly-rated effort.
+      // Re-tailor the countdown to the newly-rated effort. Intentionally resets
+      // to the FULL re-tailored duration (not the remaining time): the rating
+      // changes the honest rest recommendation, so we honour the new number.
       _restRemaining = restSecondsFor(ex.equipment, effort);
     });
     _startRestTicker();
-    _evaluateForExercise(ex);
+    // Pass the freshly-reloaded session so the (honesty-critical) evaluation
+    // sees the effort just recorded — never a stale field.
+    if (updated != null) _evaluateForExercise(ex, updated);
   }
 
-  /// Evaluate progression over the working sets of [ex] in the current session
-  /// and update the suggestion. Fires confetti IFF the verdict is a genuine
+  /// Evaluate progression over the working sets of [ex] in [session] and update
+  /// the suggestion. Fires confetti IFF the verdict is a genuine
   /// [ProgressionVerdict.bump] AND [ex] hasn't been celebrated this session.
   /// Returns the result (exposed for testability of the gating).
-  ProgressionResult _evaluateForExercise(Exercise ex) {
-    final log = _session?.exercises
-        .where((e) => e.exerciseId == ex.id)
-        .toList();
-    final sets = (log == null || log.isEmpty) ? <SetEntry>[] : log.first.sets;
+  ///
+  /// Takes [session] explicitly rather than reading the [_session] field: this
+  /// is the honesty-critical path, so the caller passes the FRESHLY-reloaded
+  /// session (post-save, post-effort) — never a possibly-stale field — so a
+  /// future reorder can't evaluate pre-effort sets and mis-fire a bump.
+  ProgressionResult _evaluateForExercise(Exercise ex, WorkoutSession session) {
+    final log =
+        session.exercises.where((e) => e.exerciseId == ex.id).toList();
+    final sets = log.isEmpty ? <SetEntry>[] : log.first.sets;
 
     final result = evaluateProgression(
       sets: sets,
@@ -634,11 +646,13 @@ class GymPageState extends ConsumerState<GymPage> {
 
     // Honesty: only append a number when the engine actually returned one.
     // recalibrating / null → the reason alone, never a fabricated weight.
-    final reason = s.reason ?? '';
-    final next = s.nextWeightKg;
-    final text = (next != null)
-        ? '$reason · next: ${_num(next)} kg'
-        : reason;
+    // Join present parts with " · " so there's never a leading/trailing
+    // separator when one part is absent.
+    final parts = <String>[
+      if (s.reason != null && s.reason!.trim().isNotEmpty) s.reason!.trim(),
+      if (s.nextWeightKg != null) 'next: ${formatKg(s.nextWeightKg!)} kg',
+    ];
+    final text = parts.join(' · ');
 
     return Row(
       children: [
@@ -714,10 +728,6 @@ class GymPageState extends ConsumerState<GymPage> {
     final s = seconds % 60;
     return '$m:${s.toString().padLeft(2, '0')}';
   }
-
-  /// Format a weight without a trailing `.0`.
-  String _num(double n) =>
-      n == n.roundToDouble() ? n.round().toString() : '$n';
 
   // ── Logged sets for the selected exercise ──────────────────────────────────
 
@@ -818,9 +828,8 @@ class _SetRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     // showOrDash handles null → '—'; a real 0 would show '0' (honest).
-    final weight = showOrDash(set.weightKg != null
-        ? '${set.weightKg! % 1 == 0 ? set.weightKg!.toInt() : set.weightKg} kg'
-        : null);
+    final weight = showOrDash(
+        set.weightKg != null ? '${formatKg(set.weightKg!)} kg' : null);
     final reps = showOrDash(set.reps);
 
     return Padding(
