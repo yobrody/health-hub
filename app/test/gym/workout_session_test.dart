@@ -31,14 +31,23 @@ void main() {
       expect(back.equipment, EquipmentType.cardio);
     });
 
-    test('unknown equipment string falls back to a safe default', () {
+    test('unknown equipment string falls back to bodyweight (honest worst case)',
+        () {
       final back = Exercise.fromJson({
         'id': 'ex3',
         'name': 'Mystery',
         'equipment': 'not-a-real-type',
       });
-      // Should not throw; a visible default rather than a crash.
-      expect(back.equipment, isA<EquipmentType>());
+      // Should not throw. The fallback must be bodyweight — the honest worst
+      // case (no external load, weight stored null) rather than 'machine',
+      // which would fabricate a weight field + snap a phantom weight onto what
+      // may be a bodyweight movement.
+      expect(back.equipment, EquipmentType.bodyweight);
+    });
+
+    test('absent equipment key also falls back to bodyweight', () {
+      final back = Exercise.fromJson({'id': 'ex4', 'name': 'NoEquip'});
+      expect(back.equipment, EquipmentType.bodyweight);
     });
   });
 

@@ -13,14 +13,17 @@ library;
 enum EquipmentType { machine, freeWeight, bodyweight, cardio }
 
 /// Parse a stored equipment string back to the enum. Unknown/absent →
-/// [EquipmentType.machine] (a safe, visible default rather than a crash — the
+/// [EquipmentType.bodyweight] (the honest worst case rather than a crash — the
 /// equipment is always required on write, so this only guards corrupted/foreign
-/// JSON). Mirrors [_zoneFromString] in [PantryItem].
+/// JSON). Bodyweight is chosen over machine because it stores no external load:
+/// the UI hides the weight field and no phantom weight is snapped onto what may
+/// genuinely be a bodyweight movement — a missing hint, never a fabricated
+/// weight. Mirrors [_zoneFromString] in [PantryItem].
 EquipmentType _equipmentFromString(String? raw) {
   for (final e in EquipmentType.values) {
     if (e.name == raw) return e;
   }
-  return EquipmentType.machine;
+  return EquipmentType.bodyweight;
 }
 
 class Exercise {

@@ -207,6 +207,40 @@ void main() {
       expect(sets.first.weightKg, 60.0);
     });
 
+    // ── 0 kg (or negative) on a machine/free-weight is NOT a real notch ────
+
+    testWidgets('machine weight of 0 persists as null, never a fabricated 0.0',
+        (tester) async {
+      final store = _FakeWorkoutStore();
+      final repo = _makeRepo(store);
+      await tester.pumpWidget(_buildPage(repo));
+      await tester.pump();
+
+      await tester.tap(find.byKey(const Key('gym-start-btn')));
+      await tester.pumpAndSettle();
+
+      // Machine (leg-press): no stack has a 0 kg notch. A ≤0 entry means "no
+      // weight entered", not "0 kg on a machine" — must store null.
+      const machineId = 'leg-press';
+      await tester.tap(find.byKey(const Key('gym-exercise-$machineId')));
+      await tester.pumpAndSettle();
+
+      await tester.enterText(
+          find.byKey(const Key('gym-weight-field')), '0');
+      await tester.enterText(
+          find.byKey(const Key('gym-reps-field')), '10');
+
+      await tester.tap(find.byKey(const Key('gym-log-set-btn')));
+      await tester.pumpAndSettle();
+
+      final all = await repo.all();
+      final sets = all.first.exercises.first.sets;
+      expect(sets, hasLength(1));
+      expect(sets.first.reps, 10);
+      // The load-bearing assertion: 0.0 is NOT persisted; null is.
+      expect(sets.first.weightKg, isNull);
+    });
+
     // ── Bodyweight passes through unsnapped ────────────────────────────────
 
     testWidgets('bodyweight exercise logs without snapping weight field',

@@ -135,7 +135,11 @@ class GymPageState extends ConsumerState<GymPage> {
     if (reps == null) return;
 
     // Weight: parse if entered; bodyweight/cardio have no external load (null).
-    final rawWeight = double.tryParse(_weightCtrl.text.trim());
+    // A parsed value of ≤0 is NOT a real weight — no stack has a 0 kg notch and
+    // a genuine no-external-load lift is a bodyweight movement, not "0 kg on a
+    // machine". Treat ≤0 as "no weight entered" → null (never a fabricated 0.0).
+    final parsed = double.tryParse(_weightCtrl.text.trim());
+    final rawWeight = (parsed != null && parsed > 0) ? parsed : null;
     final double? snappedWeight = _snapWeightForEquipment(rawWeight, ex.equipment);
 
     final entry = SetEntry(
