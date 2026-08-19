@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../api/probe_status.dart';
-import '../offline/outbox.dart';
-import '../offline/outbox_store.dart';
+import '../app_providers.dart';
 import '../onboarding/onboarding_flow.dart';
 import '../profile/profile_model.dart';
 import '../profile/profile_repo.dart';
@@ -15,25 +14,20 @@ import '../profile/profile_repo.dart';
 /// up" affordance that opens onboarding. Later phases fill in the real
 /// day-summary content; the pattern established here is what they must follow.
 ///
-/// [repo] is optional so the nav shell can construct the page with a default
-/// (SharedPreferences-backed) repo; tests inject a fake.
-class TodayPage extends StatefulWidget {
+/// The [ProfileRepo] comes from [profileRepoProvider] (the composition root),
+/// which is wired to the REAL [ApiClient] + shared [Outbox]. [repo] is an
+/// optional override so tests can inject a fake without a ProviderScope.
+class TodayPage extends ConsumerStatefulWidget {
   const TodayPage({super.key, this.repo});
 
   final ProfileRepo? repo;
 
   @override
-  State<TodayPage> createState() => _TodayPageState();
+  ConsumerState<TodayPage> createState() => _TodayPageState();
 }
 
-class _TodayPageState extends State<TodayPage> {
-  late final ProfileRepo _repo =
-      widget.repo ??
-      ProfileRepo(
-        api: _todayPageApiUnavailable,
-        outbox: _todayPageOutboxUnavailable(),
-        store: const SharedPrefsProfileStore(),
-      );
+class _TodayPageState extends ConsumerState<TodayPage> {
+  late final ProfileRepo _repo = widget.repo ?? ref.read(profileRepoProvider);
 
   Profile _profile = const Profile();
   bool _loading = true;
@@ -169,22 +163,4 @@ class _StatRow extends StatelessWidget {
       ),
     );
   }
-}
-
-// The nav-shell default repo needs an ApiClient + Outbox. Constructing a live
-// ApiClient here would pull in Dio/secrets wiring that belongs in a later
-// composition-root phase; for now the default repo is local-only (offline
-// queue + local persistence). These tiny helpers provide that without
-// fabricating any data.
-final ProfileApi _todayPageApiUnavailable = _OfflineProfileApi();
-Outbox _todayPageOutboxUnavailable() => Outbox(const SharedPrefsOutboxStore());
-
-/// A [ProfileApi] that always reports offline, so a default-constructed
-/// [TodayPage] saves route through the Outbox (queued) rather than hitting a
-/// half-wired network layer. Replaced by the real [ApiClient] in the
-/// composition root in a later phase.
-class _OfflineProfileApi implements ProfileApi {
-  @override
-  Future<ProbeStatus> putProfile(Map<String, dynamic> params) async =>
-      ProbeStatus.offline;
 }

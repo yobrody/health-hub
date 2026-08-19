@@ -51,6 +51,15 @@ class ProfileRepo {
   final Outbox _outbox;
   final ProfileStore _store;
 
+  /// The backend API this repo writes through. Exposed so the composition root
+  /// can assert the repo is wired to the REAL [ApiClient] (not an offline stub).
+  ProfileApi get api => _api;
+
+  /// The shared offline queue this repo enqueues into. Exposed so the
+  /// composition root can confirm it is the SAME [Outbox] the SyncService
+  /// flushes — otherwise a queued write would never be replayed.
+  Outbox get outbox => _outbox;
+
   /// The backend route the profile PUT targets.
   static const String _profilePath = '/tdee/profile';
 

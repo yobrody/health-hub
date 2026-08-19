@@ -8,6 +8,7 @@
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:health_hub/profile/profile_model.dart';
+import 'package:health_hub/profile/profile_repo.dart';
 
 void main() {
   group('showOrDash', () {
@@ -169,6 +170,39 @@ void main() {
       expect(p2.heightCm, isNull);
       expect(p2.targetWeightKg, isNull);
       expect(p2.primaryGym, isNull);
+    });
+  });
+
+  group('goal-direction mapping is round-trippable across the backend contract', () {
+    // The model vocabulary is gain|cut|maintain. The backend vocabulary is
+    // gain|lose|maintain. paramsFor maps cut→lose on WRITE; fromJson must map
+    // the reverse (lose→cut) on READ so a future GET /tdee/profile is consistent.
+    test("backend 'lose' reads back as model 'cut'", () {
+      final p = Profile.fromJson(const {'goal_direction': 'lose'});
+      expect(p.goalDirection, 'cut');
+    });
+
+    test("'gain' and 'maintain' are unchanged on read", () {
+      expect(Profile.fromJson(const {'goal_direction': 'gain'}).goalDirection,
+          'gain');
+      expect(
+          Profile.fromJson(const {'goal_direction': 'maintain'}).goalDirection,
+          'maintain');
+    });
+
+    test("'cut' from local storage stays 'cut' (idempotent read)", () {
+      // toJson writes the model vocabulary verbatim, so a locally-persisted
+      // profile round-trips without corruption.
+      expect(Profile.fromJson(const {'goal_direction': 'cut'}).goalDirection,
+          'cut');
+    });
+
+    test('cut write→read round-trip: cut →(paramsFor) lose →(fromJson) cut', () {
+      const p = Profile(goalDirection: 'cut');
+      final params = ProfileRepo.paramsFor(p);
+      expect(params['goal_direction'], 'lose'); // write mapping
+      final back = Profile.fromJson({'goal_direction': params['goal_direction']});
+      expect(back.goalDirection, 'cut'); // read mapping restores it
     });
   });
 

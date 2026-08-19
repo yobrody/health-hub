@@ -2,6 +2,9 @@ import 'package:dio/dio.dart';
 
 import '../core/config.dart';
 import '../core/secrets.dart';
+import '../offline/pending_mutation.dart';
+import '../profile/profile_repo.dart' show ProfileApi;
+import '../sync/sync_service.dart' show MutationSender;
 import 'models.dart';
 import 'probe_status.dart';
 
@@ -15,7 +18,11 @@ import 'probe_status.dart';
 ///    * Success → [ProbeStatus.online] + parsed response body.
 ///
 /// Takes a [Dio] and a [Secrets] so that tests can inject fakes.
-class ApiClient {
+///
+/// Implements [ProfileApi] (its `putProfile`) and [MutationSender] (its
+/// `sendMutation`) so the composition root can hand the SAME real client to
+/// both the [ProfileRepo] and the [SyncService] without an adapter.
+class ApiClient implements ProfileApi, MutationSender {
   ApiClient(this._dio, this._secrets) {
     _dio.interceptors.add(
       InterceptorsWrapper(
@@ -95,11 +102,46 @@ class ApiClient {
   ///  - [ProbeStatus.offline]  on a network failure.
   /// A degraded/offline result signals the caller to queue the write instead of
   /// treating it as a hard failure.
+  @override
   Future<ProbeStatus> putProfile(Map<String, dynamic> params) async {
     try {
       await _dio.put<dynamic>(
         '${Config.baseUrl}/tdee/profile',
         queryParameters: params,
+      );
+      return ProbeStatus.online;
+    } on DioException catch (e) {
+      final statusCode = e.response?.statusCode;
+      if (statusCode != null && statusCode >= 500) {
+        return ProbeStatus.degraded;
+      }
+      return ProbeStatus.offline;
+    }
+  }
+
+  /// Replay a queued [PendingMutation] against the backend.
+  ///
+  /// This is the outbox-flush path: it issues the mutation's own [method] to its
+  /// [path] with its [body], and maps the result with the SAME honesty contract
+  /// as [getToday]/[putProfile]:
+  ///  - 2xx           → [ProbeStatus.online]   (the flush caller removes it).
+  ///  - 5xx           → [ProbeStatus.degraded] (kept queued — server unhealthy).
+  ///  - anything else (network error, or a 4xx) → [ProbeStatus.offline]
+  ///    (kept queued). A 4xx is a server-side rejection, but the finer-grained
+  ///    reject/max-tries handling is P3 Task 11; here a non-2xx simply means
+  ///    "not accepted yet", so the mutation stays safely queued rather than
+  ///    being silently dropped.
+  ///
+  /// The `X-Health-Key` interceptor still runs, so a replayed request is
+  /// authenticated exactly like a live one. [path] is used verbatim relative to
+  /// [Config.baseUrl] — [PendingMutation.path] already stores the backend path.
+  @override
+  Future<ProbeStatus> sendMutation(PendingMutation m) async {
+    try {
+      await _dio.request<dynamic>(
+        '${Config.baseUrl}${m.path}',
+        data: m.body,
+        options: Options(method: m.method.toUpperCase()),
       );
       return ProbeStatus.online;
     } on DioException catch (e) {

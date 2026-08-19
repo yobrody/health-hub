@@ -67,10 +67,23 @@ class Profile {
       ageYears: (json['age_years'] as num?)?.toInt(),
       sex: json['sex'] as String?,
       weightKg: (json['weight_kg'] as num?)?.toDouble(),
-      goalDirection: json['goal_direction'] as String?,
+      goalDirection: _readGoalDirection(json['goal_direction'] as String?),
       targetWeightKg: (json['target_weight_kg'] as num?)?.toDouble(),
       primaryGym: json['primary_gym'] as String?,
     );
+  }
+
+  /// Map a goal direction FROM the backend/stored vocabulary to the model's.
+  ///
+  /// The model uses `gain|cut|maintain`; the backend uses `gain|lose|maintain`
+  /// (see [ProfileRepo.paramsFor], which maps `cut`→`lose` on WRITE). This is
+  /// the reverse map on READ, so a future `GET /tdee/profile` — or any JSON
+  /// that carries the backend's `lose` — round-trips back to the model's `cut`.
+  /// Locally-persisted profiles already store `cut` verbatim (`toJson` writes
+  /// the model vocabulary), so this map is a harmless no-op for them.
+  static String? _readGoalDirection(String? raw) {
+    if (raw == 'lose') return 'cut';
+    return raw;
   }
 
   /// Serialise to JSON, **omitting** every null field.

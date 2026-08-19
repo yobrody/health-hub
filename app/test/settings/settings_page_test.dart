@@ -6,8 +6,11 @@
 //   • The page key survives rendering inside a full MaterialApp.
 
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:health_hub/api/probe_status.dart';
+import 'package:health_hub/core/secrets.dart';
+import 'package:health_hub/core/secure_store.dart';
 import 'package:health_hub/offline/outbox.dart';
 import 'package:health_hub/offline/outbox_store.dart';
 import 'package:health_hub/offline/pending_mutation.dart';
@@ -39,27 +42,45 @@ class FakeProfileApi implements ProfileApi {
       ProbeStatus.online;
 }
 
+class FakeSecureStore implements SecureStore {
+  final _data = <String, String>{};
+  @override
+  Future<void> write(String key, String value) async => _data[key] = value;
+  @override
+  Future<String?> read(String key) async => _data[key];
+  @override
+  Future<void> delete(String key) async => _data.remove(key);
+}
+
 ProfileRepo _repo() => ProfileRepo(
       api: FakeProfileApi(),
       outbox: Outbox(FakeOutboxStore()),
       store: FakeProfileStore(),
     );
 
+/// Pump SettingsPage with repo + secrets injected. A ProviderScope wraps it so
+/// the ConsumerState has a ProviderContainer even though no provider is read
+/// (every dependency is supplied explicitly).
+Widget _harness() => ProviderScope(
+      child: MaterialApp(
+        home: SettingsPage(
+          repo: _repo(),
+          secrets: Secrets(FakeSecureStore()),
+        ),
+      ),
+    );
+
 // ── Tests ──────────────────────────────────────────────────────────────────────
 
 void main() {
   testWidgets('settings-page key is present (nav test contract)', (tester) async {
-    await tester.pumpWidget(
-      MaterialApp(home: SettingsPage(repo: _repo())),
-    );
+    await tester.pumpWidget(_harness());
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('settings-page')), findsOneWidget);
   });
 
   testWidgets('all 8 section rows are rendered', (tester) async {
-    await tester.pumpWidget(
-      MaterialApp(home: SettingsPage(repo: _repo())),
-    );
+    await tester.pumpWidget(_harness());
     await tester.pumpAndSettle();
 
     // Every section has a stable key: settings-<name>
@@ -78,9 +99,7 @@ void main() {
   });
 
   testWidgets('section labels are visible', (tester) async {
-    await tester.pumpWidget(
-      MaterialApp(home: SettingsPage(repo: _repo())),
-    );
+    await tester.pumpWidget(_harness());
     await tester.pumpAndSettle();
 
     expect(find.text('Health connections'), findsOneWidget);
