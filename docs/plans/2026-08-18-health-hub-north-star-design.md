@@ -111,5 +111,6 @@ A conversational coach that **sees your full context** — "why this plan?", "sw
 - **Data always real-time-correct** (shelf life by real days, macros/timer live); only the **animated *reveal*** of change (avatar morph, meter fill, shelf-life ticks) is gated to opening a surface.
 
 ## 14. Deferred (designed-for, not built)
+- **Monetization — paid cosmetics** (planned; details TBD from Brody). The app will sell cosmetic items later (tie-in to the avatar / unlockable skins is the natural surface). Requires: Apple Developer paid-apps agreement + StoreKit / in-app purchase, an entitlement/ownership model (with the same owner/visibility seam as §2), and honest "earned vs bought" separation (never present a bought cosmetic as an earned achievement). Tax/enrollment note: Brody is a US citizen + UK resident — region is tax-neutral (US+UK both apply); get a US-expat accountant when revenue is real. **Fill in the cosmetic specifics when provided.**
 - **Social** (accounts, sharing, community recipes, feeds, leaderboards) — social seam reserved (§2).
 - **Data export / backup portability**, **Apple Watch app**, **recipe-import-from-URL** — nice, not needed for a complete day-one app.
