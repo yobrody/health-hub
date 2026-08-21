@@ -46,3 +46,6 @@ app.*.map.json
 
 # Widget Preview related
 .widget_preview/
+
+# Local Supabase / build config (never commit — publishable key + project URL)
+env.local.json
