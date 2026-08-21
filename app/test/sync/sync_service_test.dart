@@ -38,6 +38,13 @@ class FakeSender implements MutationSender {
     sent.add(m);
     return _status;
   }
+
+  // Reuses the safe never-drop mapping: online→sent, degraded→retryTransient,
+  // offline→retryEnvironment. (These existing tests assert queue behaviour, so
+  // a degraded now BUMPS+continues rather than stops — updated below.)
+  @override
+  Future<SendResult> classifySend(PendingMutation m) async =>
+      sendResultFromProbe(await sendMutation(m));
 }
 
 /// A ConnectivityMonitor whose stream we can push events into by hand.

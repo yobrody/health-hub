@@ -4,6 +4,7 @@ import '../core/config.dart';
 import '../core/secrets.dart';
 import '../offline/pending_mutation.dart';
 import '../profile/profile_repo.dart' show ProfileApi;
+import '../sync/send_result.dart';
 import '../sync/sync_service.dart' show MutationSender;
 import 'models.dart';
 import 'probe_status.dart';
@@ -150,6 +151,50 @@ class ApiClient implements ProfileApi, MutationSender {
         return ProbeStatus.degraded;
       }
       return ProbeStatus.offline;
+    }
+  }
+
+  /// Classify a replayed mutation for the Outbox (P4-E), reading the HTTP status
+  /// directly so retry-vs-reject is honest:
+  ///  * 2xx                    → [SendResult.sent] (removed).
+  ///  * 5xx                    → [SendResult.retryTransient] (bump + retry).
+  ///  * 401/403 (auth)         → [SendResult.retryEnvironment] — the mutation is
+  ///    structurally VALID; the `X-Health-Key` was missing/stale on this replay
+  ///    (an interceptor race, or the key not yet entered). A retry once the key
+  ///    is present succeeds, so it stays queued WITHOUT a tries bump and is never
+  ///    surfaced as "failed". Treating an auth blip as a permanent reject would
+  ///    falsely tell the user a good write couldn't sync.
+  ///  * 429                    → [SendResult.retryTransient] (rate-limited).
+  ///  * any other 4xx          → [SendResult.rejectPermanent] — the server
+  ///    refused (validation/malformed/conflict); a retry can't fix a bad
+  ///    request, so it's surfaced as failed rather than looping or blocking the
+  ///    queue.
+  ///  * a network error (no response) → [SendResult.retryEnvironment]
+  ///    (offline — stay queued, no bump, stop).
+  @override
+  Future<SendResult> classifySend(PendingMutation m) async {
+    try {
+      await _dio.request<dynamic>(
+        '${Config.baseUrl}${m.path}',
+        data: m.body,
+        options: Options(method: m.method.toUpperCase()),
+      );
+      return SendResult.sent;
+    } on DioException catch (e) {
+      final statusCode = e.response?.statusCode;
+      if (statusCode == null) {
+        // No response reached us — a network/transport failure. Environmental.
+        return SendResult.retryEnvironment;
+      }
+      if (statusCode >= 500) return SendResult.retryTransient;
+      if (statusCode == 429) return SendResult.retryTransient; // rate-limited
+      // Auth-related — the header, not the mutation, is the problem. Keep it
+      // queued (no bump) until the key/session is present again.
+      if (statusCode == 401 || statusCode == 403) {
+        return SendResult.retryEnvironment;
+      }
+      if (statusCode >= 400) return SendResult.rejectPermanent; // 4xx refusal
+      return SendResult.sent; // 2xx/3xx that Dio didn't treat as an error
     }
   }
 }

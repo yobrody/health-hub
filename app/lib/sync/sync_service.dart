@@ -6,11 +6,43 @@ import '../api/probe_status.dart';
 import '../offline/outbox.dart';
 import '../offline/pending_mutation.dart';
 import 'connectivity_monitor.dart';
+import 'send_result.dart';
+
+export 'send_result.dart' show SendResult;
 
 /// The slice of `ApiClient` [SyncService] needs to replay a queued mutation.
 /// `ApiClient` satisfies it directly; tests inject a fake.
+///
+/// A sender exposes TWO views of the same attempt:
+///  * [sendMutation] → a coarse [ProbeStatus] (kept for backward compatibility
+///    and for the health-probe callers).
+///  * [classifySend] → the richer [SendResult] the Outbox needs to decide
+///    retry-vs-reject. Each concrete sender implements it from what it can
+///    actually see: [ApiClient] reads the HTTP status; [SupabaseSyncSender]
+///    reads PostgREST error codes to tell a permanent rejection apart from a
+///    transient one. A sender that only has a coarse [ProbeStatus] can reuse
+///    [sendResultFromProbe] — the safe never-drop mapping.
 abstract class MutationSender {
   Future<ProbeStatus> sendMutation(PendingMutation m);
+
+  /// Classify a send attempt into the richer [SendResult] the Outbox uses to
+  /// decide retry-vs-reject. See [SendResult] for what each value means.
+  Future<SendResult> classifySend(PendingMutation m);
+}
+
+/// Maps a coarse [ProbeStatus] to a [SendResult] the SAFE way: an ambiguous
+/// non-online result is environmental (retry), never a permanent reject (which
+/// would move a write out of the queue). A sender that only knows [ProbeStatus]
+/// — or a test fake — reuses this so the never-drop mapping is identical.
+SendResult sendResultFromProbe(ProbeStatus status) {
+  switch (status) {
+    case ProbeStatus.online:
+      return SendResult.sent;
+    case ProbeStatus.degraded:
+      return SendResult.retryTransient;
+    case ProbeStatus.offline:
+      return SendResult.retryEnvironment;
+  }
 }
 
 /// Drains the offline [Outbox] when connectivity returns.
@@ -55,10 +87,12 @@ class SyncService {
   /// Flush the queue once, now. Exposed so the app can trigger an eager flush at
   /// startup (in case connectivity was already up) and so tests can drive it
   /// deterministically without a real connectivity stream.
+  ///
+  /// Uses the sender's richer [MutationSender.classifySend] so the Outbox can
+  /// retry transient failures, expire stuck ones, and move permanent rejects to
+  /// the surfaced failed state — without a head-of-line block.
   Future<void> flushNow() {
-    return _outbox.flush(
-      (m) async => (await _sender.sendMutation(m)) == ProbeStatus.online,
-    );
+    return _outbox.flushClassified(_sender.classifySend);
   }
 
   /// Stop listening. Safe to call more than once.
