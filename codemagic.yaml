@@ -1,0 +1,70 @@
+# Codemagic CI/CD for Health Hub (Flutter). The app package lives in `app/`.
+# No automatic triggering (manual runs only) so we don't burn build minutes;
+# GitHub Actions already runs tests on every PR.
+#
+# - `flutter-ci`  : runnable NOW — pub get + analyze + test.
+# - `ios-testflight` : ready but INERT until the Apple Developer account is
+#   active. To enable: in Codemagic → the app → Settings → Code signing
+#   (iOS), add the App Store Connect API key + the distribution certificate /
+#   provisioning profile, set the real bundle id below, then uncomment the
+#   signing + publishing blocks.
+
+workflows:
+  flutter-ci:
+    name: Flutter — analyze & test
+    instance_type: mac_mini_m2
+    max_build_duration: 30
+    environment:
+      flutter: 3.47.0
+    scripts:
+      - name: Flutter version
+        script: flutter --version
+      - name: Get packages
+        working_directory: app
+        script: flutter pub get
+      - name: Analyze
+        working_directory: app
+        script: flutter analyze
+      - name: Test
+        working_directory: app
+        script: flutter test
+
+  ios-testflight:
+    name: iOS — build & TestFlight (enable when Apple Dev account is active)
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    environment:
+      flutter: 3.47.0
+      # vars:
+      #   BUNDLE_ID: "com.brodyvankeuren.healthhub"  # set your real bundle id
+      # ios_signing:                                  # add in Codemagic UI first
+      #   distribution_type: app_store
+      #   bundle_identifier: $BUNDLE_ID
+      # integrations:
+      #   app_store_connect: HealthHub_ASC_Key        # the ASC API key you add
+    scripts:
+      - name: Get packages
+        working_directory: app
+        script: flutter pub get
+      - name: Analyze & test (gate the build)
+        working_directory: app
+        script: flutter analyze && flutter test
+      - name: Build iOS (no codesign until signing is configured)
+        working_directory: app
+        script: |
+          flutter build ios --release --no-codesign \
+            --dart-define=SUPABASE_URL=$SUPABASE_URL \
+            --dart-define=SUPABASE_PUBLISHABLE_KEY=$SUPABASE_PUBLISHABLE_KEY
+      # - name: Build signed IPA (uncomment once ios_signing is set)
+      #   working_directory: app
+      #   script: |
+      #     flutter build ipa --release \
+      #       --export-options-plist=/Users/builder/export_options.plist \
+      #       --dart-define=SUPABASE_URL=$SUPABASE_URL \
+      #       --dart-define=SUPABASE_PUBLISHABLE_KEY=$SUPABASE_PUBLISHABLE_KEY
+    # artifacts:
+    #   - build/ios/ipa/*.ipa
+    # publishing:
+    #   app_store_connect:
+    #     auth: integration
+    #     submit_to_testflight: true
