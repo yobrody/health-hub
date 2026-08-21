@@ -4,6 +4,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../app_providers.dart';
 import '../auth/auth_service.dart';
 import '../core/secrets.dart';
+import '../design_system/colors.dart';
+import '../design_system/components/section_header.dart';
+import '../design_system/components/stat_card.dart';
+import '../design_system/spacing.dart';
 import '../health/health_service.dart';
 import '../health/health_types.dart';
 import '../onboarding/onboarding_flow.dart';
@@ -228,144 +232,259 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.appColors;
+
     return Scaffold(
       key: const Key('settings-page'),
-      appBar: AppBar(title: const Text('Settings')),
+      backgroundColor: colors.canvas,
+      appBar: AppBar(
+        title: const Text('Settings'),
+        backgroundColor: colors.canvas,
+        surfaceTintColor: Colors.transparent,
+        elevation: 0,
+      ),
       body: SingleChildScrollView(
+        padding: AppSpacing.pagePadding,
         child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-          // 1. Health connections — wired to HealthService.requestPermissions()
-          ListTile(
-            key: const Key('settings-health-connections'),
-            leading: const Icon(Icons.health_and_safety),
-            title: const Text('Health connections'),
-            subtitle: const Text('Connect to HealthKit / Health Connect'),
-            trailing: _requestingPermissions
-                ? const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(Icons.chevron_right),
-            onTap: _onHealthConnections,
-          ),
-
-          // 2. Health key — wired: enters + saves via Secrets
-          ListTile(
-            key: const Key('settings-health-key'),
-            leading: const Icon(Icons.key),
-            title: const Text('Health key'),
-            subtitle: const Text('X-Health-Key for the backend API'),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: _onHealthKey,
-          ),
-
-          const Divider(),
-
-          // 3. Budget — placeholder
-          ListTile(
-            key: const Key('settings-budget'),
-            leading: const Icon(Icons.wallet),
-            title: const Text('Budget'),
-            subtitle: const Text('Monthly food budget — coming soon'),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () => _showComingSoon('Budget'),
-          ),
-
-          // 4. Units — placeholder
-          ListTile(
-            key: const Key('settings-units'),
-            leading: const Icon(Icons.straighten),
-            title: const Text('Units'),
-            subtitle: const Text('Metric / GBP — coming soon'),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () => _showComingSoon('Units'),
-          ),
-
-          // 5. Gyms — placeholder
-          ListTile(
-            key: const Key('settings-gyms'),
-            leading: const Icon(Icons.fitness_center),
-            title: const Text('Gyms'),
-            subtitle: const Text('Manage gyms — coming soon'),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () => _showComingSoon('Gyms'),
-          ),
-
-          const Divider(),
-
-          // 6. Goal reset — wired: nulls goalDirection + targetWeightKg
-          ListTile(
-            key: const Key('settings-goal-reset'),
-            leading: const Icon(Icons.restart_alt),
-            title: const Text('Goal reset'),
-            subtitle: const Text('Clear your current goal and target weight'),
-            trailing: _goalResetting
-                ? const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(Icons.chevron_right),
-            onTap: _onGoalReset,
-          ),
-
-          // Edit profile — reopens the onboarding flow (re-entry even after a
-          // partial first run). Every field stays optional; nothing defaulted.
-          ListTile(
-            key: const Key('settings-edit-profile'),
-            leading: const Icon(Icons.person),
-            title: const Text('Edit profile'),
-            subtitle: const Text('Revisit your height, weight, goal and gym'),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: _openOnboarding,
-          ),
-
-          const Divider(),
-
-          // 7. Notifications — placeholder (quiet-hours model defined in
-          //    quiet_hours.dart; the isWithinQuietHours logic is tested)
-          ListTile(
-            key: const Key('settings-notifications'),
-            leading: const Icon(Icons.notifications),
-            title: const Text('Notifications'),
-            subtitle: Text(
-              'Quiet hours: ${_defaultQuietHours.startHour}:00 – '
-              '${_defaultQuietHours.endHour}:00 — coming soon',
+            // ── Data & Connections ─────────────────────────────────────────
+            const SectionHeader(title: 'DATA & CONNECTIONS'),
+            StatCard(
+              child: Column(
+                children: [
+                  _SettingsTile(
+                    tileKey: const Key('settings-health-connections'),
+                    icon: Icons.health_and_safety_outlined,
+                    title: 'Health connections',
+                    subtitle: 'Connect to HealthKit / Health Connect',
+                    trailing: _requestingPermissions
+                        ? _spinner()
+                        : const Icon(Icons.chevron_right),
+                    onTap: _onHealthConnections,
+                  ),
+                  _tileDivider(colors),
+                  _SettingsTile(
+                    tileKey: const Key('settings-health-key'),
+                    icon: Icons.key_outlined,
+                    title: 'Health key',
+                    subtitle: 'X-Health-Key for the backend API',
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: _onHealthKey,
+                  ),
+                ],
+              ),
             ),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () => _showComingSoon('Notifications + quiet hours'),
-          ),
 
-          // 8. Privacy — placeholder
-          ListTile(
-            key: const Key('settings-privacy'),
-            leading: const Icon(Icons.lock),
-            title: const Text('Privacy'),
-            subtitle: const Text('Data retention + export — coming soon'),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () => _showComingSoon('Privacy'),
-          ),
+            AppSpacing.gapV8,
 
-          const Divider(),
+            // ── Preferences ───────────────────────────────────────────────
+            const SectionHeader(title: 'PREFERENCES'),
+            StatCard(
+              child: Column(
+                children: [
+                  _SettingsTile(
+                    tileKey: const Key('settings-budget'),
+                    icon: Icons.wallet_outlined,
+                    title: 'Budget',
+                    subtitle: 'Monthly food budget — coming soon',
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () => _showComingSoon('Budget'),
+                  ),
+                  _tileDivider(colors),
+                  _SettingsTile(
+                    tileKey: const Key('settings-units'),
+                    icon: Icons.straighten_outlined,
+                    title: 'Units',
+                    subtitle: 'Metric / GBP — coming soon',
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () => _showComingSoon('Units'),
+                  ),
+                  _tileDivider(colors),
+                  _SettingsTile(
+                    tileKey: const Key('settings-gyms'),
+                    icon: Icons.fitness_center_outlined,
+                    title: 'Gyms',
+                    subtitle: 'Manage gyms — coming soon',
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () => _showComingSoon('Gyms'),
+                  ),
+                ],
+              ),
+            ),
 
-          // Account — sign out. The auth stream drives the gate back to the
-          // auth screen; this tile doesn't navigate itself.
-          ListTile(
-            key: const Key('settings-sign-out'),
-            leading: const Icon(Icons.logout),
-            title: const Text('Sign out'),
-            subtitle: const Text('End your session on this device'),
-            trailing: _signingOut
-                ? const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(Icons.chevron_right),
-            onTap: _onSignOut,
-          ),
-        ],
+            AppSpacing.gapV8,
+
+            // ── Profile & Goals ───────────────────────────────────────────
+            const SectionHeader(title: 'PROFILE & GOALS'),
+            StatCard(
+              child: Column(
+                children: [
+                  _SettingsTile(
+                    tileKey: const Key('settings-goal-reset'),
+                    icon: Icons.restart_alt_outlined,
+                    title: 'Goal reset',
+                    subtitle: 'Clear your current goal and target weight',
+                    trailing: _goalResetting
+                        ? _spinner()
+                        : const Icon(Icons.chevron_right),
+                    onTap: _onGoalReset,
+                  ),
+                  _tileDivider(colors),
+                  _SettingsTile(
+                    tileKey: const Key('settings-edit-profile'),
+                    icon: Icons.person_outline,
+                    title: 'Edit profile',
+                    subtitle: 'Revisit your height, weight, goal and gym',
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: _openOnboarding,
+                  ),
+                ],
+              ),
+            ),
+
+            AppSpacing.gapV8,
+
+            // ── Notifications & Privacy ────────────────────────────────────
+            const SectionHeader(title: 'NOTIFICATIONS & PRIVACY'),
+            StatCard(
+              child: Column(
+                children: [
+                  _SettingsTile(
+                    tileKey: const Key('settings-notifications'),
+                    icon: Icons.notifications_outlined,
+                    title: 'Notifications',
+                    subtitle:
+                        'Quiet hours: ${_defaultQuietHours.startHour}:00 – '
+                        '${_defaultQuietHours.endHour}:00 — coming soon',
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () => _showComingSoon('Notifications + quiet hours'),
+                  ),
+                  _tileDivider(colors),
+                  _SettingsTile(
+                    tileKey: const Key('settings-privacy'),
+                    icon: Icons.lock_outline,
+                    title: 'Privacy',
+                    subtitle: 'Data retention + export — coming soon',
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () => _showComingSoon('Privacy'),
+                  ),
+                ],
+              ),
+            ),
+
+            AppSpacing.gapV8,
+
+            // ── Account ───────────────────────────────────────────────────
+            const SectionHeader(title: 'ACCOUNT'),
+            StatCard(
+              child: _SettingsTile(
+                tileKey: const Key('settings-sign-out'),
+                icon: Icons.logout_outlined,
+                title: 'Sign out',
+                subtitle: 'End your session on this device',
+                trailing: _signingOut
+                    ? _spinner()
+                    : const Icon(Icons.chevron_right),
+                onTap: _onSignOut,
+                destructive: true,
+              ),
+            ),
+
+            AppSpacing.gapV8,
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _spinner() => const SizedBox(
+        width: 20,
+        height: 20,
+        child: CircularProgressIndicator(strokeWidth: 2),
+      );
+
+  Widget _tileDivider(AppColors colors) => Divider(
+        height: 1,
+        thickness: 1,
+        color: colors.hairline,
+      );
+}
+
+// ── _SettingsTile ─────────────────────────────────────────────────────────────
+
+/// A single settings row — luxury version of [ListTile].
+///
+/// Uses design-system tokens for icon colour, text styles, and divider colour.
+/// The [tileKey] is forwarded to the inner [InkWell] so test finders by Key
+/// continue to resolve (same Keys as before; no contract change).
+class _SettingsTile extends StatelessWidget {
+  const _SettingsTile({
+    required this.tileKey,
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.trailing,
+    required this.onTap,
+    this.destructive = false,
+  });
+
+  final Key tileKey;
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final Widget trailing;
+  final VoidCallback onTap;
+  final bool destructive;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    final text = Theme.of(context).textTheme;
+    final iconColor =
+        destructive ? Colors.red.shade400 : colors.primaryStrong;
+    final titleColor = destructive ? Colors.red.shade600 : colors.textPrimary;
+
+    return InkWell(
+      key: tileKey,
+      onTap: onTap,
+      borderRadius: BorderRadius.zero,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.cardPadding,
+          vertical: AppSpacing.space4,
+        ),
+        child: Row(
+          children: [
+            Icon(icon, color: iconColor, size: 22),
+            AppSpacing.gapH4,
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: text.bodyLarge?.copyWith(
+                      color: titleColor,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  AppSpacing.gapV1,
+                  Text(
+                    subtitle,
+                    style: text.bodySmall?.copyWith(
+                      color: colors.textSecondary,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            AppSpacing.gapH2,
+            IconTheme(
+              data: IconThemeData(color: colors.textSecondary, size: 20),
+              child: trailing,
+            ),
+          ],
         ),
       ),
     );

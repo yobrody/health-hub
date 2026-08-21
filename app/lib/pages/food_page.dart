@@ -14,6 +14,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../app_providers.dart';
+import '../design_system/colors.dart';
+import '../design_system/components/section_header.dart';
+import '../design_system/components/stat_card.dart';
+import '../design_system/spacing.dart';
 import '../pantry/pantry_item.dart';
 import '../pantry/pantry_repo.dart';
 import '../pantry/shelf_life.dart';
@@ -136,6 +140,8 @@ class _FoodPageState extends ConsumerState<FoodPage> {
   void _showDetail(PantryItem item) {
     showModalBottomSheet<void>(
       context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
       builder: (_) => _DetailSheet(item: item),
     );
   }
@@ -144,9 +150,17 @@ class _FoodPageState extends ConsumerState<FoodPage> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.appColors;
+
     return Scaffold(
       key: const Key('food-page'),
-      appBar: AppBar(title: const Text('Fridge & Pantry')),
+      backgroundColor: colors.canvas,
+      appBar: AppBar(
+        title: const Text('Fridge & Pantry'),
+        backgroundColor: colors.canvas,
+        surfaceTintColor: Colors.transparent,
+        elevation: 0,
+      ),
       floatingActionButton: FloatingActionButton(
         key: const Key('food-add-fab'),
         onPressed: _openAddForm,
@@ -160,11 +174,35 @@ class _FoodPageState extends ConsumerState<FoodPage> {
   }
 
   Widget _buildList() {
+    final colors = context.appColors;
+    final text = Theme.of(context).textTheme;
+
     if (_items.isEmpty) {
-      return const Center(
-        child: Text(
-          'No items yet. Tap + to add one.',
-          style: TextStyle(color: Colors.grey),
+      return Center(
+        child: Padding(
+          padding: AppSpacing.pagePadding,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.kitchen_outlined,
+                size: 48,
+                color: colors.textSecondary.withAlpha(102),
+              ),
+              AppSpacing.gapV4,
+              Text(
+                'Your pantry is empty',
+                style: text.titleMedium?.copyWith(color: colors.textSecondary),
+              ),
+              AppSpacing.gapV2,
+              Text(
+                'Tap + to add your first item.',
+                style: text.bodyMedium?.copyWith(
+                  color: colors.textSecondary.withAlpha(153),
+                ),
+              ),
+            ],
+          ),
         ),
       );
     }
@@ -176,54 +214,117 @@ class _FoodPageState extends ConsumerState<FoodPage> {
       final zoneItems = _items.where((i) => i.zone == zone).toList();
       if (zoneItems.isEmpty) continue;
 
+      sections.add(SectionHeader(title: _zoneName(zone)));
+
       sections.add(
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
-          child: Text(
-            _zoneName(zone),
-            style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                  color: Theme.of(context).colorScheme.primary,
-                  fontWeight: FontWeight.bold,
+        StatCard(
+          padding: EdgeInsets.zero,
+          child: Column(
+            children: [
+              for (var i = 0; i < zoneItems.length; i++) ...[
+                if (i > 0)
+                  Divider(height: 1, thickness: 1, color: colors.hairline),
+                _PantryItemTile(
+                  item: zoneItems[i],
+                  freshness: freshnessOf(zoneItems[i], now),
+                  onTap: () => _showDetail(zoneItems[i]),
+                  onEdit: () => _openEditForm(zoneItems[i]),
+                  onDelete: () => _delete(zoneItems[i].id),
                 ),
+              ],
+            ],
           ),
         ),
       );
 
-      for (final item in zoneItems) {
-        final freshness = freshnessOf(item, now);
-        final qtyDisplay = item.qty == null
-            ? '—'
-            : (item.unit != null
-                ? '${item.qty} ${item.unit}'
-                : '${item.qty}');
-
-        sections.add(
-          ListTile(
-            leading: _FreshnessDot(freshness),
-            title: Text(item.name),
-            subtitle: Text(qtyDisplay),
-            trailing: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                IconButton(
-                  icon: const Icon(Icons.edit_outlined),
-                  onPressed: () => _openEditForm(item),
-                  tooltip: 'Edit',
-                ),
-                IconButton(
-                  icon: const Icon(Icons.delete_outline),
-                  onPressed: () => _delete(item.id),
-                  tooltip: 'Delete',
-                ),
-              ],
-            ),
-            onTap: () => _showDetail(item),
-          ),
-        );
-      }
+      sections.add(AppSpacing.gapV8);
     }
 
-    return ListView(children: sections);
+    return ListView(
+      padding: AppSpacing.pagePadding,
+      children: sections,
+    );
+  }
+}
+
+// ── _PantryItemTile ───────────────────────────────────────────────────────────
+
+class _PantryItemTile extends StatelessWidget {
+  const _PantryItemTile({
+    required this.item,
+    required this.freshness,
+    required this.onTap,
+    required this.onEdit,
+    required this.onDelete,
+  });
+
+  final PantryItem item;
+  final Freshness freshness;
+  final VoidCallback onTap;
+  final VoidCallback onEdit;
+  final VoidCallback onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    final text = Theme.of(context).textTheme;
+
+    final qtyDisplay = item.qty == null
+        ? '—'
+        : (item.unit != null ? '${item.qty} ${item.unit}' : '${item.qty}');
+
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.cardPadding,
+          vertical: AppSpacing.space4,
+        ),
+        child: Row(
+          children: [
+            _FreshnessDot(freshness),
+            AppSpacing.gapH3,
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    item.name,
+                    style: text.bodyLarge?.copyWith(
+                      color: colors.textPrimary,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  if (qtyDisplay != '—') ...[
+                    AppSpacing.gapV1,
+                    Text(
+                      qtyDisplay,
+                      style: text.bodySmall?.copyWith(
+                        color: colors.textSecondary,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            IconButton(
+              icon: Icon(Icons.edit_outlined,
+                  size: 18, color: colors.textSecondary),
+              onPressed: onEdit,
+              tooltip: 'Edit',
+              visualDensity: VisualDensity.compact,
+            ),
+            IconButton(
+              icon: Icon(Icons.delete_outline,
+                  size: 18, color: colors.textSecondary),
+              onPressed: onDelete,
+              tooltip: 'Delete',
+              visualDensity: VisualDensity.compact,
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 
@@ -236,37 +337,73 @@ class _DetailSheet extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.appColors;
+    final text = Theme.of(context).textTheme;
     final expiry = item.expiry;
     final purchased = item.purchasedAt;
     final lastBought = item.lastBought;
 
-    String fmtDate(DateTime? d) =>
-        d == null ? '—' : '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+    String fmtDate(DateTime? d) => d == null
+        ? '—'
+        : '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
 
-    return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(item.name, style: Theme.of(context).textTheme.headlineSmall),
-            const SizedBox(height: 12),
-            _DetailRow('Zone', _zoneName(item.zone)),
-            _DetailRow('Qty', showOrDash(item.qty)),
-            _DetailRow('Unit', showOrDash(item.unit)),
-            _DetailRow('Expiry', fmtDate(expiry)),
-            _DetailRow('Price', item.priceGbp == null ? '—' : '£${item.priceGbp!.toStringAsFixed(2)}'),
-            _DetailRow('Store', showOrDash(item.store)),
-            _DetailRow('Purchased', fmtDate(purchased)),
-            _DetailRow('Last bought', fmtDate(lastBought)),
-            _DetailRow(
-              'Reorder every',
-              item.reorderCadenceDays == null
-                  ? '—'
-                  : '${item.reorderCadenceDays} days',
-            ),
-          ],
+    return Container(
+      decoration: BoxDecoration(
+        color: colors.surface,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(
+            AppSpacing.cardPadding,
+            AppSpacing.space6,
+            AppSpacing.cardPadding,
+            AppSpacing.cardPadding,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Handle
+              Center(
+                child: Container(
+                  width: 36,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: colors.hairline,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              AppSpacing.gapV5,
+              Text(
+                item.name,
+                style: text.headlineSmall?.copyWith(color: colors.textPrimary),
+              ),
+              AppSpacing.gapV4,
+              Divider(color: colors.hairline),
+              AppSpacing.gapV3,
+              _DetailRow('Zone', _zoneName(item.zone)),
+              _DetailRow('Qty', showOrDash(item.qty)),
+              _DetailRow('Unit', showOrDash(item.unit)),
+              _DetailRow('Expiry', fmtDate(expiry)),
+              _DetailRow(
+                  'Price',
+                  item.priceGbp == null
+                      ? '—'
+                      : '£${item.priceGbp!.toStringAsFixed(2)}'),
+              _DetailRow('Store', showOrDash(item.store)),
+              _DetailRow('Purchased', fmtDate(purchased)),
+              _DetailRow('Last bought', fmtDate(lastBought)),
+              _DetailRow(
+                'Reorder every',
+                item.reorderCadenceDays == null
+                    ? '—'
+                    : '${item.reorderCadenceDays} days',
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -281,19 +418,25 @@ class _DetailRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.appColors;
+    final text = Theme.of(context).textTheme;
     final isDash = value == '—';
+
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
+      padding: const EdgeInsets.symmetric(vertical: AppSpacing.tightGap),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(label, style: Theme.of(context).textTheme.bodyMedium),
+          Text(
+            label,
+            style: text.bodyMedium?.copyWith(color: colors.textSecondary),
+          ),
           Text(
             value,
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: isDash ? Theme.of(context).disabledColor : null,
-                  fontWeight: isDash ? FontWeight.normal : FontWeight.w500,
-                ),
+            style: text.bodyMedium?.copyWith(
+              color: isDash ? colors.textSecondary.withAlpha(102) : colors.textPrimary,
+              fontWeight: isDash ? FontWeight.normal : FontWeight.w500,
+            ),
           ),
         ],
       ),
