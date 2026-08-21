@@ -240,8 +240,8 @@ class _FoodPageState extends ConsumerState<FoodPage> {
                 ),
                 AppSpacing.gapV2,
                 Text(
-                  'We’ll identify what you have and fill your kitchen. '
-                  'Prefer to type it in? Add items manually — it works the same.',
+                  'Snap your fridge, freezer, pantry & spices — photo '
+                  'recognition is coming soon. For now, add items manually.',
                   style:
                       text.bodyMedium?.copyWith(color: colors.textSecondary),
                 ),

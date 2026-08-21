@@ -32,8 +32,9 @@ const int kExpiringSoonWindowDays = kUseSoonWindowDays;
 const double kLowStockThresholdGrams = 100;
 
 /// Units whose `qty` we treat as directly gram-comparable for the low-stock
-/// check. Mirrors the ingredient graph's conservative reconciliation: `null`
-/// (the pantry's implicit default) is handled separately in [_isLow].
+/// check. Mirrors the ingredient graph's conservative reconciliation. A `null`
+/// unit is NOT gram-comparable (see [_isLow]) — we never guess that an
+/// unlabelled quantity is in grams.
 const Set<String> _gramUnits = {'g', 'gram', 'grams'};
 
 /// One entry in the glance: the item plus WHY it surfaced. Both reasons can be
@@ -84,8 +85,12 @@ bool _isLow(PantryItem item, double thresholdGrams) {
   final qty = item.qty;
   if (qty == null) return false; // unknown amount — never a guess
   final unit = item.unit;
-  final reconcilable = unit == null || _gramUnits.contains(unit.toLowerCase());
-  if (!reconcilable) return false; // non-gram unit we can't honestly compare
+  // A null unit is NOT honestly gram-comparable — "20" could be bottles, packs,
+  // or litres. Only a real, explicitly-gram unit qualifies; anything else (null
+  // or non-gram) is never flagged low, so we never fabricate that it's running
+  // out.
+  final reconcilable = unit != null && _gramUnits.contains(unit.toLowerCase());
+  if (!reconcilable) return false; // unknown/non-gram unit — can't honestly compare
   return qty < thresholdGrams;
 }
 

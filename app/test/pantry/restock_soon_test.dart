@@ -68,6 +68,12 @@ void main() {
     expect(restockSoon(items, _now), isEmpty);
   });
 
+  test('a qty with a NULL unit is NEVER low (no fabricated urgency)', () {
+    // "20" with no unit isn't honestly grams — could be bottles/packs/litres.
+    final items = [_item(id: 'sauce', qty: 20)];
+    expect(restockSoon(items, _now), isEmpty);
+  });
+
   test('an expiring item surfaces with reason expiring', () {
     final items = [_item(id: 'milk', expiry: _now.add(const Duration(days: 1)))];
     final result = restockSoon(items, _now);

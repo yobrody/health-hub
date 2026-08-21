@@ -218,9 +218,18 @@ void main() {
     await tester.tap(find.byKey(const Key('food-gate-upload')));
     await tester.pumpAndSettle();
 
-    // Honest "coming soon" — and CRUCIALLY no items were invented.
-    expect(find.byKey(const Key('food-gate-upload-snackbar')), findsOneWidget);
-    expect(find.textContaining('coming soon'), findsOneWidget);
+    // Honest snackbar — scoped to the snackbar itself (the gate body copy now
+    // also mentions "coming soon", so match the snackbar's own phrasing).
+    final snackbar = find.byKey(const Key('food-gate-upload-snackbar'));
+    expect(snackbar, findsOneWidget);
+    expect(
+      find.descendant(
+        of: snackbar,
+        matching: find.textContaining('coming soon'),
+      ),
+      findsOneWidget,
+    );
+    // CRUCIALLY no items were invented.
     final all = await repo.all();
     expect(all, isEmpty);
   });
