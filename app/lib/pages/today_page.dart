@@ -958,18 +958,24 @@ class _RiftSeam extends StatelessWidget {
 
     // Very subtle: low opacity + a small icon that reads as decorative, not
     // actionable. Easy to miss — that's intentional.
-    return GestureDetector(
-      key: const Key('home-rift-seam'),
-      // R1: inert tap — no navigation, no feedback, no side-effects.
-      onTap: null,
-      child: Padding(
-        padding: const EdgeInsets.all(AppSpacing.space4),
-        child: Opacity(
-          opacity: 0.18,
-          child: Icon(
-            Icons.blur_on_outlined,
-            size: 20,
-            color: colors.textSecondary,
+    //
+    // Excluded from semantics: the seam is purely decorative and inert in R1
+    // (onTap == null). Screen readers skip it entirely so users aren't
+    // confused by a non-interactive element with no action.
+    return ExcludeSemantics(
+      child: GestureDetector(
+        key: const Key('home-rift-seam'),
+        // R1: inert tap — no navigation, no feedback, no side-effects.
+        onTap: null,
+        child: Padding(
+          padding: const EdgeInsets.all(AppSpacing.space4),
+          child: Opacity(
+            opacity: 0.18,
+            child: Icon(
+              Icons.blur_on_outlined,
+              size: 20,
+              color: colors.textSecondary,
+            ),
           ),
         ),
       ),

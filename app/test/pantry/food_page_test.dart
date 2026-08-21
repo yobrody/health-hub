@@ -169,4 +169,27 @@ void main() {
     // The green/fresh indicator must NOT be present for an item with no expiry.
     expect(find.byKey(const Key('freshness-fresh')), findsNothing);
   });
+
+  // Test 5 (P4-G): freshness dot exposes a plain-text Semantics label so that
+  // screen readers can announce "Expiry unknown" / "Expired" / "Use soon" /
+  // "Fresh" — colour alone is not accessible.
+  testWidgets(
+      'freshness dot exposes an accessible plain-text label (P4-G a11y)',
+      (tester) async {
+    await _pumpPage(tester, [_minimal]);
+
+    // The dot must be findable by a Semantics label that contains "unknown"
+    // (case-insensitive). find.bySemanticsLabel uses a regex match by default;
+    // we supply a RegExp that accepts any label containing the word "unknown".
+    expect(
+      find.bySemanticsLabel(RegExp('unknown', caseSensitive: false)),
+      findsWidgets,
+      reason:
+          'The freshness dot for a no-expiry item must expose a Semantics '
+          'label containing "unknown" so screen readers can announce the state',
+    );
+
+    // The raw dot widget must still be present (Key contract unchanged).
+    expect(find.byKey(const Key('freshness-unknown')), findsOneWidget);
+  }, semanticsEnabled: true);
 }

@@ -510,29 +510,38 @@ class GymPageState extends ConsumerState<GymPage> {
     final text = Theme.of(context).textTheme;
     final brightness = Theme.of(context).brightness;
 
-    return GestureDetector(
-      onTap: () => _selectExercise(ex),
-      child: AnimatedContainer(
-        key: Key('gym-exercise-${ex.id}'),
-        duration: AppMotion.fast,
-        curve: AppMotion.standard,
-        padding: const EdgeInsets.symmetric(
-          horizontal: AppSpacing.space4,
-          vertical: AppSpacing.space2,
-        ),
-        decoration: BoxDecoration(
-          color: isSelected ? colors.primary : colors.surface,
-          borderRadius: AppShape.chip,
-          border: Border.all(
-            color: isSelected ? colors.primary : colors.hairline,
+    // Semantics: expose each chip as a selectable button so assistive
+    // technology announces the exercise name and its selection state.
+    return Semantics(
+      button: true,
+      selected: isSelected,
+      label: ex.name,
+      child: GestureDetector(
+        onTap: () => _selectExercise(ex),
+        child: AnimatedContainer(
+          key: Key('gym-exercise-${ex.id}'),
+          duration: AppMotion.fast,
+          curve: AppMotion.standard,
+          // Minimum 48 logical-px height satisfies the touch-target guideline.
+          constraints: const BoxConstraints(minHeight: 48),
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.space4,
+            vertical: AppSpacing.space2,
           ),
-          boxShadow: isSelected ? [] : AppShape.cardShadow(brightness),
-        ),
-        child: Text(
-          ex.name,
-          style: text.labelMedium?.copyWith(
-            color: isSelected ? colors.textPrimary : colors.textSecondary,
-            fontWeight: isSelected ? FontWeight.w600 : FontWeight.w400,
+          decoration: BoxDecoration(
+            color: isSelected ? colors.primary : colors.surface,
+            borderRadius: AppShape.chip,
+            border: Border.all(
+              color: isSelected ? colors.primary : colors.hairline,
+            ),
+            boxShadow: isSelected ? [] : AppShape.cardShadow(brightness),
+          ),
+          child: Text(
+            ex.name,
+            style: text.labelMedium?.copyWith(
+              color: isSelected ? colors.textPrimary : colors.textSecondary,
+              fontWeight: isSelected ? FontWeight.w600 : FontWeight.w400,
+            ),
           ),
         ),
       ),
@@ -656,9 +665,11 @@ class GymPageState extends ConsumerState<GymPage> {
                 style: TextButton.styleFrom(
                   foregroundColor: colors.textSecondary,
                   textStyle: text.labelMedium,
-                  padding: EdgeInsets.zero,
-                  minimumSize: const Size(0, 0),
-                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  // 48×48 minimum touch target (accessibility requirement).
+                  minimumSize: const Size(48, 48),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: AppSpacing.space2,
+                  ),
                 ),
                 child: const Text('Skip'),
               ),
@@ -963,28 +974,53 @@ class _EffortButton extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = context.appColors;
     final text = Theme.of(context).textTheme;
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedScale(
-        scale: selected ? 1.25 : 1.0,
-        duration: AppMotion.fast,
-        curve: AppMotion.spring,
-        child: AnimatedOpacity(
-          opacity: selected ? 1.0 : 0.5,
-          duration: AppMotion.fast,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(emoji, style: const TextStyle(fontSize: 28)),
-              AppSpacing.gapV1,
-              Text(
-                label,
-                style: text.labelSmall?.copyWith(
-                  color: selected ? colors.textPrimary : colors.textSecondary,
-                  fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
-                ),
+    // Semantics: expose the effort button as a toggleable button with a
+    // plain-text label (the emoji alone is not accessible to screen readers).
+    return Semantics(
+      button: true,
+      selected: selected,
+      label: label,
+      child: GestureDetector(
+        onTap: onTap,
+        // opaque hit behaviour so the entire bounding box is tappable even
+        // when the emoji + label column is narrower than 48 px.
+        behavior: HitTestBehavior.opaque,
+        child: Padding(
+          // Ensure at least 48×48 logical-px touch target while keeping the
+          // layout flexible (Padding expands the hit area without a fixed SizedBox
+          // that can overflow when the parent Row is constrained).
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.space2,
+            vertical: AppSpacing.space2,
+          ),
+          child: AnimatedScale(
+            scale: selected ? 1.25 : 1.0,
+            duration: AppMotion.fast,
+            curve: AppMotion.spring,
+            child: AnimatedOpacity(
+              opacity: selected ? 1.0 : 0.5,
+              duration: AppMotion.fast,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  // Mark emoji as decorative — the Semantics label above
+                  // already provides the accessible name.
+                  ExcludeSemantics(
+                    child: Text(emoji, style: const TextStyle(fontSize: 28)),
+                  ),
+                  AppSpacing.gapV1,
+                  Text(
+                    label,
+                    style: text.labelSmall?.copyWith(
+                      color:
+                          selected ? colors.textPrimary : colors.textSecondary,
+                      fontWeight:
+                          selected ? FontWeight.w600 : FontWeight.w400,
+                    ),
+                  ),
+                ],
               ),
-            ],
+            ),
           ),
         ),
       ),
