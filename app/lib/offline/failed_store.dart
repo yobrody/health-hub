@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'pending_mutation.dart';
@@ -71,8 +72,18 @@ class SharedPrefsFailedStore implements FailedStore {
         _kFailedStorageKey,
         jsonEncode(items.map((m) => m.toJson()).toList()),
       );
-    } catch (_) {
-      // Quota / access denied — keep the in-memory state correct for now.
+    } catch (e) {
+      // KNOWN DATA-LOSS VECTOR: if this durable write fails (quota / access
+      // denied) AND the app is force-killed before the next successful save,
+      // the item is absent from BOTH the pending and failed stores on restart —
+      // i.e. a queued write is silently lost, the one thing this phase otherwise
+      // prevents. The in-memory cache stays correct for the current session, so
+      // a graceful restart is fine; only a storage failure + hard kill loses it.
+      // This is a very-low-probability SharedPreferences edge. We do NOT
+      // re-throw (that just moves the imperfection up the stack); instead we log
+      // it so the loss is not fully invisible in the field.
+      debugPrint(
+          'hh: failed-store persist FAILED, item may be lost on restart: $e');
     }
   }
 }

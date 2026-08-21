@@ -353,7 +353,11 @@ class Outbox {
           // Bump this item's tries; expire → failed once it hits the ceiling.
           await _synchronized(() async {
             final bumped = bumpTries(await _load(), item.id);
-            final me = bumped.firstWhere((m) => m.id == item.id);
+            // orElse for defensiveness + parity with the rejectPermanent branch:
+            // bumpTries maps (never removes), so the item is present in practice,
+            // but a concurrent same-dedupeKey enqueue could in theory replace it.
+            final me = bumped.firstWhere((m) => m.id == item.id,
+                orElse: () => item);
             if (me.tries >= kMaxTries) {
               // Exhausted — move to failed (surfaced), out of the pending queue.
               await _moveToFailedLocked(bumped, me);

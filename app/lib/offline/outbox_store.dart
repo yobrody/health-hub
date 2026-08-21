@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'pending_mutation.dart';
@@ -52,9 +53,16 @@ class SharedPrefsOutboxStore implements OutboxStore {
         _kStorageKey,
         jsonEncode(items.map((m) => m.toJson()).toList()),
       );
-    } catch (_) {
-      // Quota / access denied — keep going; the in-memory state is still
-      // correct for this session, mirroring the legacy localStorage behaviour.
+    } catch (e) {
+      // KNOWN DATA-LOSS VECTOR: if this durable write fails (quota / access
+      // denied) AND the app is force-killed before the next successful save, a
+      // queued write is silently lost on restart — the in-memory state stays
+      // correct for the current session (mirroring the legacy localStorage
+      // behaviour), so only a storage failure + hard kill loses it. Very-low-
+      // probability SharedPreferences edge. We do NOT re-throw (that just moves
+      // the imperfection up the stack); we log it so the loss isn't invisible.
+      debugPrint(
+          'hh: outbox persist FAILED, queued write may be lost on restart: $e');
     }
   }
 }
