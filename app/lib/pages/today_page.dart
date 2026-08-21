@@ -11,11 +11,17 @@ import '../design_system/typography.dart';
 import '../gym/exercise_catalog.dart';
 import '../gym/workout_repo.dart';
 import '../gym/workout_session.dart';
+import '../metrics/weigh_in_repo.dart';
+import '../metrics/weight_trend.dart';
 import '../nutrition/food_log_entry.dart';
+import '../nutrition/nutrition_goals.dart';
+import '../nutrition/nutrition_goals_repo.dart';
 import '../nutrition/nutrition_repo.dart';
 import '../onboarding/onboarding_flow.dart';
 import '../profile/profile_model.dart';
 import '../profile/profile_repo.dart';
+import '../widgets/log_weight_sheet.dart';
+import '../widgets/nutrition_goals_editor.dart';
 
 /// The daily dashboard — the flagship luxury home screen.
 ///
@@ -43,11 +49,15 @@ class TodayPage extends ConsumerStatefulWidget {
     this.repo,
     this.nutritionRepo,
     this.workoutRepo,
+    this.goalsRepo,
+    this.weighInRepo,
   });
 
   final ProfileRepo? repo;
   final NutritionRepo? nutritionRepo;
   final WorkoutRepo? workoutRepo;
+  final NutritionGoalsRepo? goalsRepo;
+  final WeighInRepo? weighInRepo;
 
   @override
   ConsumerState<TodayPage> createState() => _TodayPageState();
@@ -59,9 +69,15 @@ class _TodayPageState extends ConsumerState<TodayPage> {
       widget.nutritionRepo ?? ref.read(nutritionRepoProvider);
   late final WorkoutRepo _workout =
       widget.workoutRepo ?? ref.read(workoutRepoProvider);
+  late final NutritionGoalsRepo _goals =
+      widget.goalsRepo ?? ref.read(nutritionGoalsRepoProvider);
+  late final WeighInRepo _weighIns =
+      widget.weighInRepo ?? ref.read(weighInRepoProvider);
 
   Profile _profile = const Profile();
   _DayNutrition _today = const _DayNutrition.empty();
+  NutritionGoals _goalsData = const NutritionGoals();
+  WeightTrend _weightTrend = WeightTrend.none;
   WorkoutSession? _activeSession;
   WorkoutSession? _lastFinished;
   bool _loading = true;
@@ -76,16 +92,38 @@ class _TodayPageState extends ConsumerState<TodayPage> {
     final profile = await _repo.load();
     final foodLog = await _nutrition.all();
     final sessions = await _workout.all();
+    final goals = await _goals.load();
+    final weighInHistory = await _weighIns.all();
     if (!mounted) return;
 
     final todayEntries = _nutrition.logsForDay(foodLog, DateTime.now());
     setState(() {
       _profile = profile;
       _today = _DayNutrition.from(todayEntries);
+      _goalsData = goals;
+      _weightTrend = computeWeightTrend(weighInHistory);
       _activeSession = _findActive(sessions);
       _lastFinished = _findLastFinished(sessions);
       _loading = false;
     });
+  }
+
+  /// Open the daily-targets editor, then refresh so the rings reflect the new
+  /// (or cleared) goal immediately.
+  Future<void> _editGoals() async {
+    final saved = await showNutritionGoalsEditor(
+      context,
+      repo: _goals,
+      current: _goalsData,
+    );
+    if (saved == true) await _reload();
+  }
+
+  /// Open the quick log-weight sheet, then refresh so the weight card + trend
+  /// update immediately.
+  Future<void> _logWeight() async {
+    final saved = await showLogWeightSheet(context, repo: _weighIns);
+    if (saved == true) await _reload();
   }
 
   /// Latest unfinished session (mirrors [WorkoutRepo.activeSession]).
@@ -144,12 +182,26 @@ class _TodayPageState extends ConsumerState<TodayPage> {
               AppSpacing.gapV8,
             ],
 
-            const SectionHeader(title: 'WEIGHT'),
-            _WeightCard(profile: _profile),
+            SectionHeader(
+              title: 'WEIGHT',
+              trailing: TextButton(
+                key: const Key('today-log-weight'),
+                onPressed: _logWeight,
+                child: const Text('Log weight'),
+              ),
+            ),
+            _WeightCard(profile: _profile, trend: _weightTrend),
             AppSpacing.gapV8,
 
-            const SectionHeader(title: 'NUTRITION'),
-            _NutritionCard(today: _today),
+            SectionHeader(
+              title: 'NUTRITION',
+              trailing: TextButton(
+                key: const Key('today-edit-goals'),
+                onPressed: _editGoals,
+                child: Text(_goalsData.isEmpty ? 'Set goals' : 'Edit goals'),
+              ),
+            ),
+            _NutritionCard(today: _today, goals: _goalsData),
             AppSpacing.gapV8,
 
             const SectionHeader(title: 'TRAINING'),
@@ -274,22 +326,29 @@ class _SetupProfileCard extends StatelessWidget {
 
 // ── Weight card ──────────────────────────────────────────────────────────────
 
-/// Current weight as an editorial hero number, plus goal direction and goal
-/// weight. R1 has no weigh-in history (the profile carries a single [weightKg]
-/// scalar), so there is honestly no trend delta to show — we omit it rather
-/// than invent one. If/when a history source lands, a ▲/▼ delta slots in here.
+/// Current weight as an editorial hero number, plus a real ▲/▼ trend, goal
+/// direction and goal weight.
+///
+/// Current weight comes from the LATEST real weigh-in ([WeightTrend.currentKg]);
+/// if there are no weigh-ins yet it falls back to the profile's single
+/// [weightKg] scalar. The trend delta is shown ONLY when the history supports it
+/// (≥2 real weigh-ins) — with one reading we show current and no arrow, never an
+/// invented trend.
 class _WeightCard extends StatelessWidget {
-  const _WeightCard({required this.profile});
+  const _WeightCard({required this.profile, required this.trend});
 
   final Profile profile;
+  final WeightTrend trend;
 
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
     final text = Theme.of(context).textTheme;
 
-    final hasWeight = profile.weightKg != null;
-    final weightStr = hasWeight ? formatKg(profile.weightKg!) : '—';
+    // Prefer the latest real weigh-in; fall back to the profile scalar.
+    final currentKg = trend.currentKg ?? profile.weightKg;
+    final hasWeight = currentKg != null;
+    final weightStr = hasWeight ? formatKg(currentKg) : '—';
 
     return StatCard(
       child: Row(
@@ -323,6 +382,14 @@ class _WeightCard extends StatelessWidget {
                         ),
                       ),
                     ],
+                    // A real ▲/▼ delta — only when ≥2 weigh-ins ground it.
+                    if (trend.hasTrend) ...[
+                      AppSpacing.gapH2,
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: _TrendChip(trend: trend),
+                      ),
+                    ],
                   ],
                 ),
                 AppSpacing.gapV1,
@@ -344,7 +411,8 @@ class _WeightCard extends StatelessWidget {
 
   /// A quiet supporting line under the hero number.
   String _subtitle() {
-    if (profile.weightKg == null) return 'Log your weight to begin';
+    final hasWeight = trend.currentKg != null || profile.weightKg != null;
+    if (!hasWeight) return 'Log your weight to begin';
     final dir = profile.goalDirection;
     if (dir == null) return 'Current weight';
     switch (dir) {
@@ -396,19 +464,61 @@ class _GoalBadge extends StatelessWidget {
   }
 }
 
+/// A small ▲/▼ weight-trend chip: the net change since the earliest logged
+/// weigh-in. Down (weight loss) reads green (accent); up reads in the warm
+/// primary; a flat delta is a quiet dash. Never shown without a real trend.
+class _TrendChip extends StatelessWidget {
+  const _TrendChip({required this.trend});
+
+  final WeightTrend trend;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    final text = Theme.of(context).textTheme;
+    // Only ever built inside `if (trend.hasTrend)`, which guarantees a non-null
+    // delta — assert it rather than `?? 0` (a fabricated 0 would read as a real
+    // "no change" trend if the guard were ever removed).
+    final delta = trend.deltaKg!;
+
+    final (IconData icon, Color color) = switch (trend.direction) {
+      TrendDirection.down => (Icons.arrow_downward, colors.accent),
+      TrendDirection.up => (Icons.arrow_upward, colors.primaryStrong),
+      _ => (Icons.remove, colors.textSecondary),
+    };
+
+    // Absolute magnitude — the arrow already carries direction.
+    final magnitude = formatKg(delta.abs());
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 16, color: color),
+        const SizedBox(width: 2),
+        Text(
+          '$magnitude kg',
+          key: const Key('today-weight-trend'),
+          style: text.labelLarge?.copyWith(color: color),
+        ),
+      ],
+    );
+  }
+}
+
 // ── Nutrition card ───────────────────────────────────────────────────────────
 
-/// Today's real intake as calories + protein/carbs/fat rings.
+/// Today's real intake as calories + protein/carbs/fat rings, filled against the
+/// user's real daily [goals].
 ///
-/// **No macro-goal store exists in R1.** So every ring here runs in its honest
-/// empty state: the value is today's REAL logged total, but there is no goal to
-/// fill against — the ring shows the value on a bare track, and the card says so
-/// plainly. When a macro-goal source lands, pass real goals into the rings and
-/// they fill automatically. A day with nothing logged shows `—`, not `0`.
+/// **Honesty:** a ring fills only when its target is a REAL (non-null) goal; an
+/// unset target keeps the ring in its honest empty state (value on a bare track,
+/// no fabricated denominator). A day with nothing logged shows `—`, not `0`. The
+/// calorie headline shows a "/ target" only when the calorie goal is set.
 class _NutritionCard extends StatelessWidget {
-  const _NutritionCard({required this.today});
+  const _NutritionCard({required this.today, required this.goals});
 
   final _DayNutrition today;
+  final NutritionGoals goals;
 
   @override
   Widget build(BuildContext context) {
@@ -438,7 +548,10 @@ class _NutritionCard extends StatelessWidget {
               Padding(
                 padding: const EdgeInsets.only(bottom: 6),
                 child: Text(
-                  'kcal today',
+                  // Show "/ target kcal" only when the calorie goal is real.
+                  goals.caloriesKcal != null
+                      ? '/ ${_round(goals.caloriesKcal!)} kcal'
+                      : 'kcal today',
                   style:
                       text.titleSmall?.copyWith(color: colors.textSecondary),
                 ),
@@ -446,27 +559,28 @@ class _NutritionCard extends StatelessWidget {
             ],
           ),
           AppSpacing.gapV5,
-          // The three macro rings — no goals in R1, so honest empty-state rings.
+          // The three macro rings — each fills against its REAL goal, else stays
+          // in the honest empty state (null goal → bare track, no fake fill).
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             children: [
               ProgressRing(
                 value: today.proteinG,
-                goal: null, // no macro-goal store in R1 — honest empty ring
+                goal: goals.proteinG,
                 label: 'Protein',
                 unit: 'g',
                 color: colors.primary,
               ),
               ProgressRing(
                 value: today.carbsG,
-                goal: null,
+                goal: goals.carbsG,
                 label: 'Carbs',
                 unit: 'g',
                 color: colors.primaryStrong,
               ),
               ProgressRing(
                 value: today.fatG,
-                goal: null,
+                goal: goals.fatG,
                 label: 'Fat',
                 unit: 'g',
                 color: colors.accent,
@@ -475,9 +589,7 @@ class _NutritionCard extends StatelessWidget {
           ),
           AppSpacing.gapV4,
           Text(
-            today.isEmpty
-                ? 'Nothing logged yet today.'
-                : 'Tracked above — set a daily goal to see targets.',
+            _caption(),
             style: text.bodySmall,
           ),
         ],
@@ -487,6 +599,16 @@ class _NutritionCard extends StatelessWidget {
 
   String _round(double v) =>
       v == v.roundToDouble() ? v.round().toString() : v.toStringAsFixed(0);
+
+  /// The honest supporting line: nothing logged, targets active, or an
+  /// invitation to set a daily goal.
+  String _caption() {
+    if (today.isEmpty) return 'Nothing logged yet today.';
+    if (goals.isEmpty) {
+      return 'Tracked above — set a daily goal to see targets.';
+    }
+    return 'Tracked above, against your daily targets.';
+  }
 }
 
 // ── Workout card ─────────────────────────────────────────────────────────────
