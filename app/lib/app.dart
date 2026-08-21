@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'app_providers.dart';
+import 'design_system/app_theme.dart';
 import 'nav/root_scaffold.dart';
 import 'onboarding/onboarding_flow.dart';
 
@@ -17,10 +18,9 @@ class HealthHubApp extends ConsumerWidget {
 
     return MaterialApp(
       title: 'Health Hub',
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.teal),
-        useMaterial3: true,
-      ),
+      theme: lightTheme,
+      darkTheme: darkTheme,
+      themeMode: ThemeMode.system,
       home: const _FirstRunGate(),
     );
   }
