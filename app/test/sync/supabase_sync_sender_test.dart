@@ -18,8 +18,10 @@ import 'package:health_hub/api/probe_status.dart';
 import 'package:health_hub/auth/auth_service.dart';
 import 'package:health_hub/auth/fake_auth_service.dart';
 import 'package:health_hub/offline/pending_mutation.dart';
+import 'package:health_hub/sync/send_result.dart';
 import 'package:health_hub/sync/supabase_sync_sender.dart';
 import 'package:health_hub/sync/supabase_writer.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' show PostgrestException;
 
 /// Records every upsert/delete; can be armed to throw. Never touches a network.
 class FakeSupabaseWriter implements SupabaseWriter {
@@ -29,8 +31,14 @@ class FakeSupabaseWriter implements SupabaseWriter {
   final Map<String, List<Map<String, dynamic>>> _tables = {};
   bool throwOnWrite = false;
 
+  /// If set, writes throw THIS instead of the generic StateError — lets a test
+  /// drive the PostgREST permanent-vs-transient classification.
+  Object? throwWith;
+
   void seed(String table, List<Map<String, dynamic>> rows) =>
       _tables[table] = rows;
+
+  Never _fail() => throw (throwWith ?? StateError('write failed'));
 
   @override
   Future<void> upsert(
@@ -38,7 +46,7 @@ class FakeSupabaseWriter implements SupabaseWriter {
     Map<String, dynamic> row, {
     required String onConflict,
   }) async {
-    if (throwOnWrite) throw StateError('write failed');
+    if (throwOnWrite || throwWith != null) _fail();
     upserts.add((table: table, row: row, onConflict: onConflict));
   }
 
@@ -48,7 +56,7 @@ class FakeSupabaseWriter implements SupabaseWriter {
     required String idColumn,
     required String idValue,
   }) async {
-    if (throwOnWrite) throw StateError('delete failed');
+    if (throwOnWrite || throwWith != null) _fail();
     deletes.add((table: table, idColumn: idColumn, idValue: idValue));
   }
 
@@ -297,10 +305,18 @@ void main() {
     test('a multi-row body with NO id is not written (stays queued)', () async {
       final w = FakeSupabaseWriter();
       final s = _sender(w);
-      // /pantry (no id in path) + a body missing `id` → can't form a PK.
+      // /pantry (no id in path) + a body missing `id` → can't form a PK. This is
+      // a structurally-bad mutation a retry can't fix, so it now classifies as a
+      // permanent reject (coarse `sendMutation` surfaces that as `degraded`, a
+      // non-network problem); it is NOT written, and the richer classification is
+      // asserted below.
       final r = await s.sendMutation(_mut(path: '/pantry', body: {'name': 'Eggs'}));
-      expect(r, ProbeStatus.offline);
+      expect(r, ProbeStatus.degraded);
       expect(w.upserts, isEmpty);
+      expect(
+        await s.classifySend(_mut(path: '/pantry', body: {'name': 'Eggs'})),
+        SendResult.rejectPermanent,
+      );
     });
   });
 
@@ -317,12 +333,102 @@ void main() {
       expect(w.upserts, isEmpty);
     });
 
-    test('a writer throw keeps the mutation queued (offline)', () async {
+    test('a generic writer throw keeps the mutation queued (transient)',
+        () async {
       final w = FakeSupabaseWriter()..throwOnWrite = true;
       final s = _sender(w);
-      final r = await s.sendMutation(
-          _mut(path: '/pantry', body: {'id': 'item-1', 'name': 'Eggs', 'zone': 'fridge'}));
-      expect(r, ProbeStatus.offline);
+      final mut =
+          _mut(path: '/pantry', body: {'id': 'item-1', 'name': 'Eggs', 'zone': 'fridge'});
+      // A non-PostgREST throw (network/StateError) is TRANSIENT — a retry might
+      // fix it — so the coarse status is `degraded` (kept queued), and the
+      // richer classification is retryTransient (bump + retry, never dropped).
+      expect(await s.sendMutation(mut), ProbeStatus.degraded);
+      expect(await s.classifySend(mut), SendResult.retryTransient);
+    });
+  });
+
+  group('classifySend — transient vs permanent (P4-E)', () {
+    PendingMutation goodPantry() =>
+        _mut(path: '/pantry', body: {'id': 'item-1', 'name': 'Eggs', 'zone': 'fridge'});
+
+    test('a confirmed upsert → sent', () async {
+      final s = _sender(FakeSupabaseWriter());
+      expect(await s.classifySend(goodPantry()), SendResult.sent);
+    });
+
+    test('unknown path → retryEnvironment (queued, no bump)', () async {
+      final s = _sender(FakeSupabaseWriter());
+      expect(await s.classifySend(_mut(path: '/mystery', body: {'id': 'x'})),
+          SendResult.retryEnvironment);
+    });
+
+    test('no authenticated user → retryEnvironment (queued until login)',
+        () async {
+      final s = _sender(FakeSupabaseWriter(), user: null);
+      expect(await s.classifySend(goodPantry()), SendResult.retryEnvironment);
+    });
+
+    test('a multi-row body with NO id → rejectPermanent (structurally bad)',
+        () async {
+      final s = _sender(FakeSupabaseWriter());
+      expect(await s.classifySend(_mut(path: '/pantry', body: {'name': 'Eggs'})),
+          SendResult.rejectPermanent);
+    });
+
+    test('a DELETE with no id in the path → rejectPermanent', () async {
+      final s = _sender(FakeSupabaseWriter());
+      expect(await s.classifySend(_mut(path: '/pantry', method: 'DELETE')),
+          SendResult.rejectPermanent);
+    });
+
+    test('PostgREST 42501 (RLS/permission) → rejectPermanent', () async {
+      final w = FakeSupabaseWriter()
+        ..throwWith = const PostgrestException(
+            message: 'permission denied', code: '42501');
+      final s = _sender(w);
+      expect(await s.classifySend(goodPantry()), SendResult.rejectPermanent);
+    });
+
+    test('PostgREST 23505 (unique violation) → rejectPermanent', () async {
+      final w = FakeSupabaseWriter()
+        ..throwWith = const PostgrestException(
+            message: 'duplicate key', code: '23505');
+      expect(await _sender(w).classifySend(goodPantry()),
+          SendResult.rejectPermanent);
+    });
+
+    test('PostgREST 400 (malformed) → rejectPermanent', () async {
+      final w = FakeSupabaseWriter()
+        ..throwWith =
+            const PostgrestException(message: 'bad request', code: '400');
+      expect(await _sender(w).classifySend(goodPantry()),
+          SendResult.rejectPermanent);
+    });
+
+    test('PostgREST 500 (server error) → retryTransient (not permanent)',
+        () async {
+      final w = FakeSupabaseWriter()
+        ..throwWith =
+            const PostgrestException(message: 'server error', code: '500');
+      expect(await _sender(w).classifySend(goodPantry()),
+          SendResult.retryTransient);
+    });
+
+    test('a PostgREST error with an UNKNOWN code defaults to transient (safe)',
+        () async {
+      // Never mistake an unfamiliar blip for a permanent reject (which would
+      // push a write out of the queue). Default to retry.
+      final w = FakeSupabaseWriter()
+        ..throwWith = const PostgrestException(
+            message: 'who knows', code: 'XX999');
+      expect(await _sender(w).classifySend(goodPantry()),
+          SendResult.retryTransient);
+    });
+
+    test('a plain network throw (no code) → retryTransient', () async {
+      final w = FakeSupabaseWriter()..throwWith = Exception('socket closed');
+      expect(await _sender(w).classifySend(goodPantry()),
+          SendResult.retryTransient);
     });
   });
 }

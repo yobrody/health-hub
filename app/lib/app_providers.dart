@@ -15,6 +15,7 @@ import 'metrics/weigh_in_repo.dart';
 import 'nutrition/nutrition_goals_repo.dart';
 import 'nutrition/nutrition_repo.dart';
 import 'nutrition/off_client.dart';
+import 'offline/failed_store.dart';
 import 'offline/outbox.dart';
 import 'offline/outbox_store.dart';
 import 'pantry/pantry_repo.dart';
@@ -55,9 +56,27 @@ final apiClientProvider = Provider<ApiClient>((ref) {
 });
 
 /// The single shared offline queue. One instance app-wide so a write queued by
-/// any repo is the SAME queue [syncServiceProvider] later flushes.
+/// any repo is the SAME queue [syncServiceProvider] later flushes. A durable
+/// [SharedPrefsFailedStore] backs the failed list, so a write the server
+/// permanently rejects (or one that exhausts its retries) survives a restart and
+/// is surfaced to the user — never silently dropped.
 final outboxProvider = Provider<Outbox>((ref) {
-  return Outbox(const SharedPrefsOutboxStore());
+  final outbox = Outbox(
+    const SharedPrefsOutboxStore(),
+    failedStore: const SharedPrefsFailedStore(),
+  );
+  ref.onDispose(outbox.dispose);
+  return outbox;
+});
+
+/// The live, honest sync state for the UI: a [SyncSnapshot] of the real pending
+/// and failed counts. Seeds with a one-shot [Outbox.snapshot] so the first frame
+/// is accurate, then tracks the Outbox's [Outbox.snapshots] stream. Never fakes
+/// a "synced" state — a failure present yields [SyncStatus.failed].
+final syncStatusProvider = StreamProvider<SyncSnapshot>((ref) async* {
+  final outbox = ref.watch(outboxProvider);
+  yield await outbox.snapshot();
+  yield* outbox.snapshots;
 });
 
 /// Local profile persistence (drives first-run detection + survives restart).

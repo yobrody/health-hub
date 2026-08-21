@@ -5,6 +5,7 @@ import '../pages/gym_page.dart';
 import '../pages/nutrition_page.dart';
 import '../pages/settings_page.dart';
 import '../pages/today_page.dart';
+import '../sync/sync_status_banner.dart';
 
 /// Root navigation shell: a bottom [NavigationBar] of 5 destinations
 /// switching an [IndexedStack] of placeholder pages.
@@ -37,9 +38,22 @@ class _RootScaffoldState extends State<RootScaffold> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: IndexedStack(
-        index: _selectedIndex,
-        children: _pages,
+      body: Column(
+        children: [
+          Expanded(
+            child: IndexedStack(
+              index: _selectedIndex,
+              children: _pages,
+            ),
+          ),
+          // The honest, app-wide sync indicator. Renders nothing when synced;
+          // "Syncing…" when writes are queued; a "couldn't sync" warning with a
+          // Try-again when writes failed. Sits just above the nav bar.
+          const SafeArea(
+            top: false,
+            child: SyncStatusBanner(),
+          ),
+        ],
       ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _selectedIndex,

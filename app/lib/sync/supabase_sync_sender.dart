@@ -1,8 +1,11 @@
 // ignore_for_file: prefer_initializing_formals
 
+import 'package:supabase_flutter/supabase_flutter.dart' show PostgrestException;
+
 import '../api/probe_status.dart';
 import '../auth/auth_service.dart';
 import '../offline/pending_mutation.dart';
+import 'send_result.dart';
 import 'sync_service.dart' show MutationSender;
 import 'supabase_tables.dart';
 import 'supabase_writer.dart';
@@ -45,18 +48,38 @@ class SupabaseSyncSender implements MutationSender {
 
   @override
   Future<ProbeStatus> sendMutation(PendingMutation m) async {
+    // Kept for the coarse [ProbeStatus] seam. Derive it from the richer
+    // classification so the two never disagree. A permanent reject maps to
+    // `degraded` here (a server-side refusal is a real, non-network problem) —
+    // but the Outbox uses [classifySend], not this, to decide reject-vs-retry.
+    switch (await classifySend(m)) {
+      case SendResult.sent:
+        return ProbeStatus.online;
+      case SendResult.retryEnvironment:
+        return ProbeStatus.offline;
+      case SendResult.retryTransient:
+      case SendResult.rejectPermanent:
+        return ProbeStatus.degraded;
+    }
+  }
+
+  @override
+  Future<SendResult> classifySend(PendingMutation m) async {
     final table = tableForPath(m.path);
     if (table == null) {
-      // Unknown route — we don't know where this belongs. Do NOT drop it; keep
-      // it queued (a later build may add the mapping). Report offline.
-      return ProbeStatus.offline;
+      // Unknown route — we don't know where this belongs. Do NOT drop it, and
+      // do NOT burn a retry: it's an environmental gap (a later build adds the
+      // mapping), not a bad mutation. Keep it queued.
+      return SendResult.retryEnvironment;
     }
 
     final userId = _auth.currentUser?.id;
     if (userId == null) {
       // No session → we cannot scope the row to a user, and RLS would reject it
-      // anyway. Keep it queued until the user signs in. Never succeed-drop.
-      return ProbeStatus.offline;
+      // anyway. Keep it queued until the user signs in, WITHOUT bumping tries —
+      // being signed out is environmental, not the mutation's fault. Never
+      // succeed-drop.
+      return SendResult.retryEnvironment;
     }
 
     try {
@@ -64,19 +87,69 @@ class SupabaseSyncSender implements MutationSender {
         // A queued DELETE (e.g. `DELETE /pantry/{id}`). Singletons are never
         // deleted this way; only the multi-row aggregates enqueue DELETEs.
         final id = _idFromPath(m.path);
-        if (id == null) return ProbeStatus.offline; // malformed — stay queued.
+        // Malformed path (no id) — a retry can't fix a structurally-bad
+        // mutation, so reject it (surface it) rather than wedging the queue.
+        if (id == null) return SendResult.rejectPermanent;
         await _writer.deleteById(table.name, idColumn: 'id', idValue: id);
-        return ProbeStatus.online;
+        return SendResult.sent;
       }
 
       final row = _buildRow(table, m, userId);
-      if (row == null) return ProbeStatus.offline; // couldn't build — stay queued.
+      // Couldn't build a valid row (e.g. a multi-row body with no id) — that's a
+      // structurally-bad mutation a retry can't fix. Reject + surface it.
+      if (row == null) return SendResult.rejectPermanent;
       await _writer.upsert(table.name, row, onConflict: table.conflictColumn);
-      return ProbeStatus.online;
+      return SendResult.sent;
+    } on PostgrestException catch (e) {
+      // The server answered with a PostgREST error. Classify honestly: some are
+      // permanent (a retry can NEVER fix them), the rest are transient.
+      return _isPermanent(e) ? SendResult.rejectPermanent : SendResult.retryTransient;
     } catch (_) {
-      // Any write failure (network, RLS, server) → stay queued, retry later.
-      return ProbeStatus.offline;
+      // A non-PostgREST failure (network drop, timeout, SocketException, an
+      // AuthException on token refresh) — transient by nature. Keep it queued
+      // and let the retry/bump machinery handle a stuck one via kMaxTries.
+      return SendResult.retryTransient;
     }
+  }
+
+  /// Whether a [PostgrestException] represents a PERMANENT rejection — one a
+  /// retry can never fix, so the mutation must be surfaced as failed rather than
+  /// retried forever.
+  ///
+  /// Honesty note: we default to TRANSIENT (retry) for anything we don't
+  /// recognise, so an unfamiliar transient blip is never mistaken for a
+  /// permanent reject and pushed out of the queue prematurely. Only codes we are
+  /// confident are unrecoverable count as permanent.
+  static bool _isPermanent(PostgrestException e) {
+    final code = e.code;
+    if (code == null) return false;
+
+    // PostgREST surfaces the HTTP-ish status as the code for request-level
+    // problems, and the raw PostgreSQL SQLSTATE for constraint/permission
+    // errors. Match both families.
+    const permanentHttp = {
+      '400', // malformed request / bad body
+      '403', // RLS / permission denied for an authenticated user
+      '409', // conflict (e.g. unique violation surfaced as HTTP 409)
+      '422', // unprocessable — validation failure
+      // 401 is deliberately NOT listed: a JWT that expired/malformed on the
+      // server is transient — keep the write queued and retry after the session
+      // refreshes, rather than surfacing a valid write as permanently failed.
+    };
+    const permanentSqlState = {
+      '42501', // insufficient_privilege — RLS policy violation
+      '23505', // unique_violation
+      '23503', // foreign_key_violation
+      '23502', // not_null_violation
+      '23514', // check_violation
+      '22P02', // invalid_text_representation (malformed value)
+      '22007', // invalid_datetime_format
+    };
+    if (permanentHttp.contains(code)) return true;
+    if (permanentSqlState.contains(code)) return true;
+
+    // A 5xx (or any other unrecognised code) is treated as transient → retry.
+    return false;
   }
 
   /// Build the upsert row for [table] from [m]'s body + the current [userId].
