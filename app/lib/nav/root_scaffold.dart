@@ -19,12 +19,16 @@ class RootScaffold extends StatefulWidget {
 class _RootScaffoldState extends State<RootScaffold> {
   int _selectedIndex = 0;
 
-  static const List<Widget> _pages = [
-    TodayPage(),
-    FoodPage(),
-    GymPage(),
-    NutritionPage(),
-    SettingsPage(),
+  /// The Food (Fridge & Pantry) tab index — used by the home pantry-glance
+  /// cross-link to jump straight to the pantry.
+  static const int _foodTabIndex = 1;
+
+  late final List<Widget> _pages = [
+    TodayPage(onOpenPantry: () => setState(() => _selectedIndex = _foodTabIndex)),
+    const FoodPage(),
+    const GymPage(),
+    const NutritionPage(),
+    const SettingsPage(),
   ];
 
   static const List<NavigationDestination> _destinations = [
