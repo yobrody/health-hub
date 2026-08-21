@@ -18,6 +18,9 @@ import '../nutrition/nutrition_goals.dart';
 import '../nutrition/nutrition_goals_repo.dart';
 import '../nutrition/nutrition_repo.dart';
 import '../onboarding/onboarding_flow.dart';
+import '../pantry/pantry_glance.dart';
+import '../pantry/pantry_item.dart';
+import '../pantry/pantry_repo.dart';
 import '../profile/profile_model.dart';
 import '../profile/profile_repo.dart';
 import '../widgets/log_weight_sheet.dart';
@@ -51,6 +54,8 @@ class TodayPage extends ConsumerStatefulWidget {
     this.workoutRepo,
     this.goalsRepo,
     this.weighInRepo,
+    this.pantryRepo,
+    this.onOpenPantry,
   });
 
   final ProfileRepo? repo;
@@ -58,6 +63,12 @@ class TodayPage extends ConsumerStatefulWidget {
   final WorkoutRepo? workoutRepo;
   final NutritionGoalsRepo? goalsRepo;
   final WeighInRepo? weighInRepo;
+  final PantryRepo? pantryRepo;
+
+  /// Called when the pantry-glance card is tapped — opens the Fridge & Pantry
+  /// (Food) page. Wired by the root shell to switch to the Food tab. When null
+  /// (e.g. in isolated tests) the card still renders but tapping is a no-op.
+  final VoidCallback? onOpenPantry;
 
   @override
   ConsumerState<TodayPage> createState() => _TodayPageState();
@@ -73,6 +84,8 @@ class _TodayPageState extends ConsumerState<TodayPage> {
       widget.goalsRepo ?? ref.read(nutritionGoalsRepoProvider);
   late final WeighInRepo _weighIns =
       widget.weighInRepo ?? ref.read(weighInRepoProvider);
+  late final PantryRepo _pantry =
+      widget.pantryRepo ?? ref.read(pantryRepoProvider);
 
   Profile _profile = const Profile();
   _DayNutrition _today = const _DayNutrition.empty();
@@ -80,6 +93,7 @@ class _TodayPageState extends ConsumerState<TodayPage> {
   WeightTrend _weightTrend = WeightTrend.none;
   WorkoutSession? _activeSession;
   WorkoutSession? _lastFinished;
+  PantryGlance _glance = const PantryGlance(expiringSoon: [], lowStock: []);
   bool _loading = true;
 
   @override
@@ -94,9 +108,14 @@ class _TodayPageState extends ConsumerState<TodayPage> {
     final sessions = await _workout.all();
     final goals = await _goals.load();
     final weighInHistory = await _weighIns.all();
+    final pantryItems = await _pantry.all();
     if (!mounted) return;
 
-    final todayEntries = _nutrition.logsForDay(foodLog, DateTime.now());
+    // Anchor both the "today" food filter and the pantry glance to a SINGLE
+    // `now`, so the two snapshots can't disagree if the clock ticks past
+    // midnight between the awaits above.
+    final now = DateTime.now();
+    final todayEntries = _nutrition.logsForDay(foodLog, now);
     setState(() {
       _profile = profile;
       _today = _DayNutrition.from(todayEntries);
@@ -104,6 +123,7 @@ class _TodayPageState extends ConsumerState<TodayPage> {
       _weightTrend = computeWeightTrend(weighInHistory);
       _activeSession = _findActive(sessions);
       _lastFinished = _findLastFinished(sessions);
+      _glance = pantryGlance(pantryItems, now);
       _loading = false;
     });
   }
@@ -205,6 +225,22 @@ class _TodayPageState extends ConsumerState<TodayPage> {
             ),
             _NutritionCard(today: _today, goals: _goalsData),
             AppSpacing.gapV8,
+
+            // Pantry glance — surfaced ONLY when something is honestly expiring
+            // soon or genuinely low on stock. Omitted entirely otherwise (never
+            // an invented urgency card).
+            if (!_glance.isEmpty) ...[
+              SectionHeader(
+                title: 'PANTRY',
+                trailing: TextButton(
+                  key: const Key('today-open-pantry'),
+                  onPressed: widget.onOpenPantry,
+                  child: const Text('Open'),
+                ),
+              ),
+              _PantryGlanceCard(glance: _glance, onTap: widget.onOpenPantry),
+              AppSpacing.gapV8,
+            ],
 
                 const SectionHeader(title: 'TRAINING'),
                 _WorkoutCard(
@@ -620,6 +656,101 @@ class _NutritionCard extends StatelessWidget {
       return 'Tracked above — set a daily goal to see targets.';
     }
     return 'Tracked above, against your daily targets.';
+  }
+}
+
+// ── Pantry glance card ───────────────────────────────────────────────────────
+
+/// A calm cross-link to the pantry: the few items honestly expiring soon and/or
+/// genuinely low on stock. Built ONLY from real [PantryItem.expiry] / qty via
+/// the pure [pantryGlance] — it never invents urgency, and the whole card is
+/// omitted by the caller when the glance is empty. Tapping opens the Food page.
+class _PantryGlanceCard extends StatelessWidget {
+  const _PantryGlanceCard({required this.glance, this.onTap});
+
+  final PantryGlance glance;
+  final VoidCallback? onTap;
+
+  /// Cap the list so the card stays a calm glance, not a full inventory.
+  static const int _maxPerSection = 3;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    final text = Theme.of(context).textTheme;
+
+    final expiring = glance.expiringSoon.take(_maxPerSection).toList();
+    final low = glance.lowStock
+        // Avoid showing an item twice — if it's already in the expiring list,
+        // don't repeat it under low (it reads as expiring, honestly enough).
+        .where((l) => !expiring.any((e) => e.item.id == l.item.id))
+        .take(_maxPerSection)
+        .toList();
+
+    return StatCard(
+      key: const Key('today-pantry-glance'),
+      onTap: onTap,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (expiring.isNotEmpty) ...[
+            _GlanceLine(
+              icon: Icons.schedule_outlined,
+              color: colors.primaryStrong,
+              label: expiring.length == 1
+                  ? '1 item expiring soon'
+                  : '${expiring.length} items expiring soon',
+            ),
+            AppSpacing.gapV1,
+            Text(
+              expiring.map((e) => e.item.name).join(', '),
+              style: text.bodySmall?.copyWith(color: colors.textSecondary),
+            ),
+          ],
+          if (expiring.isNotEmpty && low.isNotEmpty) AppSpacing.gapV3,
+          if (low.isNotEmpty) ...[
+            _GlanceLine(
+              icon: Icons.inventory_2_outlined,
+              color: colors.textSecondary,
+              label: low.length == 1 ? '1 item running low' : '${low.length} items running low',
+            ),
+            AppSpacing.gapV1,
+            Text(
+              low.map((e) => e.item.name).join(', '),
+              style: text.bodySmall?.copyWith(color: colors.textSecondary),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// A single icon + label headline row inside the pantry glance card.
+class _GlanceLine extends StatelessWidget {
+  const _GlanceLine({
+    required this.icon,
+    required this.color,
+    required this.label,
+  });
+
+  final IconData icon;
+  final Color color;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    return Row(
+      children: [
+        Icon(icon, size: 18, color: color),
+        AppSpacing.gapH2,
+        Expanded(
+          child: Text(label, style: text.titleSmall),
+        ),
+        Icon(Icons.chevron_right, color: context.appColors.textSecondary),
+      ],
+    );
   }
 }
 

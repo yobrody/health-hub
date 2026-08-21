@@ -28,6 +28,8 @@ import 'package:health_hub/offline/outbox.dart';
 import 'package:health_hub/offline/outbox_store.dart';
 import 'package:health_hub/offline/pending_mutation.dart';
 import 'package:health_hub/pages/today_page.dart';
+import 'package:health_hub/pantry/pantry_item.dart';
+import 'package:health_hub/pantry/pantry_repo.dart';
 import 'package:health_hub/profile/profile_repo.dart';
 
 // ── Fakes ─────────────────────────────────────────────────────────────────────
@@ -93,6 +95,15 @@ class FakeWeighInStore implements WeighInStore {
   Future<void> save(List<WeighIn> items) async => _items = List.of(items);
 }
 
+class FakePantryStore implements PantryStore {
+  FakePantryStore([List<PantryItem>? seed]) : _items = seed ?? [];
+  List<PantryItem> _items;
+  @override
+  Future<List<PantryItem>> load() async => List.unmodifiable(_items);
+  @override
+  Future<void> save(List<PantryItem> items) async => _items = List.of(items);
+}
+
 // ── Builders ─────────────────────────────────────────────────────────────────
 
 ProfileRepo _profileRepo([Map<String, dynamic>? stored]) => ProfileRepo(
@@ -122,12 +133,18 @@ WeighInRepo _weighInRepo([List<WeighIn>? seed]) => WeighInRepo(
       store: FakeWeighInStore(seed),
     );
 
+PantryRepo _pantryRepo([List<PantryItem>? seed]) => PantryRepo(
+      outbox: Outbox(FakeOutboxStore()),
+      store: FakePantryStore(seed),
+    );
+
 Widget _dashboard({
   Map<String, dynamic>? profile,
   List<FoodLogEntry>? food,
   List<WorkoutSession>? workouts,
   Map<String, dynamic>? goals,
   List<WeighIn>? weighIns,
+  List<PantryItem>? pantry,
 }) {
   return ProviderScope(
     child: MaterialApp(
@@ -138,6 +155,7 @@ Widget _dashboard({
         workoutRepo: _workoutRepo(workouts),
         goalsRepo: _goalsRepo(goals),
         weighInRepo: _weighInRepo(weighIns),
+        pantryRepo: _pantryRepo(pantry),
       ),
     ),
   );

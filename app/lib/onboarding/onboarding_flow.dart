@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../design_system/colors.dart';
+import '../design_system/spacing.dart';
 import '../profile/profile_model.dart';
 import '../profile/profile_repo.dart';
 
@@ -164,58 +166,122 @@ class _OnboardingFlowState extends State<OnboardingFlow> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final colors = context.appColors;
+    final text = Theme.of(context).textTheme;
+    final progress = (_step + 1) / _order.length;
+
     return Scaffold(
       key: const Key('onboarding-flow'),
+      backgroundColor: colors.canvas,
       appBar: AppBar(
-        title: const Text('Set up your profile'),
+        backgroundColor: colors.canvas,
+        surfaceTintColor: Colors.transparent,
+        elevation: 0,
         automaticallyImplyLeading: false,
+        // Step counter in place of the title — keeps the appbar minimal
+        title: Text(
+          'Step ${_step + 1} of ${_order.length}',
+          style: text.labelMedium?.copyWith(
+            color: colors.textSecondary,
+            letterSpacing: 0.8,
+          ),
+        ),
+        centerTitle: false,
       ),
       body: SafeArea(
         child: Padding(
-          padding: const EdgeInsets.all(24),
+          padding: AppSpacing.pagePadding,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              LinearProgressIndicator(
-                value: (_step + 1) / _order.length,
+              // ── Progress bar ──────────────────────────────────────────────
+              ClipRRect(
+                borderRadius: BorderRadius.circular(4),
+                child: LinearProgressIndicator(
+                  value: progress,
+                  minHeight: 4,
+                  backgroundColor: colors.hairline,
+                  valueColor:
+                      AlwaysStoppedAnimation<Color>(colors.primaryStrong),
+                ),
               ),
-              const SizedBox(height: 32),
-              Text(_title, style: theme.textTheme.headlineSmall),
-              const SizedBox(height: 8),
+
+              AppSpacing.gapV8,
+
+              // ── Step title ────────────────────────────────────────────────
               Text(
-                'Every step is optional — skip anything you\'d rather not share. '
-                'Skipped details show as “—” and never as a guessed value.',
-                style: theme.textTheme.bodyMedium,
+                _title,
+                style: text.headlineLarge?.copyWith(
+                  color: colors.textPrimary,
+                ),
               ),
-              const SizedBox(height: 24),
+
+              AppSpacing.gapV3,
+
+              // ── Honesty disclaimer ────────────────────────────────────────
+              Text(
+                'Every step is optional — skip anything you\'d rather not '
+                'share. Skipped details show as "—" and never as a guessed '
+                'value.',
+                style: text.bodyMedium?.copyWith(
+                  color: colors.textSecondary,
+                  height: 1.5,
+                ),
+              ),
+
+              AppSpacing.gapV6,
+
+              // ── Input field ───────────────────────────────────────────────
               TextField(
                 key: const Key('onboarding-input'),
                 controller: _input,
                 keyboardType: _numeric
                     ? const TextInputType.numberWithOptions(decimal: true)
                     : TextInputType.text,
+                style: text.bodyLarge?.copyWith(color: colors.textPrimary),
                 decoration: InputDecoration(
                   labelText: _hint,
+                  labelStyle: TextStyle(color: colors.textSecondary),
                   border: const OutlineInputBorder(),
+                  focusedBorder: OutlineInputBorder(
+                    borderSide:
+                        BorderSide(color: colors.primaryStrong, width: 2),
+                  ),
                 ),
                 onSubmitted: (_) => _next(),
               ),
+
               const Spacer(),
+
+              // ── Navigation buttons ────────────────────────────────────────
               Row(
                 children: [
                   Expanded(
                     child: OutlinedButton(
                       key: const Key('onboarding-skip'),
                       onPressed: _skip,
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: colors.textSecondary,
+                        side: BorderSide(color: colors.hairline),
+                        padding: const EdgeInsets.symmetric(
+                          vertical: AppSpacing.space4,
+                        ),
+                      ),
                       child: const Text('Skip'),
                     ),
                   ),
-                  const SizedBox(width: 16),
+                  AppSpacing.gapH4,
                   Expanded(
                     child: FilledButton(
                       key: const Key('onboarding-next'),
                       onPressed: _next,
+                      style: FilledButton.styleFrom(
+                        backgroundColor: colors.primaryStrong,
+                        foregroundColor: colors.textPrimary,
+                        padding: const EdgeInsets.symmetric(
+                          vertical: AppSpacing.space4,
+                        ),
+                      ),
                       child: Text(
                         _step >= _order.length - 1 ? 'Finish' : 'Next',
                       ),

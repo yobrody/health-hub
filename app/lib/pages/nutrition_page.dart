@@ -31,10 +31,14 @@ import '../design_system/components/stat_card.dart';
 import '../design_system/motion.dart';
 import '../design_system/shape.dart';
 import '../design_system/spacing.dart';
+import '../meals/eat_in_service.dart';
+import '../meals/meal_composition.dart';
 import '../nutrition/food_log_entry.dart';
 import '../nutrition/nutrition_repo.dart';
 import '../nutrition/off_client.dart';
 import '../nutrition/packaged_food_model.dart';
+import '../pantry/pantry_item.dart';
+import '../pantry/pantry_repo.dart';
 import '../profile/profile_model.dart'; // showOrDash
 
 // ── NutritionPage ─────────────────────────────────────────────────────────────
@@ -76,12 +80,20 @@ class NutritionPageState extends ConsumerState<NutritionPage> {
   /// Today's food log (refreshed after each Log submission).
   List<FoodLogEntry> _todayLog = [];
 
+  /// OPTIONAL pantry ingredients attached to an In (home) meal. When non-empty,
+  /// logging the meal ALSO deducts these from the pantry via [EatInService].
+  /// Empty by default — the existing "log a meal with no ingredients" path is
+  /// unchanged and never forced through the ingredient flow.
+  final List<_ChosenIngredient> _ingredients = [];
+
   bool _loading = false;
 
   // ── Providers ──────────────────────────────────────────────────────────────
 
   NutritionRepo get _repo => ref.read(nutritionRepoProvider);
   OffClient get _offClient => ref.read(offClientProvider);
+  PantryRepo get _pantryRepo => ref.read(pantryRepoProvider);
+  EatInService get _eatIn => ref.read(eatInServiceProvider);
 
   // ── Lifecycle ──────────────────────────────────────────────────────────────
 
@@ -253,9 +265,55 @@ class NutritionPageState extends ConsumerState<NutritionPage> {
     if (name.isEmpty) return;
 
     final entry = _buildEntry(isEstimate: false);
+
+    // Eat-in cross-link: when the user attached pantry ingredients to an In
+    // (home) meal, deduct them from the pantry via EatInService BEFORE logging
+    // the food entry. Deduction is offline-safe (the service queues) — a queued
+    // write is success, not failure. Any shortfall is surfaced honestly below;
+    // it never blocks the log. Out meals never touch the pantry.
+    EatInOutcome? outcome;
+    if (!_ateOut && _ingredients.isNotEmpty) {
+      final meal = MealComposition(
+        id: 'meal-${DateTime.now().microsecondsSinceEpoch}',
+        name: name,
+        ingredients: [
+          for (final c in _ingredients)
+            Ingredient(pantryItemId: c.item.id, grams: c.grams),
+        ],
+      );
+      // The food log MUST always land; the pantry deduction is best-effort.
+      // If the deduction ever throws, we swallow it here and still log the meal
+      // (with no eat-in note) rather than silently dropping the food entry.
+      try {
+        outcome = await _eatIn.eatMeal(meal);
+      } catch (_) {
+        outcome = null;
+      }
+    }
+
     await _repo.add(entry);
     _resetForm();
     await _reloadLog();
+    if (outcome != null) _surfaceEatInOutcome(outcome);
+  }
+
+  /// Show a calm, TRUTHFUL note after an eat-in deduction: confirm the log and,
+  /// if the pantry couldn't fully cover the meal, say so honestly (how many
+  /// ingredients were short) — never pretend the pantry covered it.
+  void _surfaceEatInOutcome(EatInOutcome outcome) {
+    if (!mounted) return;
+    final shortCount = outcome.shortfallByItemId.length;
+    final message = outcome.hadShortfall
+        ? (shortCount == 1
+            ? 'Logged — but you were short on 1 ingredient.'
+            : 'Logged — but you were short on $shortCount ingredients.')
+        : 'Logged — pantry updated.';
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        key: const Key('nutrition-eatin-snackbar'),
+        content: Text(message),
+      ),
+    );
   }
 
   Future<void> _guess() async {
@@ -280,7 +338,28 @@ class NutritionPageState extends ConsumerState<NutritionPage> {
       _spendCtrl.clear();
       _scannedBarcode = null;
       _barcodeNutrition = null;
+      _ingredients.clear();
     });
+  }
+
+  // ── Eat-in: pantry ingredient picker ─────────────────────────────────────────
+
+  /// Open the pantry-ingredient picker: choose a pantry item + grams to attach
+  /// to this home meal. Adds to [_ingredients]; on Log the meal deducts them.
+  Future<void> _addIngredient() async {
+    final items = await _pantryRepo.all();
+    if (!mounted) return;
+    final chosen = await showDialog<_ChosenIngredient>(
+      context: context,
+      builder: (_) => _IngredientPickerDialog(items: items),
+    );
+    if (chosen != null) {
+      setState(() => _ingredients.add(chosen));
+    }
+  }
+
+  void _removeIngredient(_ChosenIngredient c) {
+    setState(() => _ingredients.remove(c));
   }
 
   // ── Build ──────────────────────────────────────────────────────────────────
@@ -310,6 +389,12 @@ class NutritionPageState extends ConsumerState<NutritionPage> {
                 _buildInOutToggle(),
                 AppSpacing.gapV5,
                 _buildForm(),
+                // Eat-in cross-link — only for In (home) meals. Optional: a meal
+                // logs fine with no ingredients (the existing path is unchanged).
+                if (!_ateOut) ...[
+                  AppSpacing.gapV5,
+                  _buildEatInSection(),
+                ],
                 AppSpacing.gapV5,
                 _buildButtons(),
                 AppSpacing.gapV8,
@@ -444,6 +529,80 @@ class NutritionPageState extends ConsumerState<NutritionPage> {
       ),
     );
   }
+
+  // ── Eat-in from pantry section ───────────────────────────────────────────────
+
+  /// The optional "Eat in from pantry" affordance (In mode only): attach pantry
+  /// ingredients so logging the meal deducts them from stock. Chosen ingredients
+  /// show as removable rows; empty by default so the plain log path is untouched.
+  Widget _buildEatInSection() {
+    final colors = context.appColors;
+    final text = Theme.of(context).textTheme;
+
+    return StatCard(
+      key: const Key('nutrition-eatin-section'),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Eat in from pantry',
+                  style: text.titleSmall?.copyWith(color: colors.textPrimary),
+                ),
+              ),
+              TextButton.icon(
+                key: const Key('nutrition-add-ingredient'),
+                onPressed: _addIngredient,
+                icon: Icon(Icons.add, size: 18, color: colors.primaryStrong),
+                label: Text(
+                  'Add',
+                  style: text.labelMedium?.copyWith(color: colors.primaryStrong),
+                ),
+              ),
+            ],
+          ),
+          if (_ingredients.isEmpty)
+            Text(
+              'Optional — attach pantry items to deduct stock when you log.',
+              style: text.bodySmall?.copyWith(color: colors.textSecondary),
+            )
+          else
+            ..._ingredients.map(
+              (c) => Padding(
+                key: Key('nutrition-ingredient-${c.item.id}'),
+                padding: const EdgeInsets.only(top: AppSpacing.space2),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        c.item.name,
+                        style: text.bodyMedium
+                            ?.copyWith(color: colors.textPrimary),
+                      ),
+                    ),
+                    Text(
+                      '${_fmtGrams(c.grams)} g',
+                      style: text.bodyMedium
+                          ?.copyWith(color: colors.textSecondary),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close, size: 18),
+                      tooltip: 'Remove',
+                      onPressed: () => _removeIngredient(c),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  static String _fmtGrams(double g) =>
+      g == g.roundToDouble() ? g.round().toString() : g.toStringAsFixed(1);
 
   // ── Log / Guess buttons ────────────────────────────────────────────────────
 
@@ -783,6 +942,93 @@ class _LogEntryTile extends StatelessWidget {
         ),
         if (!isLast)
           Divider(height: 1, thickness: 1, color: colors.hairline),
+      ],
+    );
+  }
+}
+
+// ── Eat-in ingredient picker ──────────────────────────────────────────────────
+
+/// A pantry item chosen as a meal ingredient, plus the grams to deduct.
+class _ChosenIngredient {
+  const _ChosenIngredient({required this.item, required this.grams});
+
+  final PantryItem item;
+  final double grams;
+}
+
+/// Picks ONE pantry item + grams to attach to a home meal. Returns a
+/// [_ChosenIngredient], or null if cancelled. Honest empty state when the
+/// pantry has no items (never fabricates a stock list).
+class _IngredientPickerDialog extends StatefulWidget {
+  const _IngredientPickerDialog({required this.items});
+
+  final List<PantryItem> items;
+
+  @override
+  State<_IngredientPickerDialog> createState() =>
+      _IngredientPickerDialogState();
+}
+
+class _IngredientPickerDialogState extends State<_IngredientPickerDialog> {
+  PantryItem? _selected;
+  final _gramsCtrl = TextEditingController();
+
+  @override
+  void dispose() {
+    _gramsCtrl.dispose();
+    super.dispose();
+  }
+
+  void _confirm() {
+    final item = _selected;
+    final grams = double.tryParse(_gramsCtrl.text.trim());
+    if (item == null || grams == null || grams <= 0) return;
+    Navigator.of(context).pop(_ChosenIngredient(item: item, grams: grams));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Add pantry ingredient'),
+      content: widget.items.isEmpty
+          ? const Text('No pantry items yet. Add some on the Food page first.')
+          : Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                DropdownButtonFormField<PantryItem>(
+                  key: const Key('nutrition-ingredient-item'),
+                  initialValue: _selected,
+                  decoration: const InputDecoration(labelText: 'Pantry item'),
+                  items: widget.items
+                      .map((i) => DropdownMenuItem(
+                            value: i,
+                            child: Text(i.name),
+                          ))
+                      .toList(),
+                  onChanged: (i) => setState(() => _selected = i),
+                ),
+                const SizedBox(height: AppSpacing.space2),
+                TextField(
+                  key: const Key('nutrition-ingredient-grams'),
+                  controller: _gramsCtrl,
+                  decoration: const InputDecoration(labelText: 'Grams'),
+                  keyboardType:
+                      const TextInputType.numberWithOptions(decimal: true),
+                ),
+              ],
+            ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        if (widget.items.isNotEmpty)
+          FilledButton(
+            key: const Key('nutrition-ingredient-confirm'),
+            onPressed: _confirm,
+            child: const Text('Add'),
+          ),
       ],
     );
   }
