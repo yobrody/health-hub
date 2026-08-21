@@ -1,11 +1,12 @@
-// Widget tests for the home pantry-glance card (P4-F).
+// Widget tests for the home "Restock soon" card (R-1 — supersedes the old
+// P4-F pantry-glance card).
 //
-// The dashboard surfaces a calm PANTRY card ONLY when something is honestly
-// expiring soon or genuinely low on stock — and omits it otherwise (never an
-// invented urgency card). Tapping it opens the Food page (via onOpenPantry).
+// The dashboard surfaces a calm RESTOCK SOON card ONLY when real pantry data has
+// items low / expiring / reorder-due — and omits it otherwise (never an invented
+// urgency card). Tapping it opens the Food page (via onOpenPantry).
 //
 // Honesty invariants under test:
-//  • Expiring/low derived from REAL expiry/qty; a null-data item is not shown.
+//  • Low/expiring derived from REAL qty/expiry; a null-data item is not shown.
 //  • The card is absent when nothing qualifies.
 //  • Tapping invokes the open-pantry callback.
 
@@ -13,8 +14,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:health_hub/design_system/app_theme.dart';
-import 'package:health_hub/gym/workout_repo.dart';
-import 'package:health_hub/gym/workout_session.dart';
 import 'package:health_hub/metrics/weigh_in.dart';
 import 'package:health_hub/metrics/weigh_in_repo.dart';
 import 'package:health_hub/nutrition/food_log_entry.dart';
@@ -62,12 +61,6 @@ class _FakeNutritionStore implements NutritionStore {
   Future<void> save(List<FoodLogEntry> items) async {}
 }
 
-class _FakeWorkoutStore implements WorkoutStore {
-  @override
-  Future<List<WorkoutSession>> load() async => const [];
-  @override
-  Future<void> save(List<WorkoutSession> items) async {}
-}
 
 class _FakeGoalsStore implements NutritionGoalsStore {
   @override
@@ -105,7 +98,6 @@ Widget _dashboard(List<PantryItem> pantry, {VoidCallback? onOpenPantry}) {
           store: _FakeProfileStore({'weight_kg': 62.5}),
         ),
         nutritionRepo: NutritionRepo(outbox: _ob(), store: _FakeNutritionStore()),
-        workoutRepo: WorkoutRepo(outbox: _ob(), store: _FakeWorkoutStore()),
         goalsRepo: NutritionGoalsRepo(outbox: _ob(), store: _FakeGoalsStore()),
         weighInRepo: WeighInRepo(outbox: _ob(), store: _FakeWeighInStore()),
         pantryRepo: PantryRepo(outbox: _ob(), store: _FakePantryStore(pantry)),
@@ -126,37 +118,35 @@ PantryItem _item(String id, {double? qty, String? unit, DateTime? expiry}) =>
       source: 'manual',
     );
 
+Future<void> _scrollToRestock(WidgetTester tester) async {
+  await tester.dragUntilVisible(
+    find.byKey(const Key('home-restock-soon')),
+    find.byType(Scrollable),
+    const Offset(0, -300),
+  );
+  await tester.pumpAndSettle();
+}
+
 void main() {
-  testWidgets('shows the pantry glance when an item is expiring soon',
+  testWidgets('shows the restock card when an item is expiring soon',
       (tester) async {
     final soon = DateTime.now().add(const Duration(days: 1));
     await tester.pumpWidget(_dashboard([_item('milk', expiry: soon)]));
     await tester.pumpAndSettle();
+    await _scrollToRestock(tester);
 
-    await tester.dragUntilVisible(
-      find.byKey(const Key('today-pantry-glance')),
-      find.byType(Scrollable),
-      const Offset(0, -300),
-    );
-    await tester.pumpAndSettle();
-    expect(find.byKey(const Key('today-pantry-glance')), findsOneWidget);
-    expect(find.textContaining('expiring soon'), findsOneWidget);
+    expect(find.byKey(const Key('home-restock-soon')), findsOneWidget);
+    expect(find.textContaining('restock soon'), findsOneWidget);
     expect(find.text('milk'), findsOneWidget);
   });
 
-  testWidgets('shows the pantry glance when an item is genuinely low',
+  testWidgets('shows the restock card when an item is genuinely low',
       (tester) async {
     await tester.pumpWidget(_dashboard([_item('chicken', qty: 30, unit: 'g')]));
     await tester.pumpAndSettle();
+    await _scrollToRestock(tester);
 
-    await tester.dragUntilVisible(
-      find.byKey(const Key('today-pantry-glance')),
-      find.byType(Scrollable),
-      const Offset(0, -300),
-    );
-    await tester.pumpAndSettle();
-    expect(find.byKey(const Key('today-pantry-glance')), findsOneWidget);
-    expect(find.textContaining('running low'), findsOneWidget);
+    expect(find.byKey(const Key('home-restock-soon')), findsOneWidget);
     expect(find.text('chicken'), findsOneWidget);
   });
 
@@ -169,13 +159,13 @@ void main() {
     ]));
     await tester.pumpAndSettle();
 
-    expect(find.byKey(const Key('today-pantry-glance')), findsNothing);
+    expect(find.byKey(const Key('home-restock-soon')), findsNothing);
   });
 
   testWidgets('omits the card for an empty pantry', (tester) async {
     await tester.pumpWidget(_dashboard(const []));
     await tester.pumpAndSettle();
-    expect(find.byKey(const Key('today-pantry-glance')), findsNothing);
+    expect(find.byKey(const Key('home-restock-soon')), findsNothing);
   });
 
   testWidgets('tapping the card invokes the open-pantry callback',
@@ -187,14 +177,8 @@ void main() {
       onOpenPantry: () => opened++,
     ));
     await tester.pumpAndSettle();
-
-    await tester.dragUntilVisible(
-      find.byKey(const Key('today-pantry-glance')),
-      find.byType(Scrollable),
-      const Offset(0, -300),
-    );
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('today-pantry-glance')));
+    await _scrollToRestock(tester);
+    await tester.tap(find.byKey(const Key('home-restock-soon')));
     await tester.pumpAndSettle();
     expect(opened, 1);
   });
@@ -204,6 +188,6 @@ void main() {
     await tester.pumpWidget(_dashboard([_item('unknown', qty: null, unit: 'g')]));
     await tester.pumpAndSettle();
     // No real signal → no card.
-    expect(find.byKey(const Key('today-pantry-glance')), findsNothing);
+    expect(find.byKey(const Key('home-restock-soon')), findsNothing);
   });
 }

@@ -422,10 +422,15 @@ class GymPageState extends ConsumerState<GymPage> {
     final colors = context.appColors;
     final text = Theme.of(context).textTheme;
 
+    // First-run gate (R-1) — NON-BLOCKING: "Create" leads straight into the
+    // existing start-session flow (so the app stays fully usable); "Upload" is
+    // an honest STUB for importing a saved workout (photo/file → R-2). Once a
+    // session exists, the normal active-session UI shows instead.
     return Center(
       child: Padding(
         padding: AppSpacing.pagePadding,
         child: StatCard(
+          key: const Key('gym-gate'),
           warm: true,
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -437,30 +442,70 @@ class GymPageState extends ConsumerState<GymPage> {
                 size: 32,
               ),
               AppSpacing.gapV4,
-              Text('Ready to train?', style: text.headlineSmall),
+              Text('Create or upload a workout to begin',
+                  style: text.headlineSmall),
               AppSpacing.gapV2,
               Text(
-                'Start a session to log exercises, sets, and track progression.',
+                'Start a session to log exercises, sets, and track progression '
+                '— or import a workout you already have.',
                 style: text.bodyMedium?.copyWith(color: colors.textSecondary),
               ),
               AppSpacing.gapV6,
-              FilledButton(
-                key: const Key('gym-start-btn'),
-                onPressed: _startSession,
-                style: FilledButton.styleFrom(
-                  backgroundColor: colors.primary,
-                  foregroundColor: colors.textPrimary,
-                  shape: AppShape.buttonBorder,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: AppSpacing.space6,
-                    vertical: AppSpacing.space3,
+              // Create → the real start-session flow. Carries BOTH the gate key
+              // ('gym-gate-create') and the long-standing 'gym-start-btn' key so
+              // every existing gym test keeps working.
+              SizedBox(
+                key: const Key('gym-gate-create'),
+                width: double.infinity,
+                child: FilledButton(
+                  key: const Key('gym-start-btn'),
+                  onPressed: _startSession,
+                  style: FilledButton.styleFrom(
+                    backgroundColor: colors.primary,
+                    foregroundColor: colors.textPrimary,
+                    shape: AppShape.buttonBorder,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: AppSpacing.space6,
+                      vertical: AppSpacing.space3,
+                    ),
+                    textStyle: text.labelLarge,
                   ),
-                  textStyle: text.labelLarge,
+                  child: const Text('Create workout'),
                 ),
-                child: const Text('Start Workout'),
+              ),
+              AppSpacing.gapV2,
+              // Upload → an honest STUB (import is R-2); never fabricates data.
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton(
+                  key: const Key('gym-gate-upload'),
+                  onPressed: _uploadWorkoutStub,
+                  style: OutlinedButton.styleFrom(
+                    shape: AppShape.buttonBorder,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: AppSpacing.space6,
+                      vertical: AppSpacing.space3,
+                    ),
+                    textStyle: text.labelLarge,
+                  ),
+                  child: const Text('Upload workout'),
+                ),
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+
+  /// The workout-import path is a STUB in R-1 (photo/file import is R-2). Honest
+  /// about it: shows a "coming soon" message and never fabricates a workout.
+  void _uploadWorkoutStub() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        key: Key('gym-gate-upload-snackbar'),
+        content: Text(
+          'Workout import is coming soon — tap Create to start one now.',
         ),
       ),
     );

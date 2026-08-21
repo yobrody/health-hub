@@ -1,14 +1,18 @@
 import 'package:flutter/material.dart';
 
+import '../pages/cart_page.dart';
 import '../pages/food_page.dart';
 import '../pages/gym_page.dart';
-import '../pages/nutrition_page.dart';
-import '../pages/settings_page.dart';
 import '../pages/today_page.dart';
 import '../sync/sync_status_banner.dart';
 
-/// Root navigation shell: a bottom [NavigationBar] of 5 destinations
-/// switching an [IndexedStack] of placeholder pages.
+/// Root navigation shell: a bottom [NavigationBar] of 4 destinations
+/// (Home · Food · Gym · Cart) switching an [IndexedStack] of feature pages.
+///
+/// Settings and meal-logging (Nutrition) are deliberately NOT tabs (R-1
+/// restructure): Settings is reached via a gear button top-LEFT of Home, and
+/// "Log a meal" is a prominent Home action that pushes NutritionPage as a route.
+/// Both remain fully reachable — just not on the bottom bar.
 class RootScaffold extends StatefulWidget {
   const RootScaffold({super.key});
 
@@ -19,24 +23,23 @@ class RootScaffold extends StatefulWidget {
 class _RootScaffoldState extends State<RootScaffold> {
   int _selectedIndex = 0;
 
-  /// The Food (Fridge & Pantry) tab index — used by the home pantry-glance
-  /// cross-link to jump straight to the pantry.
+  /// The Food (Fridge & Pantry) tab index — used by the home pantry-glance and
+  /// restock-soon cross-links to jump straight to the pantry.
   static const int _foodTabIndex = 1;
 
   late final List<Widget> _pages = [
     TodayPage(onOpenPantry: () => setState(() => _selectedIndex = _foodTabIndex)),
     const FoodPage(),
     const GymPage(),
-    const NutritionPage(),
-    const SettingsPage(),
+    const CartPage(),
   ];
 
   static const List<NavigationDestination> _destinations = [
-    NavigationDestination(icon: Icon(Icons.today), label: 'Today'),
+    NavigationDestination(icon: Icon(Icons.home_outlined), label: 'Home'),
     NavigationDestination(icon: Icon(Icons.restaurant), label: 'Food'),
     NavigationDestination(icon: Icon(Icons.fitness_center), label: 'Gym'),
-    NavigationDestination(icon: Icon(Icons.pie_chart), label: 'Nutrition'),
-    NavigationDestination(icon: Icon(Icons.settings), label: 'Settings'),
+    NavigationDestination(
+        icon: Icon(Icons.shopping_cart_outlined), label: 'Cart'),
   ];
 
   @override
