@@ -10,18 +10,23 @@
 //  • An item with no expiry shows `unknown` (grey dot), not `fresh` (green).
 //  • All mutations flow through [PantryRepo] via [pantryRepoProvider].
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../app_providers.dart';
+import '../capture/camera_service.dart';
 import '../design_system/colors.dart';
 import '../design_system/components/section_header.dart';
 import '../design_system/components/stat_card.dart';
 import '../design_system/spacing.dart';
 import '../pantry/pantry_item.dart';
 import '../pantry/pantry_repo.dart';
+import '../pantry/recognition/pantry_recognition.dart';
+import '../pantry/recognition/recognition_client.dart';
 import '../pantry/shelf_life.dart';
 import '../profile/profile_model.dart'; // showOrDash
+import 'pantry_recognition_page.dart';
 
 // ── Zone display helpers ─────────────────────────────────────────────────────
 
@@ -104,10 +109,10 @@ class FoodPage extends ConsumerStatefulWidget {
   const FoodPage({super.key});
 
   @override
-  ConsumerState<FoodPage> createState() => _FoodPageState();
+  ConsumerState<FoodPage> createState() => FoodPageState();
 }
 
-class _FoodPageState extends ConsumerState<FoodPage> {
+class FoodPageState extends ConsumerState<FoodPage> {
   List<PantryItem> _items = [];
   bool _loading = true;
 
@@ -157,19 +162,114 @@ class _FoodPageState extends ConsumerState<FoodPage> {
     await _reload();
   }
 
-  /// The photo-upload path is a STUB in R-1. The real AI vision that recognizes
-  /// items from fridge/pantry photos is R-2 — so this is HONEST about that: it
-  /// shows a "coming soon" message and NEVER fabricates recognized items. Manual
-  /// add remains the real way to populate the pantry today.
-  void _uploadPhotosStub() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        key: Key('food-gate-upload-snackbar'),
-        content: Text(
-          'Photo recognition is coming soon — add items manually for now.',
-        ),
+  bool _recognizing = false;
+
+  /// Camera/gallery driver for the upload path (R-2). NOT unit-tested — it opens
+  /// [CameraService] (the `image_picker` plugin, real hardware). It captures one
+  /// or more photos, reads their bytes, and hands them to [runRecognition] (the
+  /// testable seam). Tests call [runRecognition] directly with fake bytes.
+  Future<void> _uploadPhotos() async {
+    final camera = CameraService();
+    final images = <Uint8List>[];
+
+    // Let the user add several photos (fridge, freezer, pantry, spices). We
+    // loop on the camera; the user cancels to stop.
+    while (true) {
+      final path = await camera.pickImage(
+        source: CaptureSource.camera,
+        maxWidth: 1600,
+        maxHeight: 1600,
+      );
+      if (path == null) break; // cancelled / no more
+      try {
+        final bytes = await XImageBytes.read(path);
+        if (bytes != null) images.add(bytes);
+      } catch (_) {
+        // Unreadable file — skip it rather than fabricating anything.
+      }
+      if (!mounted) return;
+      final more = await _askAddMore();
+      if (!more) break;
+    }
+
+    if (!mounted) return;
+    if (images.isEmpty) return; // nothing captured — no-op, nothing invented
+    await runRecognition(images);
+  }
+
+  Future<bool> _askAddMore() async {
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        content: const Text('Add another photo?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Done'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Add photo'),
+          ),
+        ],
       ),
     );
+    return result ?? false;
+  }
+
+  /// The TESTABLE recognition seam. Sends [images] to the recognizer, then on
+  /// success pushes the confirm-before-save screen. HONEST throughout:
+  ///  • A recognition failure surfaces an honest error snackbar and saves
+  ///    NOTHING — it never fabricates items.
+  ///  • The confirm screen is where the user reviews suggestions; nothing is
+  ///    written to the pantry until they confirm there.
+  /// Public (no `_`) so widget tests drive it directly with fake image bytes,
+  /// exactly like nutrition_page's `handleBarcodeResult`.
+  @visibleForTesting
+  Future<void> runRecognition(List<Uint8List> images) async {
+    if (_recognizing) return;
+    setState(() => _recognizing = true);
+
+    RecognitionResult result;
+    try {
+      final client = ref.read(pantryRecognitionClientProvider);
+      result = await client.recognize(images);
+    } on RecognitionFailure catch (e) {
+      if (!mounted) return;
+      setState(() => _recognizing = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          key: const Key('food-gate-upload-snackbar'),
+          content: Text(e.message),
+        ),
+      );
+      return;
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _recognizing = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          key: Key('food-gate-upload-snackbar'),
+          content: Text('Recognition failed. Add items manually.'),
+        ),
+      );
+      return;
+    }
+
+    if (!mounted) return;
+    setState(() => _recognizing = false);
+
+    // Push the confirm screen for BOTH the populated and empty cases — the
+    // empty case shows an honest "couldn't identify" fallback. Only confirmed
+    // items are saved (inside the confirm screen).
+    final saved = await Navigator.of(context).push<bool>(
+      MaterialPageRoute<bool>(
+        builder: (_) => PantryRecognitionPage(result: result),
+      ),
+    );
+    if (saved == true) {
+      await _reload();
+    }
   }
 
   // ── Detail sheet ───────────────────────────────────────────────────────────
@@ -240,8 +340,9 @@ class _FoodPageState extends ConsumerState<FoodPage> {
                 ),
                 AppSpacing.gapV2,
                 Text(
-                  'Snap your fridge, freezer, pantry & spices — photo '
-                  'recognition is coming soon. For now, add items manually.',
+                  'Snap your fridge, freezer, pantry & spices — AI suggests '
+                  'what it sees, you confirm before anything is saved. Or add '
+                  'items manually.',
                   style:
                       text.bodyMedium?.copyWith(color: colors.textSecondary),
                 ),
@@ -250,9 +351,16 @@ class _FoodPageState extends ConsumerState<FoodPage> {
                   width: double.infinity,
                   child: FilledButton.icon(
                     key: const Key('food-gate-upload'),
-                    onPressed: _uploadPhotosStub,
-                    icon: const Icon(Icons.upload_outlined),
-                    label: const Text('Upload photos'),
+                    onPressed: _recognizing ? null : _uploadPhotos,
+                    icon: _recognizing
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.photo_camera_outlined),
+                    label: Text(
+                        _recognizing ? 'Recognizing…' : 'Snap photos'),
                   ),
                 ),
                 AppSpacing.gapV2,
