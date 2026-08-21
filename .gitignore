@@ -46,3 +46,5 @@ scripts/_check.mjs
 
 # Serena agent workspace
 .serena/
+.supabase-admin.local
+*.admin.local

@@ -21,6 +21,9 @@ import 'package:health_hub/nutrition/food_log_entry.dart';
 import 'package:health_hub/nutrition/nutrition_repo.dart';
 import 'package:health_hub/gym/workout_repo.dart';
 import 'package:health_hub/gym/workout_session.dart';
+import 'package:health_hub/metrics/weigh_in.dart';
+import 'package:health_hub/metrics/weigh_in_repo.dart';
+import 'package:health_hub/nutrition/nutrition_goals_repo.dart';
 import 'package:health_hub/offline/outbox.dart';
 import 'package:health_hub/offline/outbox_store.dart';
 import 'package:health_hub/offline/pending_mutation.dart';
@@ -71,6 +74,25 @@ class FakeWorkoutStore implements WorkoutStore {
   Future<void> save(List<WorkoutSession> items) async => _items = List.of(items);
 }
 
+class FakeGoalsStore implements NutritionGoalsStore {
+  FakeGoalsStore([this._saved]);
+  Map<String, dynamic>? _saved;
+  @override
+  Future<Map<String, dynamic>?> load() async => _saved;
+  @override
+  Future<void> save(Map<String, dynamic> json) async =>
+      _saved = Map<String, dynamic>.from(json);
+}
+
+class FakeWeighInStore implements WeighInStore {
+  FakeWeighInStore([List<WeighIn>? seed]) : _items = seed ?? [];
+  List<WeighIn> _items;
+  @override
+  Future<List<WeighIn>> load() async => List.unmodifiable(_items);
+  @override
+  Future<void> save(List<WeighIn> items) async => _items = List.of(items);
+}
+
 // ── Builders ─────────────────────────────────────────────────────────────────
 
 ProfileRepo _profileRepo([Map<String, dynamic>? stored]) => ProfileRepo(
@@ -89,10 +111,23 @@ WorkoutRepo _workoutRepo([List<WorkoutSession>? seed]) => WorkoutRepo(
       store: FakeWorkoutStore(seed),
     );
 
+NutritionGoalsRepo _goalsRepo([Map<String, dynamic>? stored]) =>
+    NutritionGoalsRepo(
+      outbox: Outbox(FakeOutboxStore()),
+      store: FakeGoalsStore(stored),
+    );
+
+WeighInRepo _weighInRepo([List<WeighIn>? seed]) => WeighInRepo(
+      outbox: Outbox(FakeOutboxStore()),
+      store: FakeWeighInStore(seed),
+    );
+
 Widget _dashboard({
   Map<String, dynamic>? profile,
   List<FoodLogEntry>? food,
   List<WorkoutSession>? workouts,
+  Map<String, dynamic>? goals,
+  List<WeighIn>? weighIns,
 }) {
   return ProviderScope(
     child: MaterialApp(
@@ -101,6 +136,8 @@ Widget _dashboard({
         repo: _profileRepo(profile),
         nutritionRepo: _nutritionRepo(food),
         workoutRepo: _workoutRepo(workouts),
+        goalsRepo: _goalsRepo(goals),
+        weighInRepo: _weighInRepo(weighIns),
       ),
     ),
   );
@@ -289,5 +326,100 @@ void main() {
     await _scrollToTraining(tester);
 
     expect(find.text('Start a workout'), findsOneWidget);
+  });
+
+  // ── Nutrition-goal wiring (P4-D4) ──────────────────────────────────────────
+
+  testWidgets('rings fill against a REAL goal when one is set', (tester) async {
+    await tester.pumpWidget(_dashboard(
+      profile: {'weight_kg': 62.5},
+      food: [_entry(kcal: 500, protein: 40, carbs: 35, fat: 15)],
+      goals: {
+        'caloriesKcal': 2500,
+        'proteinG': 150,
+        'carbsG': 250,
+        'fatG': 70,
+      },
+    ));
+    await tester.pumpAndSettle();
+
+    // Each ring now carries its real target — no more null goals.
+    final rings = tester.widgetList<ProgressRing>(find.byType(ProgressRing));
+    expect(rings, hasLength(3));
+    expect(rings.map((r) => r.goal), [150.0, 250.0, 70.0]);
+    // The calorie headline shows the real target denominator.
+    expect(find.text('/ 2500 kcal'), findsOneWidget);
+    // Honest caption when targets are active.
+    expect(find.textContaining('against your daily targets'), findsOneWidget);
+  });
+
+  testWidgets('an unset macro target keeps the honest empty ring', (tester) async {
+    // Only calories set; the three macro targets stay null → empty rings.
+    await tester.pumpWidget(_dashboard(
+      profile: {'weight_kg': 62.5},
+      food: [_entry(protein: 40)],
+      goals: {'caloriesKcal': 2500},
+    ));
+    await tester.pumpAndSettle();
+
+    final rings = tester.widgetList<ProgressRing>(find.byType(ProgressRing));
+    for (final r in rings) {
+      expect(r.goal, isNull); // macro targets unset → no fabricated fill
+    }
+  });
+
+  // ── Weigh-in / weight-trend wiring (P4-D4) ─────────────────────────────────
+
+  testWidgets('weight card shows current from the latest weigh-in', (tester) async {
+    await tester.pumpWidget(_dashboard(
+      profile: {'weight_kg': 62.5}, // profile scalar…
+      weighIns: [
+        // …but a newer weigh-in supersedes it as "current".
+        WeighIn(
+          id: 'w-1',
+          at: DateTime.now().subtract(const Duration(days: 1)),
+          weightKg: 63.0,
+        ),
+      ],
+    ));
+    await tester.pumpAndSettle();
+
+    // Current = the single weigh-in's 63, not the 62.5 profile scalar.
+    expect(find.textContaining('63'), findsWidgets);
+    // One reading → NO trend arrow (never invented).
+    expect(find.byKey(const Key('today-weight-trend')), findsNothing);
+  });
+
+  testWidgets('weight card shows a real ▼ trend with ≥2 weigh-ins', (tester) async {
+    await tester.pumpWidget(_dashboard(
+      profile: {'weight_kg': 62.0},
+      weighIns: [
+        WeighIn(
+          id: 'w-old',
+          at: DateTime(2026, 8, 1),
+          weightKg: 65.0,
+        ),
+        WeighIn(
+          id: 'w-new',
+          at: DateTime(2026, 8, 20),
+          weightKg: 62.0,
+        ),
+      ],
+    ));
+    await tester.pumpAndSettle();
+
+    // 65 → 62 = a real 3 kg drop; the trend chip renders.
+    final chip = find.byKey(const Key('today-weight-trend'));
+    expect(chip, findsOneWidget);
+    expect(find.textContaining('3 kg'), findsOneWidget);
+  });
+
+  testWidgets('no weigh-ins → falls back to the profile scalar, no trend',
+      (tester) async {
+    await tester.pumpWidget(_dashboard(profile: {'weight_kg': 62.5}));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('62.5'), findsWidgets); // profile fallback
+    expect(find.byKey(const Key('today-weight-trend')), findsNothing);
   });
 }

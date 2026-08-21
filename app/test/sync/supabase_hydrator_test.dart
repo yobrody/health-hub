@@ -14,7 +14,11 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:health_hub/gym/workout_repo.dart' show WorkoutStore;
 import 'package:health_hub/gym/workout_session.dart';
+import 'package:health_hub/metrics/weigh_in.dart';
+import 'package:health_hub/metrics/weigh_in_repo.dart' show WeighInStore;
 import 'package:health_hub/nutrition/food_log_entry.dart';
+import 'package:health_hub/nutrition/nutrition_goals_repo.dart'
+    show NutritionGoalsStore;
 import 'package:health_hub/nutrition/nutrition_repo.dart' show NutritionStore;
 import 'package:health_hub/pantry/pantry_item.dart';
 import 'package:health_hub/pantry/pantry_repo.dart' show PantryStore;
@@ -83,23 +87,48 @@ class FakeWorkoutStore implements WorkoutStore {
   Future<void> save(List<WorkoutSession> next) async => sessions = List.of(next);
 }
 
+class FakeGoalsStore implements NutritionGoalsStore {
+  Map<String, dynamic>? saved;
+  FakeGoalsStore([this.saved]);
+  @override
+  Future<Map<String, dynamic>?> load() async => saved;
+  @override
+  Future<void> save(Map<String, dynamic> json) async =>
+      saved = Map<String, dynamic>.from(json);
+}
+
+class FakeWeighInStore implements WeighInStore {
+  List<WeighIn> items;
+  FakeWeighInStore([this.items = const []]);
+  @override
+  Future<List<WeighIn>> load() async => items;
+  @override
+  Future<void> save(List<WeighIn> next) async => items = List.of(next);
+}
+
 ({
   SupabaseHydrator hydrator,
   FakeProfileStore profile,
   FakePantryStore pantry,
   FakeNutritionStore nutrition,
   FakeWorkoutStore workout,
+  FakeGoalsStore goals,
+  FakeWeighInStore weighIns,
 }) _build(
   FakeSupabaseWriter writer, {
   FakeProfileStore? profile,
   FakePantryStore? pantry,
   FakeNutritionStore? nutrition,
   FakeWorkoutStore? workout,
+  FakeGoalsStore? goals,
+  FakeWeighInStore? weighIns,
 }) {
   final p = profile ?? FakeProfileStore();
   final pa = pantry ?? FakePantryStore();
   final n = nutrition ?? FakeNutritionStore();
   final w = workout ?? FakeWorkoutStore();
+  final g = goals ?? FakeGoalsStore();
+  final wi = weighIns ?? FakeWeighInStore();
   return (
     hydrator: SupabaseHydrator(
       writer: writer,
@@ -107,11 +136,15 @@ class FakeWorkoutStore implements WorkoutStore {
       pantryStore: pa,
       nutritionStore: n,
       workoutStore: w,
+      goalsStore: g,
+      weighInStore: wi,
     ),
     profile: p,
     pantry: pa,
     nutrition: n,
     workout: w,
+    goals: g,
+    weighIns: wi,
   );
 }
 
@@ -219,6 +252,51 @@ void main() {
     await env.hydrator.hydrate('u1');
 
     expect(env.profile.saved, {'weight_kg': 70.0}); // untouched.
+  });
+
+  test('goals singleton rebuilt from its data jsonb', () async {
+    final writer = FakeSupabaseWriter()
+      ..seed('nutrition_goals', [
+        {
+          'user_id': 'u1',
+          'calories_kcal': 2500,
+          'data': {'caloriesKcal': 2500, 'proteinG': 150},
+        }
+      ]);
+    final env = _build(writer);
+    await env.hydrator.hydrate('u1');
+
+    expect(env.goals.saved, isNotNull);
+    expect(env.goals.saved!['caloriesKcal'], 2500);
+    expect(env.goals.saved!['proteinG'], 150);
+  });
+
+  test('weigh-ins rebuilt from their data jsonb into the local store', () async {
+    final writer = FakeSupabaseWriter()
+      ..seed('weigh_ins', [
+        {
+          'id': 'weigh-1',
+          'user_id': 'u1',
+          'data': {
+            'id': 'weigh-1',
+            'at': '2026-08-21T08:00:00.000',
+            'weightKg': 62.5,
+          },
+        }
+      ]);
+    final env = _build(writer);
+    await env.hydrator.hydrate('u1');
+
+    expect(env.weighIns.items.single.id, 'weigh-1');
+    expect(env.weighIns.items.single.weightKg, 62.5);
+  });
+
+  test('an EMPTY goals pull leaves local goals intact', () async {
+    final writer = FakeSupabaseWriter(); // nothing seeded.
+    final existing = FakeGoalsStore({'caloriesKcal': 2000});
+    final env = _build(writer, goals: existing);
+    await env.hydrator.hydrate('u1');
+    expect(env.goals.saved, {'caloriesKcal': 2000}); // untouched.
   });
 
   test('a row with no/invalid data is skipped, not fabricated', () async {

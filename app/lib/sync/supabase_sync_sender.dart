@@ -100,7 +100,17 @@ class SupabaseSyncSender implements MutationSender {
     };
 
     if (table.singleton) {
-      // profile / nutrition_goals: keyed on user_id, no client id column needed.
+      // Singletons upsert on `user_id` (one row per user). The `profile` table
+      // has NO `id` column — user_id IS its primary key — so we set no id. But
+      // `nutrition_goals` additionally declares a `text` PK `id` (required, no
+      // default): omitting it would violate NOT NULL and the write would fail
+      // forever (silently re-queued). So we mint a STABLE per-user id for it —
+      // stable so an Outbox replay upserts idempotently (insert supplies id,
+      // conflict on user_id updates), and unique per user so the global `id` PK
+      // never collides across users. Nothing is fabricated in `data`.
+      if (table.name == 'nutrition_goals') {
+        row['id'] = 'goals-$userId';
+      }
       _liftSingletonColumns(table, body, row);
       return row;
     }
@@ -167,8 +177,8 @@ class SupabaseSyncSender implements MutationSender {
         _put(row, 'shared', body['shared']);
         break;
       case 'weigh_ins':
-        // Reserve for the next task — the weigh-in aggregate carries at least a
-        // weight + timestamp. Lift them if present; nothing fabricated.
+        // WeighIn.toJson(): weightKg (nullable), at (ISO). Lift both when
+        // present; a null weight stays absent (NULL), never a fabricated 0.
         _put(row, 'weight_kg', body['weightKg'] ?? body['weight_kg']);
         _put(row, 'at', body['at']);
         break;
@@ -197,8 +207,9 @@ class SupabaseSyncSender implements MutationSender {
         _put(row, 'primary_gym', body['primary_gym']);
         break;
       case 'nutrition_goals':
-        // Reserve for the next task's goals aggregate. Lift the four targets if
-        // present; an unset target stays NULL (honest empty state).
+        // NutritionGoals.toJson(): caloriesKcal/proteinG/carbsG/fatG, all
+        // nullable + omitted when unset. Lift the four targets when present; an
+        // unset target stays NULL server-side (the honest empty ring).
         _put(row, 'calories_kcal', body['caloriesKcal'] ?? body['calories_kcal']);
         _put(row, 'protein_g', body['proteinG'] ?? body['protein_g']);
         _put(row, 'carbs_g', body['carbsG'] ?? body['carbs_g']);

@@ -129,6 +129,81 @@ void main() {
       expect(w.upserts.map((u) => u.table), ['nutrition_goals', 'weigh_ins']);
     });
 
+    test('/goals lifts the four targets + user_id + data (singleton)', () async {
+      final w = FakeSupabaseWriter();
+      final s = _sender(w);
+      final body = {
+        'caloriesKcal': 2500,
+        'proteinG': 150,
+        'carbsG': 250,
+        'fatG': 70,
+      };
+      final r = await s.sendMutation(_mut(path: '/goals', body: body));
+      expect(r, ProbeStatus.online);
+      final u = w.upserts.single;
+      expect(u.table, 'nutrition_goals');
+      expect(u.onConflict, 'user_id'); // singleton keyed on user_id
+      expect(u.row['user_id'], 'user-123');
+      // nutrition_goals has a required `id` PK; a STABLE per-user id is set so
+      // the NOT-NULL PK is satisfied and replays upsert idempotently.
+      expect(u.row['id'], 'goals-user-123');
+      expect(u.row['data'], body); // full snapshot = source of truth
+      // Flat columns lifted (camelCase → snake_case).
+      expect(u.row['calories_kcal'], 2500);
+      expect(u.row['protein_g'], 150);
+      expect(u.row['carbs_g'], 250);
+      expect(u.row['fat_g'], 70);
+    });
+
+    test('/goals with an unset target leaves that column absent (NULL, honest)',
+        () async {
+      final w = FakeSupabaseWriter();
+      final s = _sender(w);
+      // Only calories set — the three macro targets are absent from the body.
+      await s.sendMutation(_mut(path: '/goals', body: {'caloriesKcal': 2200}));
+      final row = w.upserts.single.row;
+      expect(row['calories_kcal'], 2200);
+      // No fabricated 0s for the unset macros.
+      expect(row.containsKey('protein_g'), isFalse);
+      expect(row.containsKey('carbs_g'), isFalse);
+      expect(row.containsKey('fat_g'), isFalse);
+    });
+
+    test('/weigh-ins lifts weight_kg + at + id + user_id + data', () async {
+      final w = FakeSupabaseWriter();
+      final s = _sender(w);
+      final body = {
+        'id': 'weigh-1',
+        'at': '2026-08-21T08:00:00.000',
+        'weightKg': 62.5,
+      };
+      final r =
+          await s.sendMutation(_mut(path: '/weigh-ins', body: body));
+      expect(r, ProbeStatus.online);
+      final u = w.upserts.single;
+      expect(u.table, 'weigh_ins');
+      expect(u.onConflict, 'id'); // multi-row keyed on id
+      expect(u.row['user_id'], 'user-123');
+      expect(u.row['id'], 'weigh-1');
+      expect(u.row['data'], body);
+      expect(u.row['weight_kg'], 62.5);
+      expect(u.row['at'], '2026-08-21T08:00:00.000');
+    });
+
+    test('/weigh-ins with a null weight leaves weight_kg absent (honest)',
+        () async {
+      final w = FakeSupabaseWriter();
+      final s = _sender(w);
+      // A reading with no weight (weightKg omitted by the model's toJson).
+      await s.sendMutation(_mut(
+          path: '/weigh-ins',
+          body: {'id': 'weigh-2', 'at': '2026-08-21T08:00:00.000'}));
+      final row = w.upserts.single.row;
+      expect(row['id'], 'weigh-2');
+      expect(row.containsKey('weight_kg'), isFalse); // never a fabricated 0
+      expect(row['at'], '2026-08-21T08:00:00.000');
+    });
+
     test('UNKNOWN path is NOT dropped — stays queued (offline)', () async {
       final w = FakeSupabaseWriter();
       final s = _sender(w);

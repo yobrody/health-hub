@@ -2,7 +2,11 @@
 
 import '../gym/workout_repo.dart' show WorkoutStore;
 import '../gym/workout_session.dart';
+import '../metrics/weigh_in.dart';
+import '../metrics/weigh_in_repo.dart' show WeighInStore;
 import '../nutrition/food_log_entry.dart';
+import '../nutrition/nutrition_goals.dart';
+import '../nutrition/nutrition_goals_repo.dart' show NutritionGoalsStore;
 import '../nutrition/nutrition_repo.dart' show NutritionStore;
 import '../pantry/pantry_item.dart';
 import '../pantry/pantry_repo.dart' show PantryStore;
@@ -34,17 +38,23 @@ class SupabaseHydrator {
     required PantryStore pantryStore,
     required NutritionStore nutritionStore,
     required WorkoutStore workoutStore,
+    required NutritionGoalsStore goalsStore,
+    required WeighInStore weighInStore,
   })  : _writer = writer,
         _profileStore = profileStore,
         _pantryStore = pantryStore,
         _nutritionStore = nutritionStore,
-        _workoutStore = workoutStore;
+        _workoutStore = workoutStore,
+        _goalsStore = goalsStore,
+        _weighInStore = weighInStore;
 
   final SupabaseWriter _writer;
   final ProfileStore _profileStore;
   final PantryStore _pantryStore;
   final NutritionStore _nutritionStore;
   final WorkoutStore _workoutStore;
+  final NutritionGoalsStore _goalsStore;
+  final WeighInStore _weighInStore;
 
   /// Hydrate every synced store for [userId]. RLS already restricts each
   /// `select` to the caller's own rows; [userId] is accepted for clarity and so
@@ -58,6 +68,8 @@ class SupabaseHydrator {
       _hydratePantry(),
       _hydrateNutrition(),
       _hydrateWorkouts(),
+      _hydrateGoals(),
+      _hydrateWeighIns(),
     ]);
   }
 
@@ -103,6 +115,32 @@ class SupabaseHydrator {
       final sessions = _rebuild(rows, WorkoutSession.fromJson);
       if (sessions == null) return;
       await _workoutStore.save(sessions);
+    } catch (_) {
+      // Leave local intact.
+    }
+  }
+
+  Future<void> _hydrateGoals() async {
+    try {
+      final rows = await _writer.selectAll('nutrition_goals');
+      if (rows.isEmpty) return; // nothing to hydrate — leave local intact.
+      // Singleton: one row per user. Its `data` jsonb holds the full
+      // NutritionGoals.toJson() (camelCase keys), the source of truth.
+      final data = rows.first['data'];
+      if (data is! Map) return; // no snapshot → don't fabricate.
+      final goals = NutritionGoals.fromJson(Map<String, dynamic>.from(data));
+      await _goalsStore.save(goals.toJson());
+    } catch (_) {
+      // Failed pull → leave local goals untouched (honest, no wipe).
+    }
+  }
+
+  Future<void> _hydrateWeighIns() async {
+    try {
+      final rows = await _writer.selectAll('weigh_ins');
+      final weighIns = _rebuild(rows, WeighIn.fromJson);
+      if (weighIns == null) return; // parse/pull failure → leave local intact.
+      await _weighInStore.save(weighIns);
     } catch (_) {
       // Leave local intact.
     }
