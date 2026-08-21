@@ -444,22 +444,33 @@ class NutritionPageState extends ConsumerState<NutritionPage> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           // Barcode button — opens real scanner on device, never in tests.
-          OutlinedButton.icon(
-            key: const Key('nutrition-scan-btn'),
-            onPressed: _openScanner,
-            icon: Icon(Icons.qr_code_scanner, color: colors.primaryStrong, size: 18),
-            label: Text(
-              _scannedBarcode != null
-                  ? 'Scanned: $_scannedBarcode'
-                  : 'Scan barcode',
-              style: text.labelMedium?.copyWith(color: colors.primaryStrong),
-            ),
-            style: OutlinedButton.styleFrom(
-              side: BorderSide(color: colors.hairline),
-              shape: AppShape.buttonBorder,
-              padding: const EdgeInsets.symmetric(
-                horizontal: AppSpacing.space4,
-                vertical: AppSpacing.space2,
+          // The Semantics tooltip surfaces the action name to screen readers
+          // when focus is on this button.
+          Semantics(
+            button: true,
+            label: _scannedBarcode != null
+                ? 'Scanned barcode: $_scannedBarcode'
+                : 'Scan barcode',
+            child: OutlinedButton.icon(
+              key: const Key('nutrition-scan-btn'),
+              onPressed: _openScanner,
+              icon: Icon(Icons.qr_code_scanner,
+                  color: colors.primaryStrong, size: 18),
+              label: Text(
+                _scannedBarcode != null
+                    ? 'Scanned: $_scannedBarcode'
+                    : 'Scan barcode',
+                style: text.labelMedium?.copyWith(color: colors.primaryStrong),
+              ),
+              style: OutlinedButton.styleFrom(
+                side: BorderSide(color: colors.hairline),
+                shape: AppShape.buttonBorder,
+                // 48 logical-px minimum height — accessibility touch target.
+                minimumSize: const Size(0, 48),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: AppSpacing.space4,
+                  vertical: AppSpacing.space2,
+                ),
               ),
             ),
           ),

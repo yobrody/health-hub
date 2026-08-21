@@ -49,10 +49,29 @@ const _zoneOrder = [
 // ── Freshness dot ────────────────────────────────────────────────────────────
 
 /// Coloured dot indicating [freshness]. Key is `freshness-<name>`.
+///
+/// Colour alone is not accessible to all users. The dot is paired with a
+/// [Semantics] label that surfaces the freshness state as plain text so
+/// screen readers can announce it (e.g. "Expired") without relying on the
+/// colour. The dot itself is purely visual — its decorative [Container] is
+/// wrapped, not excluded, so the Key stays discoverable in the semantics tree.
 class _FreshnessDot extends StatelessWidget {
   const _FreshnessDot(this.freshness);
 
   final Freshness freshness;
+
+  String get _semanticsLabel {
+    switch (freshness) {
+      case Freshness.fresh:
+        return 'Fresh';
+      case Freshness.useSoon:
+        return 'Use soon';
+      case Freshness.expired:
+        return 'Expired';
+      case Freshness.unknown:
+        return 'Expiry unknown';
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -67,11 +86,14 @@ class _FreshnessDot extends StatelessWidget {
       case Freshness.unknown:
         color = Colors.grey;
     }
-    return Container(
-      key: Key('freshness-${freshness.name}'),
-      width: 10,
-      height: 10,
-      decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+    return Semantics(
+      label: _semanticsLabel,
+      child: Container(
+        key: Key('freshness-${freshness.name}'),
+        width: 10,
+        height: 10,
+        decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+      ),
     );
   }
 }
