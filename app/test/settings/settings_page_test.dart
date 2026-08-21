@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:health_hub/api/probe_status.dart';
+import 'package:health_hub/auth/fake_auth_service.dart';
 import 'package:health_hub/core/secrets.dart';
 import 'package:health_hub/core/secure_store.dart';
 import 'package:health_hub/offline/outbox.dart';
@@ -66,6 +67,7 @@ Widget _harness() => ProviderScope(
         home: SettingsPage(
           repo: _repo(),
           secrets: Secrets(FakeSecureStore()),
+          authService: FakeAuthService(),
         ),
       ),
     );

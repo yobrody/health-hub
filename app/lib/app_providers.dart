@@ -1,7 +1,11 @@
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' hide AuthUser;
 
 import 'api/client.dart';
+import 'auth/auth_service.dart';
+import 'auth/fake_auth_service.dart';
+import 'auth/supabase_auth_service.dart';
 import 'core/config.dart';
 import 'core/secrets.dart';
 import 'core/secure_store.dart';
@@ -158,4 +162,30 @@ final syncServiceProvider = Provider<SyncService>((ref) {
 /// gate can await it and tests can override it deterministically.
 final hasProfileProvider = FutureProvider<bool>((ref) {
   return ref.watch(profileRepoProvider).hasProfile();
+});
+
+/// The auth service — the SWAPPABLE seam for accounts.
+///
+/// In the running app this wraps the initialised Supabase client
+/// (`Supabase.instance.client.auth`) when config is present. If Supabase was
+/// NOT initialised (empty `env.local.json` / no dart-defines, e.g. a bare
+/// `flutter test` or a mis-provisioned build), we fall back to a
+/// [FakeAuthService] so the app runs in a clearly-degraded LOCAL mode instead
+/// of crashing — it never fabricates a signed-in state. Tests override this
+/// with their own [FakeAuthService].
+final authServiceProvider = Provider<AuthService>((ref) {
+  if (!Config.supabaseConfigured) {
+    // Degraded local mode — no real backend to authenticate against.
+    return FakeAuthService(autoConfirm: false);
+  }
+  return SupabaseAuthService(Supabase.instance.client.auth);
+});
+
+/// The reactive auth state: emits the current [AuthUser] (or null) and every
+/// change (sign-in / sign-out / session restore / token refresh). The gate
+/// watches this to decide between the auth screen and the app. A
+/// `StreamProvider` so tests can override it, and so the gate settles
+/// deterministically (the fake replays its current value on listen).
+final authStateProvider = StreamProvider<AuthUser?>((ref) {
+  return ref.watch(authServiceProvider).authState();
 });

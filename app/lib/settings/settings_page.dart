@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../app_providers.dart';
+import '../auth/auth_service.dart';
 import '../core/secrets.dart';
 import '../health/health_service.dart';
 import '../health/health_types.dart';
@@ -32,11 +33,13 @@ class SettingsPage extends ConsumerStatefulWidget {
     this.repo,
     this.secrets,
     this.healthService,
+    this.authService,
   });
 
   final ProfileRepo? repo;
   final Secrets? secrets;
   final HealthService? healthService;
+  final AuthService? authService;
 
   @override
   ConsumerState<SettingsPage> createState() => _SettingsPageState();
@@ -47,6 +50,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
   late final ProfileRepo _repo;
   late final Secrets _secrets;
   late final HealthService _healthService;
+  late final AuthService _authService;
   late final GoalResetController _goalReset;
 
   @override
@@ -55,6 +59,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
     _repo = widget.repo ?? ref.read(profileRepoProvider);
     _secrets = widget.secrets ?? ref.read(secretsProvider);
     _healthService = widget.healthService ?? _NoopHealthService();
+    _authService = widget.authService ?? ref.read(authServiceProvider);
     _goalReset = GoalResetController(repo: _repo);
   }
 
@@ -62,6 +67,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
 
   bool _goalResetting = false;
   bool _requestingPermissions = false;
+  bool _signingOut = false;
 
   // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -138,6 +144,46 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
         ),
       ),
     );
+  }
+
+  /// Sign out. The auth stream then drives the gate back to the auth screen —
+  /// this method doesn't navigate. Errors surface honestly as a snackbar.
+  Future<void> _onSignOut() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Sign out?'),
+        content: const Text(
+          'You\'ll need to sign in again to sync. Your data stays on this '
+          'device.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Sign out'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    if (_signingOut) return;
+
+    setState(() => _signingOut = true);
+    try {
+      await _authService.signOut();
+    } on AuthFailure catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.message)),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _signingOut = false);
+    }
   }
 
   Future<void> _onGoalReset() async {
@@ -299,6 +345,25 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
             subtitle: const Text('Data retention + export — coming soon'),
             trailing: const Icon(Icons.chevron_right),
             onTap: () => _showComingSoon('Privacy'),
+          ),
+
+          const Divider(),
+
+          // Account — sign out. The auth stream drives the gate back to the
+          // auth screen; this tile doesn't navigate itself.
+          ListTile(
+            key: const Key('settings-sign-out'),
+            leading: const Icon(Icons.logout),
+            title: const Text('Sign out'),
+            subtitle: const Text('End your session on this device'),
+            trailing: _signingOut
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.chevron_right),
+            onTap: _onSignOut,
           ),
         ],
         ),
