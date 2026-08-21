@@ -9,6 +9,9 @@
 /// This file establishes the thin foundation they will build on.
 library;
 
+import 'dart:io';
+import 'dart:typed_data';
+
 import 'package:image_picker/image_picker.dart';
 
 /// Source from which an image is captured.
@@ -58,6 +61,22 @@ class CameraService {
       // Plugin can throw PlatformException (e.g. no camera, permission denied
       // at the OS level) or StateError on some devices.  Map all of these to
       // null — the caller decides what to show the user.
+      return null;
+    }
+  }
+}
+
+/// Reads captured image files to bytes. Split out (and named distinctly) so the
+/// recognition flow can turn a picked file path into the `Uint8List` the
+/// recognizer needs. Dart:io only — NOT unit-tested (real filesystem).
+abstract final class XImageBytes {
+  /// Read the file at [path] into bytes, or `null` if it can't be read. Never
+  /// throws — a missing/locked file maps to null so the caller skips it rather
+  /// than fabricating content.
+  static Future<Uint8List?> read(String path) async {
+    try {
+      return await File(path).readAsBytes();
+    } catch (_) {
       return null;
     }
   }

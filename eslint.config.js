@@ -6,7 +6,10 @@ import tseslint from 'typescript-eslint'
 import { defineConfig, globalIgnores } from 'eslint/config'
 
 export default defineConfig([
-  globalIgnores(['dist']),
+  // `dist` = build output. `supabase/**` = Deno edge functions (they use Deno
+  // imports/globals the React/browser eslint can't parse) + non-JS assets
+  // (migrations, python) — the Flutter app under `app/` is Dart, not linted here.
+  globalIgnores(['dist', 'supabase/**']),
   {
     files: ['**/*.{ts,tsx}'],
     extends: [

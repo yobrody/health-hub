@@ -211,25 +211,20 @@ void main() {
     expect(find.byKey(const Key('food-add-fab')), findsOneWidget);
   });
 
-  testWidgets('gate upload is an honest STUB — never fabricates items',
-      (tester) async {
+  testWidgets(
+      'gate upload button is the real capture entry (R-2), fabricates nothing '
+      'on its own', (tester) async {
     final repo = await _pumpPage(tester, []);
 
-    await tester.tap(find.byKey(const Key('food-gate-upload')));
-    await tester.pumpAndSettle();
+    // The upload button now launches the real capture→recognize→confirm flow
+    // (label "Snap photos"). Tapping it in a test env opens the camera seam,
+    // which returns nothing (no hardware) → a pure no-op. CRUCIALLY it never
+    // fabricates items. (The seam itself — runRecognition — is covered with
+    // fake bytes in pantry_recognition_page_test.dart.)
+    expect(find.byKey(const Key('food-gate-upload')), findsOneWidget);
+    expect(find.text('Snap photos'), findsOneWidget);
 
-    // Honest snackbar — scoped to the snackbar itself (the gate body copy now
-    // also mentions "coming soon", so match the snackbar's own phrasing).
-    final snackbar = find.byKey(const Key('food-gate-upload-snackbar'));
-    expect(snackbar, findsOneWidget);
-    expect(
-      find.descendant(
-        of: snackbar,
-        matching: find.textContaining('coming soon'),
-      ),
-      findsOneWidget,
-    );
-    // CRUCIALLY no items were invented.
+    // No items were invented just by rendering / the gate being present.
     final all = await repo.all();
     expect(all, isEmpty);
   });
