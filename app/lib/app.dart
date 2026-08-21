@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'app_providers.dart';
+import 'auth/auth_screen.dart';
+import 'auth/auth_service.dart';
 import 'design_system/app_theme.dart';
 import 'nav/root_scaffold.dart';
 import 'onboarding/onboarding_flow.dart';
@@ -21,15 +23,93 @@ class HealthHubApp extends ConsumerWidget {
       theme: lightTheme,
       darkTheme: darkTheme,
       themeMode: ThemeMode.system,
-      home: const _FirstRunGate(),
+      home: const _AuthGate(),
     );
   }
 }
 
-/// Decides the first screen: onboarding on a fresh install (no profile ever
-/// saved), else the main app. Driven by [hasProfileProvider] so tests — and the
-/// existing nav test — can override it to resolve deterministically instead of
-/// hitting a real store.
+/// The auth + first-run gate. Precedence:
+///   1. **Not authenticated** → [AuthScreen] (the first screen a new user sees).
+///   2. **Authenticated, no profile** → onboarding (existing [hasProfileProvider]
+///      logic drives the profile step).
+///   3. **Authenticated, has profile** → the app ([RootScaffold]).
+///
+/// Driven by [authStateProvider] + [hasProfileProvider] so tests can override
+/// both and resolve deterministically. Loading states use a non-animating
+/// placeholder so widget-test `pumpAndSettle` settles.
+///
+/// On a transition INTO a signed-in user, the gate hydrates the local stores
+/// from Supabase ONCE per user id (see [_hydrateOnSignIn]), so a returning user
+/// / fresh device sees their own data. Hydration is fire-and-forget and best
+/// effort: a failed pull leaves local cache intact (the hydrator never wipes).
+class _AuthGate extends ConsumerStatefulWidget {
+  const _AuthGate();
+
+  @override
+  ConsumerState<_AuthGate> createState() => _AuthGateState();
+}
+
+class _AuthGateState extends ConsumerState<_AuthGate> {
+  /// The user id we've already hydrated for, so a token refresh (which re-emits
+  /// the same user) doesn't re-pull, and a sign-out→sign-in as a DIFFERENT user
+  /// does. Null until the first sign-in.
+  String? _hydratedUserId;
+
+  void _hydrateOnSignIn(AuthUser? user) {
+    if (user == null) {
+      // Signed out — reset so the next sign-in (even the same user) re-hydrates.
+      _hydratedUserId = null;
+      return;
+    }
+    if (user.id == _hydratedUserId) return; // already hydrated this user.
+    _hydratedUserId = user.id;
+    final hydrator = ref.read(supabaseHydratorProvider);
+    // Null when Supabase isn't configured (degraded local mode) — nothing to
+    // pull. Fire-and-forget; the app reads local regardless of the outcome.
+    hydrator?.hydrate(user.id);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // React to auth-state transitions to trigger one-shot hydration on sign-in.
+    ref.listen<AsyncValue<AuthUser?>>(authStateProvider, (prev, next) {
+      next.whenData(_hydrateOnSignIn);
+    });
+
+    final auth = ref.watch(authStateProvider);
+
+    return auth.when(
+      // While the session is restored, show a non-animating placeholder (an
+      // animated spinner would keep pumpAndSettle from ever settling).
+      loading: () => const Scaffold(
+        key: Key('auth-loading'),
+        body: SizedBox.shrink(),
+      ),
+      // If the auth stream errors, fail SAFE to the auth screen — never fail
+      // open into the app with no session.
+      error: (_, _) => AuthScreen(service: ref.read(authServiceProvider)),
+      data: (user) {
+        // Also drive hydration from the FIRST resolved value: `ref.listen` only
+        // fires on subsequent CHANGES, so a session restored before this widget
+        // mounted (the returning-user case) would otherwise never hydrate. The
+        // call is idempotent (guarded by `_hydratedUserId`), so triggering it
+        // here and from the listener is safe.
+        _hydrateOnSignIn(user);
+        if (user == null) {
+          // Not authenticated → the auth screen.
+          return AuthScreen(service: ref.read(authServiceProvider));
+        }
+        // Authenticated → decide onboarding vs the app on profile presence.
+        return const _FirstRunGate();
+      },
+    );
+  }
+}
+
+/// Decides, for an AUTHENTICATED user, whether to show onboarding (no profile
+/// saved yet) or the main app. Driven by [hasProfileProvider] so tests — and
+/// the existing nav test — can override it to resolve deterministically instead
+/// of hitting a real store.
 class _FirstRunGate extends ConsumerWidget {
   const _FirstRunGate();
 

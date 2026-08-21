@@ -10,6 +10,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:health_hub/app.dart';
 import 'package:health_hub/app_providers.dart';
+import 'package:health_hub/auth/auth_service.dart';
+import 'package:health_hub/auth/fake_auth_service.dart';
 import 'package:health_hub/gym/workout_repo.dart';
 import 'package:health_hub/gym/workout_session.dart';
 import 'package:health_hub/profile/profile_repo.dart';
@@ -64,11 +66,18 @@ WorkoutRepo _workoutRepo() => WorkoutRepo(
       store: _FakeWorkoutStore(),
     );
 
+// A signed-in user so the auth gate resolves to the profile step under test.
+const _signedIn =
+    AuthUser(id: 'u1', email: 'brody@example.com', emailConfirmed: true);
+
 void main() {
   testWidgets('no profile → onboarding is shown', (tester) async {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
+          authServiceProvider.overrideWithValue(
+            FakeAuthService(initialUser: _signedIn),
+          ),
           profileRepoProvider.overrideWithValue(_repo()),
           workoutRepoProvider.overrideWithValue(_workoutRepo()),
         ],
@@ -84,6 +93,9 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
+          authServiceProvider.overrideWithValue(
+            FakeAuthService(initialUser: _signedIn),
+          ),
           profileRepoProvider.overrideWithValue(_repo({'weight_kg': 62.5})),
           workoutRepoProvider.overrideWithValue(_workoutRepo()),
         ],
