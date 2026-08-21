@@ -169,11 +169,13 @@ class _TodayPageState extends ConsumerState<TodayPage> {
     return Scaffold(
       key: const Key('today-page'),
       body: SafeArea(
-        child: ListView(
-          padding: AppSpacing.pagePadding,
+        child: Stack(
           children: [
-            _GreetingHeader(profile: _profile),
-            AppSpacing.gapV8,
+            ListView(
+              padding: AppSpacing.pagePadding,
+              children: [
+                _GreetingHeader(profile: _profile),
+                AppSpacing.gapV8,
 
             // If the profile is empty, lead with the gentle setup affordance —
             // the honest "we show nothing we don't know" invitation.
@@ -204,10 +206,20 @@ class _TodayPageState extends ConsumerState<TodayPage> {
             _NutritionCard(today: _today, goals: _goalsData),
             AppSpacing.gapV8,
 
-            const SectionHeader(title: 'TRAINING'),
-            _WorkoutCard(
-              active: _activeSession,
-              last: _lastFinished,
+                const SectionHeader(title: 'TRAINING'),
+                _WorkoutCard(
+                  active: _activeSession,
+                  last: _lastFinished,
+                ),
+              ],
+            ),
+            // R2 game-entry seam — intentionally disabled/inert in R1.
+            // This reserved affordance is the entry point for a future separate
+            // game app; tapping it does nothing in this release.
+            const Positioned(
+              top: 0,
+              right: 0,
+              child: _RiftSeam(),
             ),
           ],
         ),
@@ -791,6 +803,45 @@ class _DayNutrition {
       proteinG: protein,
       carbsG: carbs,
       fatG: fat,
+    );
+  }
+}
+
+// ── _RiftSeam ────────────────────────────────────────────────────────────────
+
+/// The hidden R2 game-entry seam, positioned top-right on the home screen.
+///
+/// In Release 1 this is INERT — tapping does nothing user-facing. It is a
+/// deliberately subtle affordance: a small, quiet icon that doesn't stand out.
+/// The drag / pack-tear / rift animation and the game itself are built in R2.
+///
+/// Key: 'home-rift-seam' — present in R1 so the test can assert it exists and
+/// that tapping it does not navigate or crash.
+class _RiftSeam extends StatelessWidget {
+  // ignore: avoid_unused_constructor_parameters — kept to match StatelessWidget convention
+  const _RiftSeam();
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+
+    // Very subtle: low opacity + a small icon that reads as decorative, not
+    // actionable. Easy to miss — that's intentional.
+    return GestureDetector(
+      key: const Key('home-rift-seam'),
+      // R1: inert tap — no navigation, no feedback, no side-effects.
+      onTap: null,
+      child: Padding(
+        padding: const EdgeInsets.all(AppSpacing.space4),
+        child: Opacity(
+          opacity: 0.18,
+          child: Icon(
+            Icons.blur_on_outlined,
+            size: 20,
+            color: colors.textSecondary,
+          ),
+        ),
+      ),
     );
   }
 }

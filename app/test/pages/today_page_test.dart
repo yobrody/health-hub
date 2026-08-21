@@ -422,4 +422,22 @@ void main() {
     expect(find.textContaining('62.5'), findsWidgets); // profile fallback
     expect(find.byKey(const Key('today-weight-trend')), findsNothing);
   });
+
+  // ── R1 rift seam (home-rift-seam) ─────────────────────────────────────────
+
+  testWidgets('rift seam is present on the home screen and is inert (R1)',
+      (tester) async {
+    await tester.pumpWidget(_dashboard(profile: {'weight_kg': 62.5}));
+    await tester.pumpAndSettle();
+
+    // The seam must exist as an affordance (the Key is the contract).
+    expect(find.byKey(const Key('home-rift-seam')), findsOneWidget);
+
+    // Tapping it must not navigate, crash, or mutate anything.
+    await tester.tap(find.byKey(const Key('home-rift-seam')));
+    await tester.pumpAndSettle();
+
+    // Still on the same page — no navigation happened.
+    expect(find.byKey(const Key('today-page')), findsOneWidget);
+  });
 }

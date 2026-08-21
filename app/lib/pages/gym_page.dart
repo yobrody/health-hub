@@ -30,6 +30,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../app_providers.dart';
+import '../design_system/colors.dart';
+import '../design_system/components/section_header.dart';
+import '../design_system/components/stat_card.dart';
+import '../design_system/motion.dart';
+import '../design_system/shape.dart';
+import '../design_system/spacing.dart';
+import '../design_system/typography.dart';
 import '../gym/exercise.dart';
 import '../gym/exercise_catalog.dart';
 import '../gym/progression.dart';
@@ -366,23 +373,40 @@ class GymPageState extends ConsumerState<GymPage> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.appColors;
+    final text = Theme.of(context).textTheme;
+
     return Scaffold(
       key: const Key('gym-page'),
+      backgroundColor: colors.canvas,
       appBar: AppBar(
-        title: const Text('Gym'),
+        backgroundColor: colors.canvas,
+        surfaceTintColor: Colors.transparent,
+        elevation: 0,
+        title: Text(
+          'Training',
+          style: text.titleLarge?.copyWith(color: colors.textPrimary),
+        ),
         actions: [
           if (_session != null)
-            TextButton(
-              key: const Key('gym-finish-btn'),
-              onPressed: _finishSession,
-              child: const Text('Finish'),
+            Padding(
+              padding: const EdgeInsets.only(right: AppSpacing.space4),
+              child: TextButton(
+                key: const Key('gym-finish-btn'),
+                onPressed: _finishSession,
+                style: TextButton.styleFrom(
+                  foregroundColor: colors.primaryStrong,
+                  textStyle: text.labelLarge,
+                ),
+                child: const Text('Finish'),
+              ),
             ),
         ],
       ),
       body: Stack(
         children: [
           _loading
-              ? const Center(child: CircularProgressIndicator())
+              ? const Center(child: SizedBox.shrink())
               : _session == null
                   ? _buildNoSession()
                   : _buildActiveSession(),
@@ -395,21 +419,49 @@ class GymPageState extends ConsumerState<GymPage> {
   // ── No session view ────────────────────────────────────────────────────────
 
   Widget _buildNoSession() {
+    final colors = context.appColors;
+    final text = Theme.of(context).textTheme;
+
     return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Text(
-            'No workout in progress.',
-            style: TextStyle(color: Colors.grey),
+      child: Padding(
+        padding: AppSpacing.pagePadding,
+        child: StatCard(
+          warm: true,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(
+                Icons.fitness_center_outlined,
+                color: colors.primaryStrong,
+                size: 32,
+              ),
+              AppSpacing.gapV4,
+              Text('Ready to train?', style: text.headlineSmall),
+              AppSpacing.gapV2,
+              Text(
+                'Start a session to log exercises, sets, and track progression.',
+                style: text.bodyMedium?.copyWith(color: colors.textSecondary),
+              ),
+              AppSpacing.gapV6,
+              FilledButton(
+                key: const Key('gym-start-btn'),
+                onPressed: _startSession,
+                style: FilledButton.styleFrom(
+                  backgroundColor: colors.primary,
+                  foregroundColor: colors.textPrimary,
+                  shape: AppShape.buttonBorder,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: AppSpacing.space6,
+                    vertical: AppSpacing.space3,
+                  ),
+                  textStyle: text.labelLarge,
+                ),
+                child: const Text('Start Workout'),
+              ),
+            ],
           ),
-          const SizedBox(height: 16),
-          FilledButton(
-            key: const Key('gym-start-btn'),
-            onPressed: _startSession,
-            child: const Text('Start Workout'),
-          ),
-        ],
+        ),
       ),
     );
   }
@@ -418,10 +470,10 @@ class GymPageState extends ConsumerState<GymPage> {
 
   Widget _buildActiveSession() {
     return ListView(
-      padding: const EdgeInsets.all(16),
+      padding: AppSpacing.pagePadding,
       children: [
         _buildExercisePicker(),
-        const SizedBox(height: 16),
+        AppSpacing.gapV6,
         if (_selectedExercise != null) ...[
           // During the rest phase we swap the entry form for the rest panel so
           // the user rates the set they just did; otherwise show the form.
@@ -429,7 +481,7 @@ class GymPageState extends ConsumerState<GymPage> {
             _buildRestPanel()
           else
             _buildSetEntryForm(),
-          const SizedBox(height: 16),
+          AppSpacing.gapV6,
           _buildLoggedSets(),
         ],
       ],
@@ -442,17 +494,10 @@ class GymPageState extends ConsumerState<GymPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          'Add Exercise',
-          style: Theme.of(context)
-              .textTheme
-              .titleSmall
-              ?.copyWith(fontWeight: FontWeight.bold),
-        ),
-        const SizedBox(height: 8),
+        const SectionHeader(title: 'EXERCISE'),
         Wrap(
-          spacing: 8,
-          runSpacing: 6,
+          spacing: AppSpacing.space2,
+          runSpacing: AppSpacing.space2,
           children: kExerciseCatalog.map(_buildExerciseChip).toList(),
         ),
       ],
@@ -461,11 +506,36 @@ class GymPageState extends ConsumerState<GymPage> {
 
   Widget _buildExerciseChip(Exercise ex) {
     final isSelected = _selectedExercise?.id == ex.id;
-    return FilterChip(
-      key: Key('gym-exercise-${ex.id}'),
-      label: Text(ex.name),
-      selected: isSelected,
-      onSelected: (_) => _selectExercise(ex),
+    final colors = context.appColors;
+    final text = Theme.of(context).textTheme;
+    final brightness = Theme.of(context).brightness;
+
+    return GestureDetector(
+      onTap: () => _selectExercise(ex),
+      child: AnimatedContainer(
+        key: Key('gym-exercise-${ex.id}'),
+        duration: AppMotion.fast,
+        curve: AppMotion.standard,
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.space4,
+          vertical: AppSpacing.space2,
+        ),
+        decoration: BoxDecoration(
+          color: isSelected ? colors.primary : colors.surface,
+          borderRadius: AppShape.chip,
+          border: Border.all(
+            color: isSelected ? colors.primary : colors.hairline,
+          ),
+          boxShadow: isSelected ? [] : AppShape.cardShadow(brightness),
+        ),
+        child: Text(
+          ex.name,
+          style: text.labelMedium?.copyWith(
+            color: isSelected ? colors.textPrimary : colors.textSecondary,
+            fontWeight: isSelected ? FontWeight.w600 : FontWeight.w400,
+          ),
+        ),
+      ),
     );
   }
 
@@ -473,77 +543,87 @@ class GymPageState extends ConsumerState<GymPage> {
 
   Widget _buildSetEntryForm() {
     final ex = _selectedExercise!;
+    final colors = context.appColors;
+    final text = Theme.of(context).textTheme;
     final needsWeight = ex.equipment == EquipmentType.machine ||
         ex.equipment == EquipmentType.freeWeight;
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          ex.name,
-          style: Theme.of(context)
-              .textTheme
-              .titleMedium
-              ?.copyWith(fontWeight: FontWeight.bold),
-        ),
-        const SizedBox(height: 8),
-        Row(
-          children: [
-            if (needsWeight) ...[
-              Expanded(
-                child: TextField(
-                  key: const Key('gym-weight-field'),
-                  controller: _weightCtrl,
-                  decoration: InputDecoration(
-                    labelText: 'Weight (kg)',
-                    hintText: '—',
-                    border: const OutlineInputBorder(),
-                    contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 12, vertical: 10),
-                    helperText: ex.equipment == EquipmentType.machine
-                        ? 'Snaps to 5 kg'
-                        : 'Snaps to plate',
+    return StatCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(ex.name, style: text.titleMedium),
+          AppSpacing.gapV1,
+          Text(
+            needsWeight
+                ? (ex.equipment == EquipmentType.machine
+                    ? 'Machine — snaps to 5 kg'
+                    : 'Free weight — snaps to plate')
+                : 'Bodyweight',
+            style: text.bodySmall,
+          ),
+          AppSpacing.gapV5,
+          Row(
+            children: [
+              if (needsWeight) ...[
+                Expanded(
+                  child: _LuxuryField(
+                    fieldKey: const Key('gym-weight-field'),
+                    controller: _weightCtrl,
+                    label: 'Weight (kg)',
+                    hint: '—',
+                    keyboardType:
+                        const TextInputType.numberWithOptions(decimal: true),
+                    colors: colors,
+                    text: text,
                   ),
-                  keyboardType:
-                      const TextInputType.numberWithOptions(decimal: true),
+                ),
+                AppSpacing.gapH3,
+              ] else
+                // For bodyweight/cardio: no external load — the weight field is
+                // present in the tree (so tests can find it) but zero-sized so
+                // it doesn't affect layout.
+                SizedBox(
+                  width: 0,
+                  height: 0,
+                  child: TextField(
+                    key: const Key('gym-weight-field'),
+                    controller: _weightCtrl,
+                  ),
+                ),
+              Expanded(
+                child: _LuxuryField(
+                  fieldKey: const Key('gym-reps-field'),
+                  controller: _repsCtrl,
+                  label: 'Reps',
+                  hint: '—',
+                  keyboardType: TextInputType.number,
+                  colors: colors,
+                  text: text,
                 ),
               ),
-              const SizedBox(width: 8),
-            ] else
-              // For bodyweight/cardio: no external load — the weight field is
-              // present in the tree (so tests can find it) but zero-sized so
-              // it doesn't affect layout.
-              SizedBox(
-                width: 0,
-                height: 0,
-                child: TextField(
-                  key: const Key('gym-weight-field'),
-                  controller: _weightCtrl,
+            ],
+          ),
+          AppSpacing.gapV5,
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton(
+              key: const Key('gym-log-set-btn'),
+              onPressed: _logSet,
+              style: FilledButton.styleFrom(
+                backgroundColor: colors.primary,
+                foregroundColor: colors.textPrimary,
+                shape: AppShape.buttonBorder,
+                padding: const EdgeInsets.symmetric(
+                  vertical: AppSpacing.space3,
                 ),
+                textStyle: text.labelLarge,
               ),
-            Expanded(
-              child: TextField(
-                key: const Key('gym-reps-field'),
-                controller: _repsCtrl,
-                decoration: const InputDecoration(
-                  labelText: 'Reps',
-                  hintText: '—',
-                  border: OutlineInputBorder(),
-                  contentPadding:
-                      EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                ),
-                keyboardType: TextInputType.number,
-              ),
+              child: const Text('Log Set'),
             ),
-          ],
-        ),
-        const SizedBox(height: 8),
-        FilledButton(
-          key: const Key('gym-log-set-btn'),
-          onPressed: _logSet,
-          child: const Text('Log Set'),
-        ),
-      ],
+          ),
+        ],
+      ),
     );
   }
 
@@ -551,50 +631,60 @@ class GymPageState extends ConsumerState<GymPage> {
 
   Widget _buildRestPanel() {
     final ex = _restExercise;
-    final theme = Theme.of(context);
-    return Container(
+    final colors = context.appColors;
+    final text = Theme.of(context).textTheme;
+
+    return StatCard(
       key: const Key('gym-rest-panel'),
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(12),
-      ),
+      warm: true,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            ex == null ? 'Rest' : 'Rest — ${ex.name}',
-            style: theme.textTheme.titleMedium
-                ?.copyWith(fontWeight: FontWeight.bold),
-          ),
-          const SizedBox(height: 8),
-          // Countdown.
           Row(
             children: [
-              const Icon(Icons.timer_outlined, size: 20),
-              const SizedBox(width: 8),
-              Text(
-                key: const Key('gym-rest-timer'),
-                _formatRest(_restRemaining),
-                style: theme.textTheme.headlineSmall
-                    ?.copyWith(fontFeatures: const []),
+              Icon(Icons.timer_outlined, size: 18, color: colors.primaryStrong),
+              AppSpacing.gapH2,
+              Expanded(
+                child: Text(
+                  ex == null ? 'Rest' : 'Rest — ${ex.name}',
+                  style: text.titleMedium,
+                ),
               ),
-              const Spacer(),
               TextButton(
                 key: const Key('gym-rest-skip-btn'),
                 onPressed: _endRestPhase,
+                style: TextButton.styleFrom(
+                  foregroundColor: colors.textSecondary,
+                  textStyle: text.labelMedium,
+                  padding: EdgeInsets.zero,
+                  minimumSize: const Size(0, 0),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
                 child: const Text('Skip'),
               ),
             ],
           ),
-          const SizedBox(height: 8),
+          AppSpacing.gapV4,
+          // Countdown — editorial serif number, confident and calm.
+          Center(
+            child: Text(
+              key: const Key('gym-rest-timer'),
+              _formatRest(_restRemaining),
+              style: AppTypography.heroNumber(
+                color: colors.textPrimary,
+                fontSize: 56,
+              ),
+            ),
+          ),
+          AppSpacing.gapV5,
           // Effort emojis.
           Text(
-            'How did that set feel?',
-            style: theme.textTheme.bodySmall,
+            'How did that feel?',
+            style: text.bodySmall?.copyWith(color: colors.textSecondary),
           ),
-          const SizedBox(height: 6),
+          AppSpacing.gapV3,
           Row(
+            mainAxisAlignment: MainAxisAlignment.center,
             children: [
               _EffortButton(
                 key: const Key('gym-effort-easy'),
@@ -603,7 +693,7 @@ class GymPageState extends ConsumerState<GymPage> {
                 selected: _currentEffort() == SetEffort.easy,
                 onTap: () => _rateEffort(SetEffort.easy),
               ),
-              const SizedBox(width: 12),
+              AppSpacing.gapH6,
               _EffortButton(
                 key: const Key('gym-effort-contempt'),
                 emoji: '😑',
@@ -611,7 +701,7 @@ class GymPageState extends ConsumerState<GymPage> {
                 selected: _currentEffort() == SetEffort.contempt,
                 onTap: () => _rateEffort(SetEffort.contempt),
               ),
-              const SizedBox(width: 12),
+              AppSpacing.gapH6,
               _EffortButton(
                 key: const Key('gym-effort-angry'),
                 emoji: '😠',
@@ -621,7 +711,7 @@ class GymPageState extends ConsumerState<GymPage> {
               ),
             ],
           ),
-          const SizedBox(height: 12),
+          AppSpacing.gapV4,
           _buildSuggestion(),
         ],
       ),
@@ -643,6 +733,8 @@ class GymPageState extends ConsumerState<GymPage> {
   Widget _buildSuggestion() {
     final s = _suggestion;
     if (s == null) return const SizedBox.shrink();
+    final colors = context.appColors;
+    final text = Theme.of(context).textTheme;
 
     // Honesty: only append a number when the engine actually returned one.
     // recalibrating / null → the reason alone, never a fabricated weight.
@@ -652,21 +744,21 @@ class GymPageState extends ConsumerState<GymPage> {
       if (s.reason != null && s.reason!.trim().isNotEmpty) s.reason!.trim(),
       if (s.nextWeightKg != null) 'next: ${formatKg(s.nextWeightKg!)} kg',
     ];
-    final text = parts.join(' · ');
+    final label = parts.join(' · ');
 
     return Row(
       children: [
         Icon(
           _iconForVerdict(s.verdict),
           size: 18,
-          color: Theme.of(context).colorScheme.primary,
+          color: _colorForVerdict(s.verdict, colors),
         ),
-        const SizedBox(width: 8),
+        AppSpacing.gapH2,
         Expanded(
           child: Text(
             key: const Key('gym-next-suggestion'),
-            text,
-            style: Theme.of(context).textTheme.bodyMedium,
+            label,
+            style: text.bodyMedium?.copyWith(color: colors.textSecondary),
           ),
         ),
       ],
@@ -686,12 +778,28 @@ class GymPageState extends ConsumerState<GymPage> {
     }
   }
 
+  Color _colorForVerdict(ProgressionVerdict v, AppColors colors) {
+    switch (v) {
+      case ProgressionVerdict.bump:
+        return colors.accent;
+      case ProgressionVerdict.hold:
+        return colors.textSecondary;
+      case ProgressionVerdict.deload:
+        return colors.primaryStrong;
+      case ProgressionVerdict.recalibrating:
+        return colors.textSecondary;
+    }
+  }
+
   // ── Confetti overlay (T4) ────────────────────────────────────────────────────
 
   /// A lightweight custom celebration overlay (no external package). Present in
   /// the tree ONLY when a genuine bump was just earned — the [Key] is the
   /// gating contract the tests assert against.
   Widget _buildConfetti() {
+    final colors = context.appColors;
+    final text = Theme.of(context).textTheme;
+
     return Positioned.fill(
       child: IgnorePointer(
         child: Center(
@@ -705,16 +813,28 @@ class GymPageState extends ConsumerState<GymPage> {
               child: child,
             ),
             child: Container(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.primaryContainer,
-                borderRadius: BorderRadius.circular(16),
+              padding: const EdgeInsets.symmetric(
+                horizontal: AppSpacing.space6,
+                vertical: AppSpacing.space4,
               ),
-              child: const Text(
-                '🎉  New weight earned!',
-                style: TextStyle(
-                    fontSize: 18, fontWeight: FontWeight.bold),
+              decoration: BoxDecoration(
+                color: colors.surfaceWarm,
+                borderRadius: AppShape.card,
+                boxShadow: AppShape.raisedShadow(
+                    Theme.of(context).brightness),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text('🎉', style: TextStyle(fontSize: 22)),
+                  AppSpacing.gapH3,
+                  Text(
+                    'New weight earned!',
+                    style: text.titleSmall?.copyWith(
+                      color: colors.textPrimary,
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
@@ -748,20 +868,75 @@ class GymPageState extends ConsumerState<GymPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          'Sets',
-          style: Theme.of(context)
-              .textTheme
-              .titleSmall
-              ?.copyWith(fontWeight: FontWeight.bold),
+        const SectionHeader(title: 'SETS'),
+        StatCard(
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.cardPadding,
+            vertical: AppSpacing.space3,
+          ),
+          child: Column(
+            children: sets.asMap().entries.map((entry) {
+              final i = entry.key;
+              final s = entry.value;
+              return _SetRow(index: i, set: s, isLast: i == sets.length - 1);
+            }).toList(),
+          ),
         ),
-        const SizedBox(height: 6),
-        ...sets.asMap().entries.map((entry) {
-          final i = entry.key;
-          final s = entry.value;
-          return _SetRow(index: i, set: s);
-        }),
       ],
+    );
+  }
+}
+
+// ── _LuxuryField ──────────────────────────────────────────────────────────────
+
+/// A text field styled to the luxury design system: warm rounded outline,
+/// Fraunces-style label handling, tokenised padding.
+class _LuxuryField extends StatelessWidget {
+  const _LuxuryField({
+    required this.fieldKey,
+    required this.controller,
+    required this.label,
+    required this.hint,
+    required this.keyboardType,
+    required this.colors,
+    required this.text,
+  });
+
+  final Key fieldKey;
+  final TextEditingController controller;
+  final String label;
+  final String hint;
+  final TextInputType keyboardType;
+  final AppColors colors;
+  final TextTheme text;
+
+  @override
+  Widget build(BuildContext context) {
+    return TextField(
+      key: fieldKey,
+      controller: controller,
+      keyboardType: keyboardType,
+      style: text.bodyLarge?.copyWith(color: colors.textPrimary),
+      decoration: InputDecoration(
+        labelText: label,
+        hintText: hint,
+        labelStyle: text.bodySmall?.copyWith(color: colors.textSecondary),
+        hintStyle: text.bodyLarge?.copyWith(color: colors.textSecondary),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: AppShape.field,
+          borderSide: BorderSide(color: colors.hairline),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: AppShape.field,
+          borderSide: BorderSide(color: colors.primary, width: 1.5),
+        ),
+        filled: true,
+        fillColor: colors.canvas,
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.space4,
+          vertical: AppSpacing.space3,
+        ),
+      ),
     );
   }
 }
@@ -786,25 +961,27 @@ class _EffortButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+    final colors = context.appColors;
+    final text = Theme.of(context).textTheme;
     return GestureDetector(
       onTap: onTap,
       child: AnimatedScale(
         scale: selected ? 1.25 : 1.0,
-        duration: const Duration(milliseconds: 200),
-        curve: Curves.easeOut,
+        duration: AppMotion.fast,
+        curve: AppMotion.spring,
         child: AnimatedOpacity(
-          opacity: selected ? 1.0 : 0.7,
-          duration: const Duration(milliseconds: 200),
+          opacity: selected ? 1.0 : 0.5,
+          duration: AppMotion.fast,
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(emoji, style: const TextStyle(fontSize: 28)),
-              const SizedBox(height: 2),
+              AppSpacing.gapV1,
               Text(
                 label,
-                style: theme.textTheme.labelSmall?.copyWith(
-                  fontWeight: selected ? FontWeight.bold : FontWeight.normal,
+                style: text.labelSmall?.copyWith(
+                  color: selected ? colors.textPrimary : colors.textSecondary,
+                  fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
                 ),
               ),
             ],
@@ -820,44 +997,63 @@ class _EffortButton extends StatelessWidget {
 /// One logged set row. Displays weight and reps with '—' for null values
 /// (honesty rule: NEVER show '0' for an unset value).
 class _SetRow extends StatelessWidget {
-  const _SetRow({required this.index, required this.set});
+  const _SetRow({
+    required this.index,
+    required this.set,
+    this.isLast = false,
+  });
 
   final int index;
   final SetEntry set;
+  final bool isLast;
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.appColors;
+    final text = Theme.of(context).textTheme;
+
     // showOrDash handles null → '—'; a real 0 would show '0' (honest).
     final weight = showOrDash(
         set.weightKg != null ? '${formatKg(set.weightKg!)} kg' : null);
     final reps = showOrDash(set.reps);
 
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 2),
-      child: Row(
-        children: [
-          Text(
-            'Set ${index + 1}',
-            style: const TextStyle(fontWeight: FontWeight.w500),
-          ),
-          const SizedBox(width: 12),
-          Text('$weight  ×  $reps reps'),
-          if (set.effort != null)
-            Padding(
-              padding: const EdgeInsets.only(left: 8),
-              child: Text(_effortEmoji(set.effort!)),
-            ),
-          if (set.done)
-            Padding(
-              padding: const EdgeInsets.only(left: 8),
-              child: Icon(
-                Icons.check_circle_outline,
-                size: 16,
-                color: Theme.of(context).colorScheme.primary,
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: AppSpacing.space3),
+          child: Row(
+            children: [
+              Text(
+                'Set ${index + 1}',
+                style: text.labelMedium?.copyWith(color: colors.textSecondary),
               ),
-            ),
-        ],
-      ),
+              AppSpacing.gapH4,
+              Expanded(
+                child: Text(
+                  '$weight  ×  $reps reps',
+                  style: text.bodyMedium?.copyWith(color: colors.textPrimary),
+                ),
+              ),
+              if (set.effort != null)
+                Padding(
+                  padding: const EdgeInsets.only(right: AppSpacing.space2),
+                  child: Text(
+                    _effortEmoji(set.effort!),
+                    style: const TextStyle(fontSize: 16),
+                  ),
+                ),
+              if (set.done)
+                Icon(
+                  Icons.check_circle_outline,
+                  size: 16,
+                  color: colors.accent,
+                ),
+            ],
+          ),
+        ),
+        if (!isLast)
+          Divider(height: 1, thickness: 1, color: colors.hairline),
+      ],
     );
   }
 
