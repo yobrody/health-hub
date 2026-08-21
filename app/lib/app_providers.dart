@@ -6,6 +6,7 @@ import 'api/client.dart';
 import 'auth/auth_service.dart';
 import 'auth/fake_auth_service.dart';
 import 'auth/supabase_auth_service.dart';
+import 'cart/grocery_list_repo.dart';
 import 'core/config.dart';
 import 'core/secrets.dart';
 import 'core/secure_store.dart';
@@ -197,6 +198,19 @@ final weighInRepoProvider = Provider<WeighInRepo>((ref) {
     outbox: ref.watch(outboxProvider),
     store: ref.watch(weighInStoreProvider),
   );
+});
+
+/// Local grocery-list persistence — the Cart notepad (survives restart).
+/// **Local-only in R-1** (no Supabase table yet); see [GroceryListRepo].
+final groceryListStoreProvider = Provider<GroceryListStore>((ref) {
+  return const SharedPrefsGroceryListStore();
+});
+
+/// The grocery-list repository — the Cart notepad data layer. Deliberately NOT
+/// wired to the shared [Outbox]: the list is local-only in this release (sync is
+/// a later phase). Overridable in tests via `ProviderScope(overrides: [...])`.
+final groceryListRepoProvider = Provider<GroceryListRepo>((ref) {
+  return GroceryListRepo(store: ref.watch(groceryListStoreProvider));
 });
 
 /// Open Food Facts barcode-lookup client. Uses its OWN [Dio] (NOT [dioProvider]/

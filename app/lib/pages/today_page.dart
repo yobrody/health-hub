@@ -8,9 +8,6 @@ import '../design_system/components/section_header.dart';
 import '../design_system/components/stat_card.dart';
 import '../design_system/spacing.dart';
 import '../design_system/typography.dart';
-import '../gym/exercise_catalog.dart';
-import '../gym/workout_repo.dart';
-import '../gym/workout_session.dart';
 import '../metrics/weigh_in_repo.dart';
 import '../metrics/weight_trend.dart';
 import '../nutrition/food_log_entry.dart';
@@ -23,20 +20,25 @@ import '../pantry/pantry_item.dart';
 import '../pantry/pantry_repo.dart';
 import '../profile/profile_model.dart';
 import '../profile/profile_repo.dart';
+import '../settings/settings_page.dart';
 import '../widgets/log_weight_sheet.dart';
 import '../widgets/nutrition_goals_editor.dart';
+import 'nutrition_page.dart';
 
 /// The daily dashboard — the flagship luxury home screen.
 ///
 /// It answers "how am I / what's next" in one calm glance: a warm greeting, a
-/// weight card (current + goal), a nutrition-rings card (today's real intake),
-/// and a training card (active/last session). Depth is one tap away.
+/// settings button (top-LEFT), a prominent "Log a meal" action, a weight card
+/// (current + goal), a nutrition-rings card (today's real intake), and — in
+/// place of the old training card — a **"Restock soon"** card. Depth is one tap
+/// away.
 ///
 /// **Honesty is the spine.** Every value comes from REAL data:
 ///  * weight/goal from the [Profile] ([profileRepoProvider]);
 ///  * today's calories + macros summed from the [NutritionRepo]'s logged
 ///    entries — planned lines and null macros never fabricate a number;
-///  * the training state from the [WorkoutRepo]'s active/last session.
+///  * "Restock soon" from the pantry's REAL low/expiring/reorder-due items (the
+///    pure [restockSoon] selector) — the card is omitted when nothing's due.
 ///
 /// Anything the user hasn't provided renders as `—` ([showOrDash]) — never a
 /// guessed default. There is **no macro-goal store in R1**, so the nutrition
@@ -51,7 +53,6 @@ class TodayPage extends ConsumerStatefulWidget {
     super.key,
     this.repo,
     this.nutritionRepo,
-    this.workoutRepo,
     this.goalsRepo,
     this.weighInRepo,
     this.pantryRepo,
@@ -60,7 +61,6 @@ class TodayPage extends ConsumerStatefulWidget {
 
   final ProfileRepo? repo;
   final NutritionRepo? nutritionRepo;
-  final WorkoutRepo? workoutRepo;
   final NutritionGoalsRepo? goalsRepo;
   final WeighInRepo? weighInRepo;
   final PantryRepo? pantryRepo;
@@ -78,8 +78,6 @@ class _TodayPageState extends ConsumerState<TodayPage> {
   late final ProfileRepo _repo = widget.repo ?? ref.read(profileRepoProvider);
   late final NutritionRepo _nutrition =
       widget.nutritionRepo ?? ref.read(nutritionRepoProvider);
-  late final WorkoutRepo _workout =
-      widget.workoutRepo ?? ref.read(workoutRepoProvider);
   late final NutritionGoalsRepo _goals =
       widget.goalsRepo ?? ref.read(nutritionGoalsRepoProvider);
   late final WeighInRepo _weighIns =
@@ -91,9 +89,7 @@ class _TodayPageState extends ConsumerState<TodayPage> {
   _DayNutrition _today = const _DayNutrition.empty();
   NutritionGoals _goalsData = const NutritionGoals();
   WeightTrend _weightTrend = WeightTrend.none;
-  WorkoutSession? _activeSession;
-  WorkoutSession? _lastFinished;
-  PantryGlance _glance = const PantryGlance(expiringSoon: [], lowStock: []);
+  List<RestockItem> _restock = const [];
   bool _loading = true;
 
   @override
@@ -105,7 +101,6 @@ class _TodayPageState extends ConsumerState<TodayPage> {
   Future<void> _reload() async {
     final profile = await _repo.load();
     final foodLog = await _nutrition.all();
-    final sessions = await _workout.all();
     final goals = await _goals.load();
     final weighInHistory = await _weighIns.all();
     final pantryItems = await _pantry.all();
@@ -121,9 +116,7 @@ class _TodayPageState extends ConsumerState<TodayPage> {
       _today = _DayNutrition.from(todayEntries);
       _goalsData = goals;
       _weightTrend = computeWeightTrend(weighInHistory);
-      _activeSession = _findActive(sessions);
-      _lastFinished = _findLastFinished(sessions);
-      _glance = pantryGlance(pantryItems, now);
+      _restock = restockSoon(pantryItems, now);
       _loading = false;
     });
   }
@@ -146,20 +139,25 @@ class _TodayPageState extends ConsumerState<TodayPage> {
     if (saved == true) await _reload();
   }
 
-  /// Latest unfinished session (mirrors [WorkoutRepo.activeSession]).
-  WorkoutSession? _findActive(List<WorkoutSession> sessions) {
-    for (final s in sessions.reversed) {
-      if (!s.finished) return s;
-    }
-    return null;
+  /// Open the existing Settings hub as a route (it left the bottom bar in the
+  /// R-1 restructure). SettingsPage reads the composition-root providers via
+  /// `ref`, which the pushed route inherits from the ambient ProviderScope.
+  Future<void> _openSettings() async {
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(builder: (_) => const SettingsPage()),
+    );
+    // A goal reset / profile edit in Settings can change what Home shows.
+    await _reload();
   }
 
-  /// Most recent finished session, for the "last workout" summary.
-  WorkoutSession? _findLastFinished(List<WorkoutSession> sessions) {
-    for (final s in sessions.reversed) {
-      if (s.finished) return s;
-    }
-    return null;
+  /// Open the existing meal-capture (Nutrition) flow as a route — it's a Home
+  /// action now, not a tab. Refresh after, since logging a meal changes today's
+  /// nutrition totals (and can deduct from the pantry → restock).
+  Future<void> _openLogMeal() async {
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(builder: (_) => const NutritionPage()),
+    );
+    await _reload();
   }
 
   Future<void> _openOnboarding() async {
@@ -194,7 +192,41 @@ class _TodayPageState extends ConsumerState<TodayPage> {
             ListView(
               padding: AppSpacing.pagePadding,
               children: [
-                _GreetingHeader(profile: _profile),
+                // Top row: a quiet settings/profile button (top-LEFT — the rift
+                // seam stays top-RIGHT, they never collide) beside the greeting.
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.only(top: AppSpacing.space1),
+                      child: IconButton(
+                        key: const Key('home-settings-btn'),
+                        onPressed: _openSettings,
+                        tooltip: 'Settings',
+                        visualDensity: VisualDensity.compact,
+                        icon: Icon(
+                          Icons.settings_outlined,
+                          color: context.appColors.textSecondary,
+                        ),
+                      ),
+                    ),
+                    AppSpacing.gapH2,
+                    Expanded(child: _GreetingHeader(profile: _profile)),
+                    // Reserve the top-right corner for the rift seam (painted in
+                    // the Stack above the ListView) — no widget here.
+                    const SizedBox(width: 40),
+                  ],
+                ),
+                AppSpacing.gapV6,
+
+                // Prominent "Log a meal" action — meal capture is a Home action
+                // now, not a tab. Pushes the existing NutritionPage as a route.
+                FilledButton.icon(
+                  key: const Key('home-log-meal-btn'),
+                  onPressed: _openLogMeal,
+                  icon: const Icon(Icons.restaurant_menu),
+                  label: const Text('Log a meal'),
+                ),
                 AppSpacing.gapV8,
 
             // If the profile is empty, lead with the gentle setup affordance —
@@ -226,27 +258,28 @@ class _TodayPageState extends ConsumerState<TodayPage> {
             _NutritionCard(today: _today, goals: _goalsData),
             AppSpacing.gapV8,
 
-            // Pantry glance — surfaced ONLY when something is honestly expiring
-            // soon or genuinely low on stock. Omitted entirely otherwise (never
-            // an invented urgency card).
-            if (!_glance.isEmpty) ...[
-              SectionHeader(
-                title: 'PANTRY',
-                trailing: TextButton(
-                  key: const Key('today-open-pantry'),
-                  onPressed: widget.onOpenPantry,
-                  child: const Text('Open'),
-                ),
-              ),
-              _PantryGlanceCard(glance: _glance, onTap: widget.onOpenPantry),
-              AppSpacing.gapV8,
-            ],
-
-                const SectionHeader(title: 'TRAINING'),
-                _WorkoutCard(
-                  active: _activeSession,
-                  last: _lastFinished,
-                ),
+                // Restock soon — replaces BOTH the old training card AND the old
+                // pantry-glance card (R-1): it's a strict superset of that glance
+                // (low + expiring) plus reorder-due, so Home shows ONE calm
+                // pantry-urgency surface, not two. Surfaced
+                // ONLY when real pantry data has items low / expiring /
+                // reorder-due; omitted entirely when nothing's due (never a
+                // fabricated urgency). Tapping opens Food (and later feeds Cart).
+                if (_restock.isNotEmpty) ...[
+                  SectionHeader(
+                    title: 'RESTOCK SOON',
+                    trailing: TextButton(
+                      key: const Key('today-open-restock'),
+                      onPressed: widget.onOpenPantry,
+                      child: const Text('Open'),
+                    ),
+                  ),
+                  _RestockSoonCard(
+                    items: _restock,
+                    onTap: widget.onOpenPantry,
+                  ),
+                  AppSpacing.gapV8,
+                ],
               ],
             ),
             // R2 game-entry seam — intentionally disabled/inert in R1.
@@ -659,227 +692,96 @@ class _NutritionCard extends StatelessWidget {
   }
 }
 
-// ── Pantry glance card ───────────────────────────────────────────────────────
+// ── Restock-soon card ────────────────────────────────────────────────────────
 
-/// A calm cross-link to the pantry: the few items honestly expiring soon and/or
-/// genuinely low on stock. Built ONLY from real [PantryItem.expiry] / qty via
-/// the pure [pantryGlance] — it never invents urgency, and the whole card is
-/// omitted by the caller when the glance is empty. Tapping opens the Food page.
-class _PantryGlanceCard extends StatelessWidget {
-  const _PantryGlanceCard({required this.glance, this.onTap});
+/// The home "Restock soon" tile — replaces the old training card (R-1). It
+/// lists the pantry items that are honestly worth restocking (low / expiring /
+/// reorder-due), built ONLY from real [PantryItem] fields via the pure
+/// [restockSoon] selector. It is NEVER shown empty — the caller omits the whole
+/// section when there's nothing due (no fabricated urgency). Tapping opens Food
+/// (and later feeds the Cart).
+class _RestockSoonCard extends StatelessWidget {
+  const _RestockSoonCard({required this.items, this.onTap});
 
-  final PantryGlance glance;
+  final List<RestockItem> items;
   final VoidCallback? onTap;
 
   /// Cap the list so the card stays a calm glance, not a full inventory.
-  static const int _maxPerSection = 3;
+  static const int _maxShown = 4;
 
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
     final text = Theme.of(context).textTheme;
 
-    final expiring = glance.expiringSoon.take(_maxPerSection).toList();
-    final low = glance.lowStock
-        // Avoid showing an item twice — if it's already in the expiring list,
-        // don't repeat it under low (it reads as expiring, honestly enough).
-        .where((l) => !expiring.any((e) => e.item.id == l.item.id))
-        .take(_maxPerSection)
-        .toList();
+    final shown = items.take(_maxShown).toList();
+    final overflow = items.length - shown.length;
 
     return StatCard(
-      key: const Key('today-pantry-glance'),
+      key: const Key('home-restock-soon'),
       onTap: onTap,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (expiring.isNotEmpty) ...[
-            _GlanceLine(
-              icon: Icons.schedule_outlined,
-              color: colors.primaryStrong,
-              label: expiring.length == 1
-                  ? '1 item expiring soon'
-                  : '${expiring.length} items expiring soon',
-            ),
-            AppSpacing.gapV1,
-            Text(
-              expiring.map((e) => e.item.name).join(', '),
-              style: text.bodySmall?.copyWith(color: colors.textSecondary),
-            ),
-          ],
-          if (expiring.isNotEmpty && low.isNotEmpty) AppSpacing.gapV3,
-          if (low.isNotEmpty) ...[
-            _GlanceLine(
-              icon: Icons.inventory_2_outlined,
-              color: colors.textSecondary,
-              label: low.length == 1 ? '1 item running low' : '${low.length} items running low',
-            ),
-            AppSpacing.gapV1,
-            Text(
-              low.map((e) => e.item.name).join(', '),
-              style: text.bodySmall?.copyWith(color: colors.textSecondary),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-}
-
-/// A single icon + label headline row inside the pantry glance card.
-class _GlanceLine extends StatelessWidget {
-  const _GlanceLine({
-    required this.icon,
-    required this.color,
-    required this.label,
-  });
-
-  final IconData icon;
-  final Color color;
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    final text = Theme.of(context).textTheme;
-    return Row(
-      children: [
-        Icon(icon, size: 18, color: color),
-        AppSpacing.gapH2,
-        Expanded(
-          child: Text(label, style: text.titleSmall),
-        ),
-        Icon(Icons.chevron_right, color: context.appColors.textSecondary),
-      ],
-    );
-  }
-}
-
-// ── Workout card ─────────────────────────────────────────────────────────────
-
-/// The training tile: "Workout in progress" when a session is active, else a
-/// summary of the last finished session, else a calm "start a workout" prompt.
-/// All from the [WorkoutRepo] — no fabricated stats.
-class _WorkoutCard extends StatelessWidget {
-  const _WorkoutCard({required this.active, required this.last});
-
-  final WorkoutSession? active;
-  final WorkoutSession? last;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = context.appColors;
-    final text = Theme.of(context).textTheme;
-
-    if (active != null) {
-      final setCount = _totalSets(active!);
-      return StatCard(
-        warm: true,
-        child: Row(
-          children: [
-            Icon(Icons.bolt_outlined, color: colors.primaryStrong),
-            AppSpacing.gapH3,
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('Workout in progress', style: text.titleMedium),
-                  AppSpacing.gapV1,
-                  Text(
-                    setCount == 0
-                        ? 'Just started — pick up where you left off.'
-                        : '$setCount ${setCount == 1 ? 'set' : 'sets'} logged so far.',
-                    style: text.bodySmall,
-                  ),
-                ],
-              ),
-            ),
-            Icon(Icons.chevron_right, color: colors.textSecondary),
-          ],
-        ),
-      );
-    }
-
-    if (last != null) {
-      final setCount = _totalSets(last!);
-      final exCount = last!.exercises.length;
-      return StatCard(
-        child: Row(
-          children: [
-            Icon(Icons.fitness_center_outlined, color: colors.textSecondary),
-            AppSpacing.gapH3,
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('Last workout', style: text.titleMedium),
-                  AppSpacing.gapV1,
-                  Text(
-                    _lastSummary(last!, exCount, setCount),
-                    style: text.bodySmall,
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      );
-    }
-
-    // Nothing logged — a calm invitation, never a fabricated stat.
-    return StatCard(
-      child: Row(
-        children: [
-          Icon(Icons.fitness_center_outlined, color: colors.textSecondary),
-          AppSpacing.gapH3,
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Start a workout', style: text.titleMedium),
-                AppSpacing.gapV1,
-                Text(
-                  'No sessions yet — head to the gym tab to begin.',
-                  style: text.bodySmall,
+          Row(
+            children: [
+              Icon(Icons.shopping_basket_outlined,
+                  size: 18, color: colors.primaryStrong),
+              AppSpacing.gapH2,
+              Expanded(
+                child: Text(
+                  items.length == 1
+                      ? '1 item to restock soon'
+                      : '${items.length} items to restock soon',
+                  style: text.titleSmall,
                 ),
-              ],
-            ),
+              ),
+              Icon(Icons.chevron_right, color: colors.textSecondary),
+            ],
           ),
-          Icon(Icons.chevron_right, color: colors.textSecondary),
+          AppSpacing.gapV3,
+          for (final r in shown) ...[
+            Padding(
+              padding: const EdgeInsets.only(bottom: AppSpacing.space1),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      r.item.name,
+                      style: text.bodyMedium
+                          ?.copyWith(color: colors.textPrimary),
+                    ),
+                  ),
+                  Text(
+                    _reasonLabel(r),
+                    style: text.bodySmall
+                        ?.copyWith(color: colors.textSecondary),
+                  ),
+                ],
+              ),
+            ),
+          ],
+          if (overflow > 0)
+            Padding(
+              padding: const EdgeInsets.only(top: AppSpacing.space1),
+              child: Text(
+                '+$overflow more',
+                style: text.bodySmall?.copyWith(color: colors.textSecondary),
+              ),
+            ),
         ],
       ),
     );
   }
 
-  int _totalSets(WorkoutSession s) =>
-      s.exercises.fold(0, (n, e) => n + e.sets.length);
-
-  /// A one-line summary of the last session: which lifts + how much work, and a
-  /// relative "when". Exercise names come from the catalog; an unknown id falls
-  /// back to the raw id rather than a fabricated name.
-  String _lastSummary(WorkoutSession s, int exCount, int setCount) {
-    final names = s.exercises.map((e) => _exerciseName(e.exerciseId)).toList();
-    final lifts = names.isEmpty
-        ? 'no exercises'
-        : (names.length <= 2 ? names.join(', ') : '${names.take(2).join(', ')} +${names.length - 2}');
-    final when = _relativeDay(s.at);
-    return '$lifts · $setCount ${setCount == 1 ? 'set' : 'sets'} · $when';
-  }
-
-  String _exerciseName(String id) {
-    for (final ex in kExerciseCatalog) {
-      if (ex.id == id) return ex.name;
-    }
-    return id; // unknown id — honest fallback, no fabricated label
-  }
-
-  String _relativeDay(DateTime at) {
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final day = DateTime(at.year, at.month, at.day);
-    final diff = today.difference(day).inDays;
-    if (diff <= 0) return 'today';
-    if (diff == 1) return 'yesterday';
-    return '$diff days ago';
+  /// The honest reason(s) an item surfaced — expiring / low / reorder-due.
+  String _reasonLabel(RestockItem r) {
+    final parts = <String>[
+      if (r.isExpiring) 'expiring',
+      if (r.isLow) 'low',
+      if (r.isReorderDue) 'reorder due',
+    ];
+    return parts.join(' · ');
   }
 }
 

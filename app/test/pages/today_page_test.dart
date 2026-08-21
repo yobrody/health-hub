@@ -19,8 +19,6 @@ import 'package:health_hub/design_system/app_theme.dart';
 import 'package:health_hub/design_system/components/progress_ring.dart';
 import 'package:health_hub/nutrition/food_log_entry.dart';
 import 'package:health_hub/nutrition/nutrition_repo.dart';
-import 'package:health_hub/gym/workout_repo.dart';
-import 'package:health_hub/gym/workout_session.dart';
 import 'package:health_hub/metrics/weigh_in.dart';
 import 'package:health_hub/metrics/weigh_in_repo.dart';
 import 'package:health_hub/nutrition/nutrition_goals_repo.dart';
@@ -67,14 +65,6 @@ class FakeNutritionStore implements NutritionStore {
   Future<void> save(List<FoodLogEntry> items) async => _items = List.of(items);
 }
 
-class FakeWorkoutStore implements WorkoutStore {
-  FakeWorkoutStore([List<WorkoutSession>? seed]) : _items = seed ?? [];
-  List<WorkoutSession> _items;
-  @override
-  Future<List<WorkoutSession>> load() async => List.unmodifiable(_items);
-  @override
-  Future<void> save(List<WorkoutSession> items) async => _items = List.of(items);
-}
 
 class FakeGoalsStore implements NutritionGoalsStore {
   FakeGoalsStore([this._saved]);
@@ -117,11 +107,6 @@ NutritionRepo _nutritionRepo([List<FoodLogEntry>? seed]) => NutritionRepo(
       store: FakeNutritionStore(seed),
     );
 
-WorkoutRepo _workoutRepo([List<WorkoutSession>? seed]) => WorkoutRepo(
-      outbox: Outbox(FakeOutboxStore()),
-      store: FakeWorkoutStore(seed),
-    );
-
 NutritionGoalsRepo _goalsRepo([Map<String, dynamic>? stored]) =>
     NutritionGoalsRepo(
       outbox: Outbox(FakeOutboxStore()),
@@ -141,7 +126,6 @@ PantryRepo _pantryRepo([List<PantryItem>? seed]) => PantryRepo(
 Widget _dashboard({
   Map<String, dynamic>? profile,
   List<FoodLogEntry>? food,
-  List<WorkoutSession>? workouts,
   Map<String, dynamic>? goals,
   List<WeighIn>? weighIns,
   List<PantryItem>? pantry,
@@ -152,7 +136,6 @@ Widget _dashboard({
       home: TodayPage(
         repo: _profileRepo(profile),
         nutritionRepo: _nutritionRepo(food),
-        workoutRepo: _workoutRepo(workouts),
         goalsRepo: _goalsRepo(goals),
         weighInRepo: _weighInRepo(weighIns),
         pantryRepo: _pantryRepo(pantry),
@@ -181,17 +164,38 @@ FoodLogEntry _entry({
       source: 'manual',
     );
 
-/// Scroll the dashboard ListView up so the (last) training section is built and
-/// laid out — a ListView lazily builds only the children in view, and the
-/// training card sits below the fold in the default test viewport.
-Future<void> _scrollToTraining(WidgetTester tester) async {
+/// Scroll the dashboard ListView up so the (last) restock-soon section is built
+/// and laid out — a ListView lazily builds only the children in view, and the
+/// restock card sits below the fold in the default test viewport.
+Future<void> _scrollToRestock(WidgetTester tester) async {
   await tester.dragUntilVisible(
-    find.text('TRAINING'),
+    find.text('RESTOCK SOON'),
     find.byType(Scrollable),
     const Offset(0, -300),
   );
   await tester.pumpAndSettle();
 }
+
+/// A pantry item helper for restock-soon tests.
+PantryItem _pItem(
+  String id, {
+  double? qty,
+  String? unit,
+  DateTime? expiry,
+  int? reorderCadenceDays,
+  DateTime? lastBought,
+}) =>
+    PantryItem(
+      id: id,
+      name: id,
+      zone: PantryZone.fridge,
+      qty: qty,
+      unit: unit,
+      expiry: expiry,
+      reorderCadenceDays: reorderCadenceDays,
+      lastBought: lastBought,
+      source: 'manual',
+    );
 
 void main() {
   testWidgets('renders the dashboard with today-page key', (tester) async {
@@ -286,64 +290,65 @@ void main() {
     }
   });
 
-  testWidgets('workout card reflects an active session', (tester) async {
-    final active = WorkoutSession(
-      id: 'w-1',
-      at: DateTime.now(),
-      exercises: const [
-        ExerciseLog(
-          exerciseId: 'bench-press',
-          sets: [SetEntry(weightKg: 60, reps: 8, done: true)],
-        ),
-      ],
-    );
+  // ── Restock-soon card (R-1, replaces the training card) ────────────────────
+
+  testWidgets('restock-soon card shows real low/expiring pantry items',
+      (tester) async {
     await tester.pumpWidget(_dashboard(
       profile: {'weight_kg': 62.5},
-      workouts: [active],
+      pantry: [
+        // Genuinely low (known gram qty below threshold).
+        _pItem('Butter', qty: 20, unit: 'g'),
+        // Expiring soon (real near expiry).
+        _pItem('Milk', expiry: DateTime.now().add(const Duration(days: 1))),
+        // Nothing due — must NOT surface (no fabricated urgency).
+        _pItem('Rice', qty: 900, unit: 'g'),
+      ],
     ));
     await tester.pumpAndSettle();
-    await _scrollToTraining(tester);
+    await _scrollToRestock(tester);
 
-    expect(find.text('Workout in progress'), findsOneWidget);
-    expect(find.textContaining('1 set logged'), findsOneWidget);
+    expect(find.byKey(const Key('home-restock-soon')), findsOneWidget);
+    // Both due items appear; the not-due one does not.
+    expect(find.text('Butter'), findsOneWidget);
+    expect(find.text('Milk'), findsOneWidget);
+    expect(find.text('Rice'), findsNothing);
   });
 
-  testWidgets('workout card shows the last finished session when none active',
+  testWidgets('restock-soon card is OMITTED when nothing is due (honest)',
       (tester) async {
-    final finished = WorkoutSession(
-      id: 'w-done',
-      at: DateTime.now(),
-      finished: true,
-      exercises: const [
-        ExerciseLog(
-          exerciseId: 'squat',
-          sets: [
-            SetEntry(weightKg: 100, reps: 5, done: true),
-            SetEntry(weightKg: 100, reps: 5, done: true),
-          ],
-        ),
-      ],
-    );
     await tester.pumpWidget(_dashboard(
       profile: {'weight_kg': 62.5},
-      workouts: [finished],
+      // A well-stocked, far-dated item → nothing to restock.
+      pantry: [
+        _pItem('Rice',
+            qty: 900,
+            unit: 'g',
+            expiry: DateTime.now().add(const Duration(days: 365))),
+      ],
     ));
     await tester.pumpAndSettle();
-    await _scrollToTraining(tester);
 
-    expect(find.text('Last workout'), findsOneWidget);
-    // Real exercise name from the catalog + real set count.
-    expect(find.textContaining('Squat'), findsOneWidget);
-    expect(find.textContaining('2 sets'), findsOneWidget);
+    // No restock section, no fabricated "all good" urgency card.
+    expect(find.byKey(const Key('home-restock-soon')), findsNothing);
+    expect(find.text('RESTOCK SOON'), findsNothing);
   });
 
-  testWidgets('workout card invites a start when there are no sessions',
-      (tester) async {
+  testWidgets('an empty pantry shows no restock card', (tester) async {
     await tester.pumpWidget(_dashboard(profile: {'weight_kg': 62.5}));
     await tester.pumpAndSettle();
-    await _scrollToTraining(tester);
 
-    expect(find.text('Start a workout'), findsOneWidget);
+    expect(find.byKey(const Key('home-restock-soon')), findsNothing);
+  });
+
+  // ── Relocated Home affordances (R-1) ───────────────────────────────────────
+
+  testWidgets('Home carries the settings + log-meal buttons', (tester) async {
+    await tester.pumpWidget(_dashboard(profile: {'weight_kg': 62.5}));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('home-settings-btn')), findsOneWidget);
+    expect(find.byKey(const Key('home-log-meal-btn')), findsOneWidget);
   });
 
   // ── Nutrition-goal wiring (P4-D4) ──────────────────────────────────────────

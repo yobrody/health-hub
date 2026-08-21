@@ -157,6 +157,21 @@ class _FoodPageState extends ConsumerState<FoodPage> {
     await _reload();
   }
 
+  /// The photo-upload path is a STUB in R-1. The real AI vision that recognizes
+  /// items from fridge/pantry photos is R-2 — so this is HONEST about that: it
+  /// shows a "coming soon" message and NEVER fabricates recognized items. Manual
+  /// add remains the real way to populate the pantry today.
+  void _uploadPhotosStub() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        key: Key('food-gate-upload-snackbar'),
+        content: Text(
+          'Photo recognition is coming soon — add items manually for now.',
+        ),
+      ),
+    );
+  }
+
   // ── Detail sheet ───────────────────────────────────────────────────────────
 
   void _showDetail(PantryItem item) {
@@ -200,30 +215,58 @@ class _FoodPageState extends ConsumerState<FoodPage> {
     final text = Theme.of(context).textTheme;
 
     if (_items.isEmpty) {
+      // First-run gate (R-1) — NON-BLOCKING: the hero invites uploading fridge/
+      // freezer/pantry/spice photos (a STUB in R-1 — the real AI recognition is
+      // R-2, so it never pretends to recognize anything), but an "Add manually"
+      // path always keeps the app usable via the existing add-item flow.
       return Center(
-        child: Padding(
+        child: SingleChildScrollView(
           padding: AppSpacing.pagePadding,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                Icons.kitchen_outlined,
-                size: 48,
-                color: colors.textSecondary.withAlpha(102),
-              ),
-              AppSpacing.gapV4,
-              Text(
-                'Your pantry is empty',
-                style: text.titleMedium?.copyWith(color: colors.textSecondary),
-              ),
-              AppSpacing.gapV2,
-              Text(
-                'Tap + to add your first item.',
-                style: text.bodyMedium?.copyWith(
-                  color: colors.textSecondary.withAlpha(153),
+          child: StatCard(
+            key: const Key('food-gate'),
+            warm: true,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Icon(
+                  Icons.photo_camera_outlined,
+                  size: 40,
+                  color: colors.primaryStrong,
                 ),
-              ),
-            ],
+                AppSpacing.gapV4,
+                Text(
+                  'Upload photos of your fridge, freezer, pantry & spices',
+                  style: text.titleMedium,
+                ),
+                AppSpacing.gapV2,
+                Text(
+                  'Snap your fridge, freezer, pantry & spices — photo '
+                  'recognition is coming soon. For now, add items manually.',
+                  style:
+                      text.bodyMedium?.copyWith(color: colors.textSecondary),
+                ),
+                AppSpacing.gapV5,
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    key: const Key('food-gate-upload'),
+                    onPressed: _uploadPhotosStub,
+                    icon: const Icon(Icons.upload_outlined),
+                    label: const Text('Upload photos'),
+                  ),
+                ),
+                AppSpacing.gapV2,
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    key: const Key('food-gate-manual'),
+                    onPressed: _openAddForm,
+                    icon: const Icon(Icons.edit_outlined),
+                    label: const Text('Add manually'),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       );

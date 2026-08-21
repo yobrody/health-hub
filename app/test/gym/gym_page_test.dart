@@ -81,6 +81,53 @@ void main() {
       expect(find.byKey(const Key('gym-page')), findsOneWidget);
     });
 
+    // ── First-run gate (R-1) ─────────────────────────────────────────────────
+
+    testWidgets('no session → NON-BLOCKING gate with create + upload',
+        (tester) async {
+      final repo = _makeRepo(_FakeWorkoutStore());
+      await tester.pumpWidget(_buildPage(repo));
+      await tester.pump();
+
+      expect(find.byKey(const Key('gym-gate')), findsOneWidget);
+      expect(find.byKey(const Key('gym-gate-create')), findsOneWidget);
+      expect(find.byKey(const Key('gym-gate-upload')), findsOneWidget);
+      // The long-standing start key is preserved (a way through always exists).
+      expect(find.byKey(const Key('gym-start-btn')), findsOneWidget);
+      expect(
+          find.textContaining('Create or upload a workout'), findsOneWidget);
+    });
+
+    testWidgets('gate "Create" leads into the real start-session flow',
+        (tester) async {
+      final repo = _makeRepo(_FakeWorkoutStore());
+      await tester.pumpWidget(_buildPage(repo));
+      await tester.pump();
+
+      await tester.tap(find.byKey(const Key('gym-start-btn')));
+      await tester.pumpAndSettle();
+
+      // A real session now exists; the gate is gone.
+      final all = await repo.all();
+      expect(all, hasLength(1));
+      expect(find.byKey(const Key('gym-gate')), findsNothing);
+    });
+
+    testWidgets('gate "Upload" is an honest STUB — no fabricated workout',
+        (tester) async {
+      final repo = _makeRepo(_FakeWorkoutStore());
+      await tester.pumpWidget(_buildPage(repo));
+      await tester.pump();
+
+      await tester.tap(find.byKey(const Key('gym-gate-upload')));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('gym-gate-upload-snackbar')), findsOneWidget);
+      expect(find.textContaining('coming soon'), findsOneWidget);
+      final all = await repo.all();
+      expect(all, isEmpty); // nothing invented
+    });
+
     // ── Start session ──────────────────────────────────────────────────────
 
     testWidgets('start button creates a session and shows exercise picker',

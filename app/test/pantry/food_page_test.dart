@@ -192,4 +192,73 @@ void main() {
     // The raw dot widget must still be present (Key contract unchanged).
     expect(find.byKey(const Key('freshness-unknown')), findsOneWidget);
   }, semanticsEnabled: true);
+
+  // ── First-run gate (R-1) ───────────────────────────────────────────────────
+
+  testWidgets('empty pantry shows the NON-BLOCKING first-run gate',
+      (tester) async {
+    await _pumpPage(tester, []);
+
+    // The gate hero + both a way-in paths are present.
+    expect(find.byKey(const Key('food-gate')), findsOneWidget);
+    expect(find.byKey(const Key('food-gate-upload')), findsOneWidget);
+    expect(find.byKey(const Key('food-gate-manual')), findsOneWidget);
+    expect(
+      find.textContaining('Upload photos of your fridge'),
+      findsOneWidget,
+    );
+    // The FAB add path still exists too (app stays usable).
+    expect(find.byKey(const Key('food-add-fab')), findsOneWidget);
+  });
+
+  testWidgets('gate upload is an honest STUB — never fabricates items',
+      (tester) async {
+    final repo = await _pumpPage(tester, []);
+
+    await tester.tap(find.byKey(const Key('food-gate-upload')));
+    await tester.pumpAndSettle();
+
+    // Honest snackbar — scoped to the snackbar itself (the gate body copy now
+    // also mentions "coming soon", so match the snackbar's own phrasing).
+    final snackbar = find.byKey(const Key('food-gate-upload-snackbar'));
+    expect(snackbar, findsOneWidget);
+    expect(
+      find.descendant(
+        of: snackbar,
+        matching: find.textContaining('coming soon'),
+      ),
+      findsOneWidget,
+    );
+    // CRUCIALLY no items were invented.
+    final all = await repo.all();
+    expect(all, isEmpty);
+  });
+
+  testWidgets('gate "Add manually" opens the real add-item flow',
+      (tester) async {
+    final repo = await _pumpPage(tester, []);
+
+    await tester.tap(find.byKey(const Key('food-gate-manual')));
+    await tester.pumpAndSettle();
+
+    // The existing add form appears; fill + submit it → a REAL item persists.
+    expect(find.byKey(const Key('food-form-name')), findsOneWidget);
+    await tester.enterText(
+        find.byKey(const Key('food-form-name')), 'Eggs');
+    await tester.tap(find.byKey(const Key('food-form-submit')));
+    await tester.pumpAndSettle();
+
+    // The item now shows (gate is gone) and is in the store.
+    expect(find.text('Eggs'), findsWidgets);
+    expect(find.byKey(const Key('food-gate')), findsNothing);
+    final all = await repo.all();
+    expect(all.any((i) => i.name == 'Eggs'), isTrue);
+  });
+
+  testWidgets('with items present, the normal pantry UI shows (no gate)',
+      (tester) async {
+    await _pumpPage(tester, [_minimal]);
+    expect(find.byKey(const Key('food-gate')), findsNothing);
+    expect(find.text('Salt'), findsWidgets);
+  });
 }

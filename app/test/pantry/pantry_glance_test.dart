@@ -107,12 +107,15 @@ void main() {
       expect(g.lowStock.first.lowStock, isTrue);
     });
 
-    test('a null-unit qty (implicit grams) below threshold is flagged low', () {
+    test('a null-unit qty is NEVER flagged low (not honestly gram-comparable)',
+        () {
+      // "40" with no unit could be bottles / packs / litres — flagging it low
+      // would fabricate urgency, so it must be excluded.
       final g = pantryGlance(
         [_item(id: 'flour', qty: 40, unit: null)],
         now,
       );
-      expect(g.lowStock, hasLength(1));
+      expect(g.lowStock, isEmpty);
     });
 
     test('a real 0 qty (out of stock) counts as low', () {
