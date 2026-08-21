@@ -25,6 +25,12 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
 import '../app_providers.dart';
+import '../design_system/colors.dart';
+import '../design_system/components/section_header.dart';
+import '../design_system/components/stat_card.dart';
+import '../design_system/motion.dart';
+import '../design_system/shape.dart';
+import '../design_system/spacing.dart';
 import '../nutrition/food_log_entry.dart';
 import '../nutrition/nutrition_repo.dart';
 import '../nutrition/off_client.dart';
@@ -281,22 +287,32 @@ class NutritionPageState extends ConsumerState<NutritionPage> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.appColors;
+    final text = Theme.of(context).textTheme;
+
     return Scaffold(
       key: const Key('nutrition-page'),
+      backgroundColor: colors.canvas,
       appBar: AppBar(
-        title: const Text('Log Food'),
+        backgroundColor: colors.canvas,
+        surfaceTintColor: Colors.transparent,
+        elevation: 0,
+        title: Text(
+          'Log Food',
+          style: text.titleLarge?.copyWith(color: colors.textPrimary),
+        ),
       ),
       body: _loading
-          ? const Center(child: CircularProgressIndicator())
+          ? const Center(child: SizedBox.shrink())
           : ListView(
-              padding: const EdgeInsets.all(16),
+              padding: AppSpacing.pagePadding,
               children: [
                 _buildInOutToggle(),
-                const SizedBox(height: 12),
+                AppSpacing.gapV5,
                 _buildForm(),
-                const SizedBox(height: 12),
+                AppSpacing.gapV5,
                 _buildButtons(),
-                const Divider(height: 32),
+                AppSpacing.gapV8,
                 _buildTodayLog(),
               ],
             ),
@@ -306,6 +322,9 @@ class NutritionPageState extends ConsumerState<NutritionPage> {
   // ── In/Out toggle ──────────────────────────────────────────────────────────
 
   Widget _buildInOutToggle() {
+    final colors = context.appColors;
+    final text = Theme.of(context).textTheme;
+
     return Row(
       children: [
         _ToggleChip(
@@ -313,13 +332,17 @@ class NutritionPageState extends ConsumerState<NutritionPage> {
           label: 'In (home)',
           selected: !_ateOut,
           onTap: () => setState(() => _ateOut = false),
+          colors: colors,
+          text: text,
         ),
-        const SizedBox(width: 8),
+        AppSpacing.gapH2,
         _ToggleChip(
           key: const Key('nutrition-toggle-out'),
           label: 'Out (restaurant)',
           selected: _ateOut,
           onTap: () => setState(() => _ateOut = true),
+          colors: colors,
+          text: text,
         ),
       ],
     );
@@ -328,101 +351,134 @@ class NutritionPageState extends ConsumerState<NutritionPage> {
   // ── Form fields ────────────────────────────────────────────────────────────
 
   Widget _buildForm() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // Barcode button — opens real scanner on device, never in tests.
-        OutlinedButton.icon(
-          key: const Key('nutrition-scan-btn'),
-          onPressed: _openScanner,
-          icon: const Icon(Icons.qr_code_scanner),
-          label: Text(_scannedBarcode != null
-              ? 'Scanned: $_scannedBarcode'
-              : 'Scan barcode'),
-        ),
-        const SizedBox(height: 12),
+    final colors = context.appColors;
+    final text = Theme.of(context).textTheme;
 
-        // Name (required)
-        TextField(
-          key: const Key('nutrition-name'),
-          controller: _nameCtrl,
-          decoration: const InputDecoration(
-            labelText: 'Food name *',
-            border: OutlineInputBorder(),
-          ),
-          textCapitalization: TextCapitalization.sentences,
-        ),
-        const SizedBox(height: 8),
-
-        // Grams / ml
-        TextField(
-          key: const Key('nutrition-grams'),
-          controller: _gramsCtrl,
-          decoration: const InputDecoration(
-            labelText: 'Amount (g or ml)',
-            border: OutlineInputBorder(),
-          ),
-          keyboardType: const TextInputType.numberWithOptions(decimal: true),
-        ),
-        const SizedBox(height: 8),
-
-        // Macros — all optional; absent stays null (honest)
-        _MacroRow(
-          kcalKey: const Key('nutrition-kcal'),
-          proteinKey: const Key('nutrition-protein'),
-          carbsKey: const Key('nutrition-carbs'),
-          fatKey: const Key('nutrition-fat'),
-          kcalCtrl: _kcalCtrl,
-          proteinCtrl: _proteinCtrl,
-          carbsCtrl: _carbsCtrl,
-          fatCtrl: _fatCtrl,
-        ),
-        const SizedBox(height: 8),
-
-        // Out-mode fields (only shown when Out is selected)
-        if (_ateOut) ...[
-          TextField(
-            key: const Key('nutrition-restaurant'),
-            controller: _restaurantCtrl,
-            decoration: const InputDecoration(
-              labelText: 'Restaurant / place',
-              border: OutlineInputBorder(),
+    return StatCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Barcode button — opens real scanner on device, never in tests.
+          OutlinedButton.icon(
+            key: const Key('nutrition-scan-btn'),
+            onPressed: _openScanner,
+            icon: Icon(Icons.qr_code_scanner, color: colors.primaryStrong, size: 18),
+            label: Text(
+              _scannedBarcode != null
+                  ? 'Scanned: $_scannedBarcode'
+                  : 'Scan barcode',
+              style: text.labelMedium?.copyWith(color: colors.primaryStrong),
             ),
-            textCapitalization: TextCapitalization.words,
-          ),
-          const SizedBox(height: 8),
-          TextField(
-            key: const Key('nutrition-spend'),
-            controller: _spendCtrl,
-            decoration: const InputDecoration(
-              labelText: '£ Spend (optional)',
-              border: OutlineInputBorder(),
-              prefixText: '£',
+            style: OutlinedButton.styleFrom(
+              side: BorderSide(color: colors.hairline),
+              shape: AppShape.buttonBorder,
+              padding: const EdgeInsets.symmetric(
+                horizontal: AppSpacing.space4,
+                vertical: AppSpacing.space2,
+              ),
             ),
+          ),
+          AppSpacing.gapV4,
+
+          // Name (required)
+          _FormField(
+            fieldKey: const Key('nutrition-name'),
+            controller: _nameCtrl,
+            label: 'Food name *',
+            keyboardType: TextInputType.text,
+            textCapitalization: TextCapitalization.sentences,
+            colors: colors,
+            text: text,
+          ),
+          AppSpacing.gapV3,
+
+          // Grams / ml
+          _FormField(
+            fieldKey: const Key('nutrition-grams'),
+            controller: _gramsCtrl,
+            label: 'Amount (g or ml)',
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            colors: colors,
+            text: text,
           ),
+          AppSpacing.gapV3,
+
+          // Macros — all optional; absent stays null (honest)
+          _MacroRow(
+            kcalKey: const Key('nutrition-kcal'),
+            proteinKey: const Key('nutrition-protein'),
+            carbsKey: const Key('nutrition-carbs'),
+            fatKey: const Key('nutrition-fat'),
+            kcalCtrl: _kcalCtrl,
+            proteinCtrl: _proteinCtrl,
+            carbsCtrl: _carbsCtrl,
+            fatCtrl: _fatCtrl,
+            colors: colors,
+            text: text,
+          ),
+
+          // Out-mode fields (only shown when Out is selected)
+          if (_ateOut) ...[
+            AppSpacing.gapV3,
+            _FormField(
+              fieldKey: const Key('nutrition-restaurant'),
+              controller: _restaurantCtrl,
+              label: 'Restaurant / place',
+              keyboardType: TextInputType.text,
+              textCapitalization: TextCapitalization.words,
+              colors: colors,
+              text: text,
+            ),
+            AppSpacing.gapV3,
+            _FormField(
+              fieldKey: const Key('nutrition-spend'),
+              controller: _spendCtrl,
+              label: '£ Spend (optional)',
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              prefixText: '£',
+              colors: colors,
+              text: text,
+            ),
+          ],
         ],
-      ],
+      ),
     );
   }
 
   // ── Log / Guess buttons ────────────────────────────────────────────────────
 
   Widget _buildButtons() {
+    final colors = context.appColors;
+    final text = Theme.of(context).textTheme;
+
     return Row(
       children: [
         Expanded(
           child: FilledButton(
             key: const Key('nutrition-log-btn'),
             onPressed: _log,
+            style: FilledButton.styleFrom(
+              backgroundColor: colors.primary,
+              foregroundColor: colors.textPrimary,
+              shape: AppShape.buttonBorder,
+              padding: const EdgeInsets.symmetric(vertical: AppSpacing.space3),
+              textStyle: text.labelLarge,
+            ),
             child: const Text('Log'),
           ),
         ),
-        const SizedBox(width: 8),
+        AppSpacing.gapH3,
         Expanded(
           child: OutlinedButton(
             key: const Key('nutrition-guess-btn'),
             onPressed: _guess,
+            style: OutlinedButton.styleFrom(
+              foregroundColor: colors.textSecondary,
+              side: BorderSide(color: colors.hairline),
+              shape: AppShape.buttonBorder,
+              padding: const EdgeInsets.symmetric(vertical: AppSpacing.space3),
+              textStyle: text.labelLarge,
+            ),
             child: const Text('Guess (~)'),
           ),
         ),
@@ -433,25 +489,34 @@ class NutritionPageState extends ConsumerState<NutritionPage> {
   // ── Today's log ────────────────────────────────────────────────────────────
 
   Widget _buildTodayLog() {
+    final colors = context.appColors;
+    final text = Theme.of(context).textTheme;
+
     if (_todayLog.isEmpty) {
-      return const Text(
-        "Nothing logged today.",
-        style: TextStyle(color: Colors.grey),
+      return Text(
+        'Nothing logged today.',
+        style: text.bodyMedium?.copyWith(color: colors.textSecondary),
       );
     }
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          "Today's log",
-          style: Theme.of(context)
-              .textTheme
-              .titleSmall
-              ?.copyWith(fontWeight: FontWeight.bold),
+        const SectionHeader(title: "TODAY'S LOG"),
+        StatCard(
+          padding: const EdgeInsets.symmetric(
+            horizontal: AppSpacing.cardPadding,
+            vertical: AppSpacing.space3,
+          ),
+          child: Column(
+            children: _todayLog.asMap().entries.map((entry) {
+              return _LogEntryTile(
+                entry: entry.value,
+                isLast: entry.key == _todayLog.length - 1,
+              );
+            }).toList(),
+          ),
         ),
-        const SizedBox(height: 8),
-        ..._todayLog.map((e) => _LogEntryTile(entry: e)),
       ],
     );
   }
@@ -465,33 +530,95 @@ class _ToggleChip extends StatelessWidget {
     required this.label,
     required this.selected,
     required this.onTap,
+    required this.colors,
+    required this.text,
   });
 
   final String label;
   final bool selected;
   final VoidCallback onTap;
+  final AppColors colors;
+  final TextTheme text;
 
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
       onTap: onTap,
       child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        duration: AppMotion.fast,
+        curve: AppMotion.standard,
+        padding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.space4,
+          vertical: AppSpacing.space2,
+        ),
         decoration: BoxDecoration(
-          color: selected
-              ? Theme.of(context).colorScheme.primary
-              : Theme.of(context).colorScheme.surfaceContainerHighest,
-          borderRadius: BorderRadius.circular(20),
+          color: selected ? colors.primary : colors.surface,
+          borderRadius: AppShape.chip,
+          border: Border.all(
+            color: selected ? colors.primary : colors.hairline,
+          ),
         ),
         child: Text(
           label,
-          style: TextStyle(
-            color: selected
-                ? Theme.of(context).colorScheme.onPrimary
-                : Theme.of(context).colorScheme.onSurface,
-            fontWeight: FontWeight.w500,
+          style: text.labelMedium?.copyWith(
+            color: selected ? colors.textPrimary : colors.textSecondary,
+            fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
           ),
+        ),
+      ),
+    );
+  }
+}
+
+// ── _FormField ────────────────────────────────────────────────────────────────
+
+/// A single luxury-styled input field for the nutrition capture form.
+class _FormField extends StatelessWidget {
+  const _FormField({
+    required this.fieldKey,
+    required this.controller,
+    required this.label,
+    required this.keyboardType,
+    required this.colors,
+    required this.text,
+    this.textCapitalization = TextCapitalization.none,
+    this.prefixText,
+  });
+
+  final Key fieldKey;
+  final TextEditingController controller;
+  final String label;
+  final TextInputType keyboardType;
+  final AppColors colors;
+  final TextTheme text;
+  final TextCapitalization textCapitalization;
+  final String? prefixText;
+
+  @override
+  Widget build(BuildContext context) {
+    return TextField(
+      key: fieldKey,
+      controller: controller,
+      keyboardType: keyboardType,
+      textCapitalization: textCapitalization,
+      style: text.bodyLarge?.copyWith(color: colors.textPrimary),
+      decoration: InputDecoration(
+        labelText: label,
+        prefixText: prefixText,
+        labelStyle: text.bodySmall?.copyWith(color: colors.textSecondary),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: AppShape.field,
+          borderSide: BorderSide(color: colors.hairline),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: AppShape.field,
+          borderSide: BorderSide(color: colors.primary, width: 1.5),
+        ),
+        filled: true,
+        fillColor: colors.canvas,
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.space4,
+          vertical: AppSpacing.space3,
         ),
       ),
     );
@@ -510,6 +637,8 @@ class _MacroRow extends StatelessWidget {
     required this.proteinCtrl,
     required this.carbsCtrl,
     required this.fatCtrl,
+    required this.colors,
+    required this.text,
   });
 
   final Key kcalKey;
@@ -520,32 +649,20 @@ class _MacroRow extends StatelessWidget {
   final TextEditingController proteinCtrl;
   final TextEditingController carbsCtrl;
   final TextEditingController fatCtrl;
+  final AppColors colors;
+  final TextTheme text;
 
   @override
   Widget build(BuildContext context) {
     return Row(
       children: [
-        Expanded(
-          child: _MacroField(
-              fieldKey: kcalKey, controller: kcalCtrl, label: 'kcal'),
-        ),
-        const SizedBox(width: 6),
-        Expanded(
-          child: _MacroField(
-              fieldKey: proteinKey,
-              controller: proteinCtrl,
-              label: 'Protein g'),
-        ),
-        const SizedBox(width: 6),
-        Expanded(
-          child: _MacroField(
-              fieldKey: carbsKey, controller: carbsCtrl, label: 'Carbs g'),
-        ),
-        const SizedBox(width: 6),
-        Expanded(
-          child: _MacroField(
-              fieldKey: fatKey, controller: fatCtrl, label: 'Fat g'),
-        ),
+        Expanded(child: _MacroField(fieldKey: kcalKey, controller: kcalCtrl, label: 'kcal', colors: colors, text: text)),
+        AppSpacing.gapH2,
+        Expanded(child: _MacroField(fieldKey: proteinKey, controller: proteinCtrl, label: 'Protein g', colors: colors, text: text)),
+        AppSpacing.gapH2,
+        Expanded(child: _MacroField(fieldKey: carbsKey, controller: carbsCtrl, label: 'Carbs g', colors: colors, text: text)),
+        AppSpacing.gapH2,
+        Expanded(child: _MacroField(fieldKey: fatKey, controller: fatCtrl, label: 'Fat g', colors: colors, text: text)),
       ],
     );
   }
@@ -556,21 +673,39 @@ class _MacroField extends StatelessWidget {
     required this.fieldKey,
     required this.controller,
     required this.label,
+    required this.colors,
+    required this.text,
   });
 
   final Key fieldKey;
   final TextEditingController controller;
   final String label;
+  final AppColors colors;
+  final TextTheme text;
 
   @override
   Widget build(BuildContext context) {
     return TextField(
       key: fieldKey,
       controller: controller,
+      style: text.bodyMedium?.copyWith(color: colors.textPrimary),
       decoration: InputDecoration(
         labelText: label,
-        border: const OutlineInputBorder(),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+        labelStyle: text.labelSmall?.copyWith(color: colors.textSecondary),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: AppShape.field,
+          borderSide: BorderSide(color: colors.hairline),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: AppShape.field,
+          borderSide: BorderSide(color: colors.primary, width: 1.5),
+        ),
+        filled: true,
+        fillColor: colors.canvas,
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: AppSpacing.space2,
+          vertical: AppSpacing.space2,
+        ),
       ),
       keyboardType: const TextInputType.numberWithOptions(decimal: true),
     );
@@ -580,60 +715,75 @@ class _MacroField extends StatelessWidget {
 // ── _LogEntryTile ─────────────────────────────────────────────────────────────
 
 class _LogEntryTile extends StatelessWidget {
-  const _LogEntryTile({required this.entry});
+  const _LogEntryTile({required this.entry, this.isLast = false});
 
   final FoodLogEntry entry;
+  final bool isLast;
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.appColors;
+    final text = Theme.of(context).textTheme;
     final isEstimate = entry.tier == AccuracyTier.estimate;
 
-    return Card(
-      margin: const EdgeInsets.symmetric(vertical: 4),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        child: Row(
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Text(
-                        entry.name,
-                        style: const TextStyle(fontWeight: FontWeight.w500),
-                      ),
-                      if (isEstimate)
-                        Padding(
-                          padding: const EdgeInsets.only(left: 4),
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(vertical: AppSpacing.space3),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Flexible(
                           child: Text(
-                            '~',
-                            style: TextStyle(
-                              color: Theme.of(context).colorScheme.primary,
-                              fontWeight: FontWeight.bold,
-                            ),
+                            entry.name,
+                            style: text.bodyMedium
+                                ?.copyWith(color: colors.textPrimary),
                           ),
                         ),
-                    ],
-                  ),
-                  Text(
-                    '${showOrDash(entry.kcal)} kcal  '
-                    'P:${showOrDash(entry.proteinG)}  '
-                    'C:${showOrDash(entry.carbsG)}  '
-                    'F:${showOrDash(entry.fatG)}',
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                ],
+                        if (isEstimate)
+                          Padding(
+                            padding: const EdgeInsets.only(left: AppSpacing.space1),
+                            child: Text(
+                              '~',
+                              style: text.labelMedium?.copyWith(
+                                color: colors.primaryStrong,
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                    AppSpacing.gapV1,
+                    Text(
+                      '${showOrDash(entry.kcal)} kcal  '
+                      'P:${showOrDash(entry.proteinG)}  '
+                      'C:${showOrDash(entry.carbsG)}  '
+                      'F:${showOrDash(entry.fatG)}',
+                      style: text.bodySmall,
+                    ),
+                  ],
+                ),
               ),
-            ),
-            if (entry.ateOut)
-              Icon(Icons.restaurant,
-                  size: 16,
-                  color: Theme.of(context).colorScheme.tertiary),
-          ],
+              if (entry.ateOut)
+                Padding(
+                  padding: const EdgeInsets.only(top: AppSpacing.tightGap),
+                  child: Icon(
+                    Icons.restaurant,
+                    size: 16,
+                    color: colors.textSecondary,
+                  ),
+                ),
+            ],
+          ),
         ),
-      ),
+        if (!isLast)
+          Divider(height: 1, thickness: 1, color: colors.hairline),
+      ],
     );
   }
 }
