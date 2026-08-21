@@ -18,6 +18,9 @@ import 'offline/outbox_store.dart';
 import 'pantry/pantry_repo.dart';
 import 'profile/profile_repo.dart';
 import 'sync/connectivity_monitor.dart';
+import 'sync/supabase_hydrator.dart';
+import 'sync/supabase_sync_sender.dart';
+import 'sync/supabase_writer.dart';
 import 'sync/sync_service.dart';
 
 /// The composition root.
@@ -60,12 +63,32 @@ final profileStoreProvider = Provider<ProfileStore>((ref) {
   return const SharedPrefsProfileStore();
 });
 
-/// The profile repository, wired to the REAL [ApiClient] as its [ProfileApi],
-/// the shared [Outbox], and the real local store. This replaces the offline-only
-/// default the pages used to build for themselves.
+/// The [ProfileApi] the profile repo writes THROUGH.
+///
+/// When Supabase is configured (P4-D3), profile writes must land in the
+/// `profile` table, not the retired HTTP backend. Rather than special-case the
+/// profile in the sender, we route it exactly like every other repo: the
+/// profile PUT is ALWAYS queued into the shared [Outbox], and the
+/// [SupabaseSyncSender] flushes it to the `profile` table (mapped from
+/// `/tdee/profile`). [OutboxOnlyProfileApi] is the tiny [ProfileApi] that makes
+/// the repo queue every write (it returns a non-online status), so the profile
+/// rides the same offline-first path as pantry/nutrition/workout.
+///
+/// When Supabase is NOT configured, we keep the legacy behaviour: the REAL
+/// [ApiClient] tries the HTTP PUT (and queues only on failure).
+final profileApiProvider = Provider<ProfileApi>((ref) {
+  if (Config.supabaseConfigured) {
+    return const OutboxOnlyProfileApi();
+  }
+  return ref.watch(apiClientProvider);
+});
+
+/// The profile repository, wired to the [profileApiProvider] (Supabase-routed
+/// via the Outbox when configured, else the REAL [ApiClient]), the shared
+/// [Outbox], and the real local store.
 final profileRepoProvider = Provider<ProfileRepo>((ref) {
   return ProfileRepo(
-    api: ref.watch(apiClientProvider),
+    api: ref.watch(profileApiProvider),
     outbox: ref.watch(outboxProvider),
     store: ref.watch(profileStoreProvider),
   );
@@ -144,17 +167,58 @@ final connectivityMonitorProvider = Provider<ConnectivityMonitor>((ref) {
   return ConnectivityPlusMonitor();
 });
 
-/// The outbox-flush driver: replays queued mutations through the real
-/// [ApiClient] whenever connectivity is (re)gained. This is the first real
-/// flush caller. Disposed with the provider container.
+/// The Supabase read/write seam. Only meaningful when Supabase is configured;
+/// null otherwise so the composition root falls back to the HTTP [ApiClient].
+/// Built once, over the initialized `Supabase.instance.client`.
+final supabaseWriterProvider = Provider<SupabaseWriter?>((ref) {
+  if (!Config.supabaseConfigured) return null;
+  return RealSupabaseWriter(Supabase.instance.client);
+});
+
+/// The mutation sender the [syncServiceProvider] flushes through.
+///
+/// When Supabase is configured, this is the [SupabaseSyncSender] — the shared
+/// [Outbox]'s queued writes now flush to the per-user Supabase tables. Every
+/// row carries `user_id` = the current session user; with no session the sender
+/// keeps the write queued (never lost). When Supabase is NOT configured, we
+/// keep the legacy HTTP [ApiClient] sender.
+final mutationSenderProvider = Provider<MutationSender>((ref) {
+  final writer = ref.watch(supabaseWriterProvider);
+  if (writer != null) {
+    return SupabaseSyncSender(
+      writer: writer,
+      auth: ref.watch(authServiceProvider),
+    );
+  }
+  return ref.watch(apiClientProvider);
+});
+
+/// The outbox-flush driver: replays queued mutations through the
+/// [mutationSenderProvider] (Supabase-backed when configured) whenever
+/// connectivity is (re)gained. Disposed with the provider container.
 final syncServiceProvider = Provider<SyncService>((ref) {
   final service = SyncService(
     outbox: ref.watch(outboxProvider),
-    sender: ref.watch(apiClientProvider),
+    sender: ref.watch(mutationSenderProvider),
     monitor: ref.watch(connectivityMonitorProvider),
   );
   ref.onDispose(service.dispose);
   return service;
+});
+
+/// Login-time hydrator: pulls the signed-in user's rows from Supabase into the
+/// local stores. Null when Supabase isn't configured (nothing to hydrate from).
+/// The auth gate calls `hydrate(userId)` once when a user signs in.
+final supabaseHydratorProvider = Provider<SupabaseHydrator?>((ref) {
+  final writer = ref.watch(supabaseWriterProvider);
+  if (writer == null) return null;
+  return SupabaseHydrator(
+    writer: writer,
+    profileStore: ref.watch(profileStoreProvider),
+    pantryStore: ref.watch(pantryStoreProvider),
+    nutritionStore: ref.watch(nutritionStoreProvider),
+    workoutStore: ref.watch(workoutStoreProvider),
+  );
 });
 
 /// First-run detection: `true` when a profile has already been saved on this

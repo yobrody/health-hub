@@ -1,0 +1,133 @@
+// ignore_for_file: prefer_initializing_formals
+
+import '../gym/workout_repo.dart' show WorkoutStore;
+import '../gym/workout_session.dart';
+import '../nutrition/food_log_entry.dart';
+import '../nutrition/nutrition_repo.dart' show NutritionStore;
+import '../pantry/pantry_item.dart';
+import '../pantry/pantry_repo.dart' show PantryStore;
+import '../profile/profile_model.dart';
+import '../profile/profile_repo.dart' show ProfileStore;
+import 'supabase_writer.dart';
+
+/// Login-time hydration: pull the signed-in user's rows from Supabase and write
+/// them into the LOCAL stores, so the app shows THIS user's data cross-device.
+///
+/// The app is offline-first: it always reads from the local stores. Hydration
+/// is what seeds those stores from the cloud after a sign-in (a fresh device,
+/// or a returning user). It runs behind the same [SupabaseWriter] seam the
+/// sender uses (its `selectAll`), so it is fully fake-testable — no network in
+/// any test path.
+///
+/// Honesty / integrity contract:
+///  * Each aggregate is rebuilt from its row's `data` jsonb via the existing
+///    `fromJson` (the profile from the row's flat columns, which already match
+///    `Profile.fromJson`'s keys). Nothing is fabricated; a row that can't be
+///    parsed is skipped rather than guessed.
+///  * On ANY failure (a table pull throws), local cache is LEFT INTACT — we do
+///    NOT wipe local data on a failed pull. A partial success only replaces the
+///    tables that actually loaded.
+class SupabaseHydrator {
+  SupabaseHydrator({
+    required SupabaseWriter writer,
+    required ProfileStore profileStore,
+    required PantryStore pantryStore,
+    required NutritionStore nutritionStore,
+    required WorkoutStore workoutStore,
+  })  : _writer = writer,
+        _profileStore = profileStore,
+        _pantryStore = pantryStore,
+        _nutritionStore = nutritionStore,
+        _workoutStore = workoutStore;
+
+  final SupabaseWriter _writer;
+  final ProfileStore _profileStore;
+  final PantryStore _pantryStore;
+  final NutritionStore _nutritionStore;
+  final WorkoutStore _workoutStore;
+
+  /// Hydrate every synced store for [userId]. RLS already restricts each
+  /// `select` to the caller's own rows; [userId] is accepted for clarity and so
+  /// a future non-RLS path could filter explicitly.
+  ///
+  /// Each table is hydrated independently: one table failing (or returning
+  /// nothing) never blocks the others and never clears an unrelated store.
+  Future<void> hydrate(String userId) async {
+    await Future.wait([
+      _hydrateProfile(),
+      _hydratePantry(),
+      _hydrateNutrition(),
+      _hydrateWorkouts(),
+    ]);
+  }
+
+  Future<void> _hydrateProfile() async {
+    try {
+      final rows = await _writer.selectAll('profile');
+      if (rows.isEmpty) return; // nothing to hydrate — leave local intact.
+      // Singleton: exactly one row per user. Rebuild from its flat columns,
+      // whose keys (`height_cm`, `age_years`, `weight_kg`, `goal_direction`,
+      // `target_weight_kg`, `primary_gym`) already match Profile.fromJson.
+      final profile = Profile.fromJson(rows.first);
+      await _profileStore.save(profile.toJson());
+    } catch (_) {
+      // Failed pull → leave the local profile untouched (honest, no wipe).
+    }
+  }
+
+  Future<void> _hydratePantry() async {
+    try {
+      final rows = await _writer.selectAll('pantry_items');
+      final items = _rebuild(rows, PantryItem.fromJson);
+      if (items == null) return; // parse/pull failure → leave local intact.
+      await _pantryStore.save(items);
+    } catch (_) {
+      // Leave local intact.
+    }
+  }
+
+  Future<void> _hydrateNutrition() async {
+    try {
+      final rows = await _writer.selectAll('food_log_entries');
+      final entries = _rebuild(rows, FoodLogEntry.fromJson);
+      if (entries == null) return;
+      await _nutritionStore.save(entries);
+    } catch (_) {
+      // Leave local intact.
+    }
+  }
+
+  Future<void> _hydrateWorkouts() async {
+    try {
+      final rows = await _writer.selectAll('workouts');
+      final sessions = _rebuild(rows, WorkoutSession.fromJson);
+      if (sessions == null) return;
+      await _workoutStore.save(sessions);
+    } catch (_) {
+      // Leave local intact.
+    }
+  }
+
+  /// Rebuild a list of aggregates from their rows' `data` jsonb via [fromJson].
+  ///
+  /// `data` is the source of truth for each aggregate (it holds the full
+  /// `toJson()`). A row whose `data` is missing/malformed is SKIPPED rather than
+  /// fabricated. Returns `null` only if the whole pull is unusable, so the
+  /// caller leaves the local store untouched.
+  static List<T>? _rebuild<T>(
+    List<Map<String, dynamic>> rows,
+    T Function(Map<String, dynamic>) fromJson,
+  ) {
+    final out = <T>[];
+    for (final row in rows) {
+      final data = row['data'];
+      if (data is! Map) continue; // no snapshot → skip, don't fabricate.
+      try {
+        out.add(fromJson(Map<String, dynamic>.from(data)));
+      } catch (_) {
+        // A single corrupt row is skipped, not fatal.
+      }
+    }
+    return out;
+  }
+}

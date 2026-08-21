@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'app_providers.dart';
 import 'auth/auth_screen.dart';
+import 'auth/auth_service.dart';
 import 'design_system/app_theme.dart';
 import 'nav/root_scaffold.dart';
 import 'onboarding/onboarding_flow.dart';
@@ -36,11 +37,45 @@ class HealthHubApp extends ConsumerWidget {
 /// Driven by [authStateProvider] + [hasProfileProvider] so tests can override
 /// both and resolve deterministically. Loading states use a non-animating
 /// placeholder so widget-test `pumpAndSettle` settles.
-class _AuthGate extends ConsumerWidget {
+///
+/// On a transition INTO a signed-in user, the gate hydrates the local stores
+/// from Supabase ONCE per user id (see [_hydrateOnSignIn]), so a returning user
+/// / fresh device sees their own data. Hydration is fire-and-forget and best
+/// effort: a failed pull leaves local cache intact (the hydrator never wipes).
+class _AuthGate extends ConsumerStatefulWidget {
   const _AuthGate();
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<_AuthGate> createState() => _AuthGateState();
+}
+
+class _AuthGateState extends ConsumerState<_AuthGate> {
+  /// The user id we've already hydrated for, so a token refresh (which re-emits
+  /// the same user) doesn't re-pull, and a sign-out→sign-in as a DIFFERENT user
+  /// does. Null until the first sign-in.
+  String? _hydratedUserId;
+
+  void _hydrateOnSignIn(AuthUser? user) {
+    if (user == null) {
+      // Signed out — reset so the next sign-in (even the same user) re-hydrates.
+      _hydratedUserId = null;
+      return;
+    }
+    if (user.id == _hydratedUserId) return; // already hydrated this user.
+    _hydratedUserId = user.id;
+    final hydrator = ref.read(supabaseHydratorProvider);
+    // Null when Supabase isn't configured (degraded local mode) — nothing to
+    // pull. Fire-and-forget; the app reads local regardless of the outcome.
+    hydrator?.hydrate(user.id);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // React to auth-state transitions to trigger one-shot hydration on sign-in.
+    ref.listen<AsyncValue<AuthUser?>>(authStateProvider, (prev, next) {
+      next.whenData(_hydrateOnSignIn);
+    });
+
     final auth = ref.watch(authStateProvider);
 
     return auth.when(
@@ -54,6 +89,12 @@ class _AuthGate extends ConsumerWidget {
       // open into the app with no session.
       error: (_, _) => AuthScreen(service: ref.read(authServiceProvider)),
       data: (user) {
+        // Also drive hydration from the FIRST resolved value: `ref.listen` only
+        // fires on subsequent CHANGES, so a session restored before this widget
+        // mounted (the returning-user case) would otherwise never hydrate. The
+        // call is idempotent (guarded by `_hydratedUserId`), so triggering it
+        // here and from the listener is safe.
+        _hydrateOnSignIn(user);
         if (user == null) {
           // Not authenticated → the auth screen.
           return AuthScreen(service: ref.read(authServiceProvider));

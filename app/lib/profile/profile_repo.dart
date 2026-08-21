@@ -16,6 +16,25 @@ abstract class ProfileApi {
   Future<ProbeStatus> putProfile(Map<String, dynamic> params);
 }
 
+/// A [ProfileApi] that never sends over HTTP — it always reports a non-online
+/// status so [ProfileRepo] QUEUES the profile PUT into the shared [Outbox].
+///
+/// This is the P4-D3 routing: with Supabase configured, the profile must sync
+/// to the `profile` table, not the retired HTTP backend. Queuing every profile
+/// write (exactly like pantry/nutrition/workout) lets the [SupabaseSyncSender]
+/// flush it to Supabase (`/tdee/profile` → `profile` table). It reports
+/// [ProbeStatus.degraded] (not `offline`) purely as documentation that this is
+/// a deliberate "route via the outbox" decision, not a network failure — either
+/// non-online value makes the repo queue and return [WriteOutcome.queued], a
+/// success state (never a user-facing failure).
+class OutboxOnlyProfileApi implements ProfileApi {
+  const OutboxOnlyProfileApi();
+
+  @override
+  Future<ProbeStatus> putProfile(Map<String, dynamic> params) async =>
+      ProbeStatus.degraded;
+}
+
 /// Local persistence for the profile JSON, so onboarding survives a restart.
 ///
 /// Same interface/fake pattern as [OutboxStore] / [SecureStore]: the platform
