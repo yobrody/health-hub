@@ -449,7 +449,9 @@ class FoodPageState extends ConsumerState<FoodPage> {
     // NOTE (future): an illustrated kitchen background could be layered behind
     // these panels later; the stylized panels here meet the R-3 bar on their own.
     final now = DateTime.now();
-    return ListView(
+    final noAnim = MediaQuery.of(context).disableAnimations;
+
+    final list = ListView(
       key: const Key('kitchen-scene'),
       padding: AppSpacing.pagePadding,
       children: [
@@ -459,7 +461,7 @@ class FoodPageState extends ConsumerState<FoodPage> {
         ),
         AppSpacing.gapV2,
         Text(
-          'Tap an appliance to see what’s inside.',
+          "Tap an appliance to see what's inside.",
           style: text.bodyMedium?.copyWith(color: colors.textSecondary),
         ),
         AppSpacing.gapV6,
@@ -479,6 +481,23 @@ class FoodPageState extends ConsumerState<FoodPage> {
           AppSpacing.gapV4,
         ],
       ],
+    );
+
+    // R-5 entrance animation on the kitchen list — same pattern as TodayPage.
+    // Finite so pumpAndSettle completes in tests. Skipped with reduced-motion.
+    if (noAnim) return list;
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0, end: 1),
+      duration: AppMotion.slow,
+      curve: AppMotion.enter,
+      builder: (context, t, child) => Opacity(
+        opacity: t,
+        child: Transform.translate(
+          offset: Offset(0, (1 - t) * 16),
+          child: child,
+        ),
+      ),
+      child: list,
     );
   }
 }
@@ -587,14 +606,20 @@ class _AppliancePanel extends StatelessWidget {
                         ],
                       ),
                       AppSpacing.gapV1,
-                      Text(
-                        // Real count, honestly singular/plural. Zero → still
-                        // honest ("empty") rather than hidden.
-                        count == 0
-                            ? 'Empty'
-                            : '$count ${count == 1 ? 'item' : 'items'}',
-                        style: text.bodyMedium?.copyWith(
-                          color: colors.textSecondary,
+                      // R-5: cross-fade the count text when it changes.
+                      // AnimatedSwitcher is finite — pumpAndSettle completes.
+                      AnimatedSwitcher(
+                        duration: AppMotion.fast,
+                        child: Text(
+                          // Real count, honestly singular/plural. Zero → still
+                          // honest ("empty") rather than hidden.
+                          count == 0
+                              ? 'Empty'
+                              : '$count ${count == 1 ? 'item' : 'items'}',
+                          key: ValueKey(count),
+                          style: text.bodyMedium?.copyWith(
+                            color: colors.textSecondary,
+                          ),
                         ),
                       ),
                       if (expiringCount > 0) ...[

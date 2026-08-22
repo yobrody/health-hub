@@ -300,6 +300,10 @@ class NutritionPageState extends ConsumerState<NutritionPage> {
   /// Show a calm, TRUTHFUL note after an eat-in deduction: confirm the log and,
   /// if the pantry couldn't fully cover the meal, say so honestly (how many
   /// ingredients were short) — never pretend the pantry covered it.
+  ///
+  /// R-5: when there is NO shortfall AND updated items exist, ALSO show the
+  /// [_EatInConfirmationSheet] so the user can see which pantry items were
+  /// deducted. The snackbar always fires (tests assert on its key).
   void _surfaceEatInOutcome(EatInOutcome outcome) {
     if (!mounted) return;
     final shortCount = outcome.shortfallByItemId.length;
@@ -314,6 +318,17 @@ class NutritionPageState extends ConsumerState<NutritionPage> {
         content: Text(message),
       ),
     );
+    // Additive: for the no-shortfall success case, also show the deducted-items
+    // sheet. Never shown on shortfall (the snackbar already communicates the
+    // honest failure; a sheet would be confusing there).
+    if (!outcome.hadShortfall && outcome.updatedItems.isNotEmpty) {
+      showModalBottomSheet<void>(
+        context: context,
+        backgroundColor: Colors.transparent,
+        isScrollControlled: true,
+        builder: (_) => _EatInConfirmationSheet(items: outcome.updatedItems),
+      );
+    }
   }
 
   Future<void> _guess() async {
@@ -1041,6 +1056,95 @@ class _IngredientPickerDialogState extends State<_IngredientPickerDialog> {
             child: const Text('Add'),
           ),
       ],
+    );
+  }
+}
+
+// ── _EatInConfirmationSheet ────────────────────────────────────────────────────
+
+/// R-5 — A calm bottom-sheet recap after a successful eat-in deduction. Shows
+/// each pantry item that was updated (name + new qty) so the user can see at a
+/// glance what was deducted. ONLY shown when there is NO shortfall and at least
+/// one item was genuinely updated — never fabricates or guesses missing stock.
+class _EatInConfirmationSheet extends StatelessWidget {
+  const _EatInConfirmationSheet({required this.items});
+
+  final List<PantryItem> items;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    final text = Theme.of(context).textTheme;
+
+    return Container(
+      key: const Key('eatin-confirmation-sheet'),
+      decoration: BoxDecoration(
+        color: colors.surface,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Drag handle
+              Center(
+                child: Container(
+                  width: 36,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: colors.hairline,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
+              Text(
+                'Pantry updated',
+                style: text.titleMedium?.copyWith(color: colors.textPrimary),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'The following items were deducted from your stock.',
+                style: text.bodySmall?.copyWith(color: colors.textSecondary),
+              ),
+              const SizedBox(height: 16),
+              for (final item in items) ...[
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        item.name,
+                        style: text.bodyMedium
+                            ?.copyWith(color: colors.textPrimary),
+                      ),
+                    ),
+                    Text(
+                      item.qty != null
+                          ? '${item.qty}${item.unit != null ? ' ${item.unit}' : ''} left'
+                          : '—',
+                      style: text.bodySmall
+                          ?.copyWith(color: colors.textSecondary),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 8),
+              ],
+              const SizedBox(height: 8),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('Done'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }

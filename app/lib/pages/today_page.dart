@@ -6,6 +6,7 @@ import '../design_system/colors.dart';
 import '../design_system/components/progress_ring.dart';
 import '../design_system/components/section_header.dart';
 import '../design_system/components/stat_card.dart';
+import '../design_system/motion.dart';
 import '../design_system/spacing.dart';
 import '../design_system/typography.dart';
 import '../metrics/weigh_in_repo.dart';
@@ -139,12 +140,38 @@ class _TodayPageState extends ConsumerState<TodayPage> {
     if (saved == true) await _reload();
   }
 
+  /// A fade + gentle horizontal slide route for all modal pushes from Home.
+  /// Duration matches [AppMotion.base] so it feels consistent with in-page
+  /// element transitions. Finite — `pumpAndSettle` completes in tests.
+  PageRouteBuilder<T> _appRoute<T>(WidgetBuilder builder) {
+    return PageRouteBuilder<T>(
+      transitionDuration: AppMotion.base,
+      reverseTransitionDuration: AppMotion.base,
+      pageBuilder: (context, animation, secondaryAnimation) =>
+          builder(context),
+      transitionsBuilder: (context, animation, secondaryAnimation, child) {
+        final curved =
+            CurvedAnimation(parent: animation, curve: AppMotion.enter);
+        return FadeTransition(
+          opacity: curved,
+          child: SlideTransition(
+            position: Tween<Offset>(
+              begin: const Offset(0.04, 0),
+              end: Offset.zero,
+            ).animate(curved),
+            child: child,
+          ),
+        );
+      },
+    );
+  }
+
   /// Open the existing Settings hub as a route (it left the bottom bar in the
   /// R-1 restructure). SettingsPage reads the composition-root providers via
   /// `ref`, which the pushed route inherits from the ambient ProviderScope.
   Future<void> _openSettings() async {
     await Navigator.of(context).push<void>(
-      MaterialPageRoute(builder: (_) => const SettingsPage()),
+      _appRoute((_) => const SettingsPage()),
     );
     // A goal reset / profile edit in Settings can change what Home shows.
     await _reload();
@@ -155,21 +182,117 @@ class _TodayPageState extends ConsumerState<TodayPage> {
   /// nutrition totals (and can deduct from the pantry → restock).
   Future<void> _openLogMeal() async {
     await Navigator.of(context).push<void>(
-      MaterialPageRoute(builder: (_) => const NutritionPage()),
+      _appRoute((_) => const NutritionPage()),
     );
     await _reload();
   }
 
   Future<void> _openOnboarding() async {
     await Navigator.of(context).push<void>(
-      MaterialPageRoute(
-        builder: (_) => OnboardingFlow(
-          repo: _repo,
-          onDone: () => Navigator.of(context).pop(),
-        ),
-      ),
+      _appRoute((_) => OnboardingFlow(
+            repo: _repo,
+            onDone: () => Navigator.of(context).pop(),
+          )),
     );
     await _reload();
+  }
+
+  /// All the scrollable content of the home screen. Extracted so the
+  /// TweenAnimationBuilder can wrap the whole list without nesting issues.
+  Widget _buildContent() {
+    return ListView(
+      padding: AppSpacing.pagePadding,
+      children: [
+        // Top row: a quiet settings/profile button (top-LEFT — the rift
+        // seam stays top-RIGHT, they never collide) beside the greeting.
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.only(top: AppSpacing.space1),
+              child: IconButton(
+                key: const Key('home-settings-btn'),
+                onPressed: _openSettings,
+                tooltip: 'Settings',
+                visualDensity: VisualDensity.compact,
+                icon: Icon(
+                  Icons.settings_outlined,
+                  color: context.appColors.textSecondary,
+                ),
+              ),
+            ),
+            AppSpacing.gapH2,
+            Expanded(child: _GreetingHeader(profile: _profile)),
+            // Reserve the top-right corner for the rift seam (painted in
+            // the Stack above the ListView) — no widget here.
+            const SizedBox(width: 40),
+          ],
+        ),
+        AppSpacing.gapV6,
+
+        // Prominent "Log a meal" action — meal capture is a Home action
+        // now, not a tab. Pushes the existing NutritionPage as a route.
+        FilledButton.icon(
+          key: const Key('home-log-meal-btn'),
+          onPressed: _openLogMeal,
+          icon: const Icon(Icons.restaurant_menu),
+          label: const Text('Log a meal'),
+        ),
+        AppSpacing.gapV8,
+
+        // If the profile is empty, lead with the gentle setup affordance —
+        // the honest "we show nothing we don't know" invitation.
+        if (_profile.isEmpty) ...[
+          _SetupProfileCard(onTap: _openOnboarding),
+          AppSpacing.gapV8,
+        ],
+
+        SectionHeader(
+          title: 'WEIGHT',
+          trailing: TextButton(
+            key: const Key('today-log-weight'),
+            onPressed: _logWeight,
+            child: const Text('Log weight'),
+          ),
+        ),
+        _WeightCard(profile: _profile, trend: _weightTrend),
+        AppSpacing.gapV8,
+
+        SectionHeader(
+          title: 'NUTRITION',
+          trailing: TextButton(
+            key: const Key('today-edit-goals'),
+            onPressed: _editGoals,
+            child: Text(_goalsData.isEmpty ? 'Set goals' : 'Edit goals'),
+          ),
+        ),
+        _NutritionCard(today: _today, goals: _goalsData),
+        AppSpacing.gapV8,
+
+        // Restock soon — replaces BOTH the old training card AND the old
+        // pantry-glance card (R-1): it's a strict superset of that glance
+        // (low + expiring) plus reorder-due, so Home shows ONE calm
+        // pantry-urgency surface, not two. Surfaced
+        // ONLY when real pantry data has items low / expiring /
+        // reorder-due; omitted entirely when nothing's due (never a
+        // fabricated urgency). Tapping opens Food (and later feeds Cart).
+        if (_restock.isNotEmpty) ...[
+          SectionHeader(
+            title: 'RESTOCK SOON',
+            trailing: TextButton(
+              key: const Key('today-open-restock'),
+              onPressed: widget.onOpenPantry,
+              child: const Text('Open'),
+            ),
+          ),
+          _RestockSoonCard(
+            items: _restock,
+            onTap: widget.onOpenPantry,
+          ),
+          AppSpacing.gapV8,
+        ],
+      ],
+    );
   }
 
   @override
@@ -184,104 +307,32 @@ class _TodayPageState extends ConsumerState<TodayPage> {
       );
     }
 
+    final noAnim = MediaQuery.of(context).disableAnimations;
+
     return Scaffold(
       key: const Key('today-page'),
       body: SafeArea(
         child: Stack(
           children: [
-            ListView(
-              padding: AppSpacing.pagePadding,
-              children: [
-                // Top row: a quiet settings/profile button (top-LEFT — the rift
-                // seam stays top-RIGHT, they never collide) beside the greeting.
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.only(top: AppSpacing.space1),
-                      child: IconButton(
-                        key: const Key('home-settings-btn'),
-                        onPressed: _openSettings,
-                        tooltip: 'Settings',
-                        visualDensity: VisualDensity.compact,
-                        icon: Icon(
-                          Icons.settings_outlined,
-                          color: context.appColors.textSecondary,
-                        ),
+            // R-5 entrance animation: the full list fades + slides up gently
+            // when content first loads. Finite (TweenAnimationBuilder, not
+            // repeat) so pumpAndSettle completes in widget tests. Skipped
+            // entirely when reduced-motion is on.
+            noAnim
+                ? _buildContent()
+                : TweenAnimationBuilder<double>(
+                    tween: Tween(begin: 0, end: 1),
+                    duration: AppMotion.slow,
+                    curve: AppMotion.enter,
+                    builder: (context, t, child) => Opacity(
+                      opacity: t,
+                      child: Transform.translate(
+                        offset: Offset(0, (1 - t) * 16),
+                        child: child,
                       ),
                     ),
-                    AppSpacing.gapH2,
-                    Expanded(child: _GreetingHeader(profile: _profile)),
-                    // Reserve the top-right corner for the rift seam (painted in
-                    // the Stack above the ListView) — no widget here.
-                    const SizedBox(width: 40),
-                  ],
-                ),
-                AppSpacing.gapV6,
-
-                // Prominent "Log a meal" action — meal capture is a Home action
-                // now, not a tab. Pushes the existing NutritionPage as a route.
-                FilledButton.icon(
-                  key: const Key('home-log-meal-btn'),
-                  onPressed: _openLogMeal,
-                  icon: const Icon(Icons.restaurant_menu),
-                  label: const Text('Log a meal'),
-                ),
-                AppSpacing.gapV8,
-
-            // If the profile is empty, lead with the gentle setup affordance —
-            // the honest "we show nothing we don't know" invitation.
-            if (_profile.isEmpty) ...[
-              _SetupProfileCard(onTap: _openOnboarding),
-              AppSpacing.gapV8,
-            ],
-
-            SectionHeader(
-              title: 'WEIGHT',
-              trailing: TextButton(
-                key: const Key('today-log-weight'),
-                onPressed: _logWeight,
-                child: const Text('Log weight'),
-              ),
-            ),
-            _WeightCard(profile: _profile, trend: _weightTrend),
-            AppSpacing.gapV8,
-
-            SectionHeader(
-              title: 'NUTRITION',
-              trailing: TextButton(
-                key: const Key('today-edit-goals'),
-                onPressed: _editGoals,
-                child: Text(_goalsData.isEmpty ? 'Set goals' : 'Edit goals'),
-              ),
-            ),
-            _NutritionCard(today: _today, goals: _goalsData),
-            AppSpacing.gapV8,
-
-                // Restock soon — replaces BOTH the old training card AND the old
-                // pantry-glance card (R-1): it's a strict superset of that glance
-                // (low + expiring) plus reorder-due, so Home shows ONE calm
-                // pantry-urgency surface, not two. Surfaced
-                // ONLY when real pantry data has items low / expiring /
-                // reorder-due; omitted entirely when nothing's due (never a
-                // fabricated urgency). Tapping opens Food (and later feeds Cart).
-                if (_restock.isNotEmpty) ...[
-                  SectionHeader(
-                    title: 'RESTOCK SOON',
-                    trailing: TextButton(
-                      key: const Key('today-open-restock'),
-                      onPressed: widget.onOpenPantry,
-                      child: const Text('Open'),
-                    ),
+                    child: _buildContent(),
                   ),
-                  _RestockSoonCard(
-                    items: _restock,
-                    onTap: widget.onOpenPantry,
-                  ),
-                  AppSpacing.gapV8,
-                ],
-              ],
-            ),
             // R2 game-entry seam — intentionally disabled/inert in R1.
             // This reserved affordance is the entry point for a future separate
             // game app; tapping it does nothing in this release.
@@ -729,11 +780,17 @@ class _RestockSoonCard extends StatelessWidget {
                   size: 18, color: colors.primaryStrong),
               AppSpacing.gapH2,
               Expanded(
-                child: Text(
-                  items.length == 1
-                      ? '1 item to restock soon'
-                      : '${items.length} items to restock soon',
-                  style: text.titleSmall,
+                // R-5: cross-fade the count text when items.length changes.
+                // AnimatedSwitcher is finite — pumpAndSettle completes.
+                child: AnimatedSwitcher(
+                  duration: AppMotion.fast,
+                  child: Text(
+                    items.length == 1
+                        ? '1 item to restock soon'
+                        : '${items.length} items to restock soon',
+                    key: ValueKey(items.length),
+                    style: text.titleSmall,
+                  ),
                 ),
               ),
               Icon(Icons.chevron_right, color: colors.textSecondary),
