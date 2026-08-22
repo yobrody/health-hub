@@ -40,37 +40,36 @@ not per-screen mocks.
 3. **pantry → BUY → Cart** — a genuinely-low pantry item surfaces a BUY insight
    on Home and Food (its "why" cites the real 20 g in stock). Tapping the
    insight's "Add to list" writes the REAL item to the SAME grocery list the Cart
-   reads; the shared list holds it and the Cart tab's live badge reflects the new
-   count (1). Proves the restock→cart loop closes across screens through one
-   shared store + the Brain. On Food (fresh page state) the suggestion also drops
-   out once listed — the honest de-dupe — proven in the per-screen tests too.
+   reads; the Cart tab's live badge reflects the new count (1) immediately, and
+   switching to the Cart tab shows the item as a **real, freshly-rendered list
+   row** — even though the Cart page stayed alive under the nav's `IndexedStack`
+   the whole time — with its BUY suggestion dropped (the honest de-dupe). Proves
+   the restock→cart loop closes fully across screens through one reactive shared
+   store + the Brain.
 
 4. **Home weaves EAT + BUY together** — from one user's real state Home's "For
    you" section carries BOTH a real EAT and a real BUY card, honestly ordered
    (EAT priority 100 above BUY priority 80 — asserted by on-screen Y position).
-   Adding the low item from Home's BUY insight writes the shared list and
-   navigates to Cart (via `onOpenCart`), with the badge reflecting it.
+   Adding the low item from Home's BUY insight writes the shared list, navigates
+   to Cart (via `onOpenCart`), and the item shows as a live row with the badge
+   reflecting it and the BUY suggestion gone.
 
-## Gaps found (real findings, not test flaws)
+## Bug found by these journeys → FIXED
 
-- **The Cart page's item rows don't refresh on a tab-switch.** `CartPage` loads
-  its list only in `initState` — which runs once at app start, when the list is
-  empty. Switching to the Cart tab reloads only the **badge count** (in
-  `RootScaffold`), not the page's own item list. So after adding an item from a
-  Brain BUY insight, the item is genuinely on the shared list AND counted in the
-  badge, but its **row** isn't drawn until the page is rebuilt. Because that
-  stale in-page list is empty, the Cart page's own de-dupe ("hide a BUY whose
-  item is already listed") also can't fire, so the BUY suggestion still shows on
-  Cart. Journey 3 documents this precisely: it asserts the **honest current
-  behaviour** (badge updates, list row absent, suggestion still shown) rather
-  than asserting a behaviour the app doesn't yet have. A fix would be to reload
-  `CartPage`'s list when the Cart tab is (re)selected (e.g. watch the grocery
-  repo, or reload in `RootScaffold._goToTab` for the Cart index like the badge
-  does). Reloading `CartPage._items` is the SINGLE root cause fix: once it holds
-  the real list, both symptoms resolve together — the row appears AND
-  `_buyInsights` (which de-dupes against `_items`) drops the now-listed
-  suggestion. The data layer and the badge already close the loop correctly; only
-  the page's row rendering is stale.
+- **The Cart page's rows used to go stale across tab-switches.** `CartPage` loaded
+  its list only in `initState`, which under the nav's `IndexedStack` runs once at
+  app start (when the list is empty) and never again. So adding an item from a
+  BUY insight on Food/Home updated the live badge but NOT the Cart's list row or
+  its own BUY de-dupe until a rebuild — the interconnection was only 99% real.
+  **Fixed (single root cause):** the grocery list is now reactive. A
+  `groceryListProvider` (`FutureProvider` over `GroceryListRepo.all`) is the
+  shared source of truth for BOTH the Cart page's rows and the nav's Cart badge;
+  the Cart page `watch`es it in `build`, and every mutation — from any screen —
+  `ref.invalidate`s it (`CartPage`'s add/toggle/remove/clearDone, and the shared
+  `performInsightAction` used by Home + Food). The stale `initState`-only load is
+  gone. Now the row appears live, the badge is live, and `_buyInsights` (which
+  de-dupes against the live list) drops the now-listed suggestion — all on any
+  change or tab return. Journeys 3 & 4 assert this corrected behaviour.
 
 ## Harness notes
 

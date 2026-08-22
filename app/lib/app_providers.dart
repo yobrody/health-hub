@@ -6,6 +6,7 @@ import 'api/client.dart';
 import 'auth/auth_service.dart';
 import 'auth/fake_auth_service.dart';
 import 'auth/supabase_auth_service.dart';
+import 'cart/grocery_item.dart';
 import 'cart/grocery_list_repo.dart';
 import 'core/config.dart';
 import 'core/secrets.dart';
@@ -227,6 +228,18 @@ final groceryListStoreProvider = Provider<GroceryListStore>((ref) {
 /// a later phase). Overridable in tests via `ProviderScope(overrides: [...])`.
 final groceryListRepoProvider = Provider<GroceryListRepo>((ref) {
   return GroceryListRepo(store: ref.watch(groceryListStoreProvider));
+});
+
+/// The live grocery list — the reactive source of truth for BOTH the Cart page's
+/// rows and the nav's Cart badge. A [FutureProvider] over [GroceryListRepo.all]
+/// so any widget can `watch` it and re-render when the list changes; after every
+/// mutation (add / toggle / remove / clearDone) callers `ref.invalidate` it to
+/// refresh everyone (mirrors how the Brain's `brainInputsProvider` is
+/// invalidated). This is what makes the list survive tab-switches under the
+/// nav's `IndexedStack`: the page no longer caches items in a one-shot
+/// `initState` load that goes stale when an item is added from another screen.
+final groceryListProvider = FutureProvider<List<GroceryItem>>((ref) {
+  return ref.watch(groceryListRepoProvider).all();
 });
 
 /// Open Food Facts barcode-lookup client. Uses its OWN [Dio] (NOT [dioProvider]/

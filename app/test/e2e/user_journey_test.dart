@@ -259,11 +259,9 @@ void main() {
     final list = await h.groceryRepo.all();
     expect(list.map((i) => i.name), contains('Milk'));
 
-    // Interconnection proof #2: the Cart tab's live badge reflects the new count
-    // (RootScaffold reloads it on tab switch). The count is REAL (1), not faked.
-    await tester.tap(find.text('Cart'));
-    await tester.pumpAndSettle();
-    expect(find.byKey(const Key('cart-page')), findsOneWidget);
+    // Interconnection proof #2: the Cart tab's live badge reflects the new count.
+    // The badge reads the reactive groceryListProvider, so it updated the moment
+    // the item was added — no tab-switch needed. The count is REAL (1), not faked.
     final badge = tester.widget<Badge>(
       find.ancestor(
         of: find.byIcon(Icons.shopping_cart_outlined),
@@ -273,25 +271,19 @@ void main() {
     expect(badge.isLabelVisible, isTrue);
     expect((badge.label as Text).data, '1');
 
-    // ── Known gap (real finding, not a test flaw) ────────────────────────────
-    // The Cart PAGE's item *rows* don't refresh on a tab-switch: `CartPage`
-    // loads its list only in `initState` (which ran once at app start, when the
-    // list was empty), and switching to the Cart tab reloads only the badge
-    // count in RootScaffold, not the page's list. So the just-added item is on
-    // the shared list + counted in the badge, but its row isn't yet drawn until
-    // the page is rebuilt. We therefore assert the HONEST current behaviour
-    // rather than a behaviour the app doesn't yet have. See test/e2e/README.md
-    // ("Gaps found").
-    //
-    //  • the row isn't drawn yet (stale list):
-    expect(find.text('Milk'), findsNothing);
-    //  • and because that stale list is empty, the Cart page's own de-dupe
-    //    ("hide a BUY whose item is already listed") can't fire, so the buy-milk
-    //    suggestion still shows here — the SAME symptom, one cause. When the
-    //    Cart list refreshes on tab-switch, BOTH the row appears AND this
-    //    suggestion drops. (On Food, where the list state is fresh, the loop
-    //    closes correctly — proven above.)
-    expect(find.byKey(const Key('insight-card-buy-milk')), findsOneWidget);
+    // Interconnection proof #3: switch to the Cart tab and the item is a REAL,
+    // LIVE list row — even though the Cart page stayed alive under the nav's
+    // IndexedStack the whole time. This is the fix for the old stale-list gap:
+    // the page watches the reactive grocery list, so the add on Food shows here.
+    await tester.tap(find.text('Cart'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('cart-page')), findsOneWidget);
+    expect(find.text('Milk'), findsWidgets); // a genuine, freshly-rendered row
+
+    // Interconnection proof #4: the BUY suggestion no longer nags on Cart — the
+    // item is on the (live) list now, so the Brain-fed suggestions drop it (never
+    // a duplicate). The honest restock→cart loop has fully closed, across screens.
+    expect(find.byKey(const Key('insight-card-buy-milk')), findsNothing);
   });
 
   // ── Journey 4: a fuller day — seeded history + fresh actions coexist ───────
@@ -369,7 +361,9 @@ void main() {
     );
     expect(badge.isLabelVisible, isTrue);
     expect((badge.label as Text).data, '1');
-    // (Same stale-list gap as journey 3: the Cart page's rows don't refresh on
-    // tab-switch, so we assert the badge, not the row. See test/e2e/README.md.)
+    // And the item is a REAL, live row on the Cart page (reactive grocery list),
+    // with its BUY suggestion dropped — the loop closes here just like journey 3.
+    expect(find.text('Eggs'), findsWidgets);
+    expect(find.byKey(const Key('insight-card-buy-eggs')), findsNothing);
   });
 }
