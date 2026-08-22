@@ -24,31 +24,36 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../app_providers.dart';
+import '../brain/brain_providers.dart';
+import '../brain/insight.dart';
 import '../cart/delivery_services.dart';
 import '../cart/grocery_item.dart';
 import '../cart/grocery_list_repo.dart';
 import '../cart/link_launcher.dart';
 import '../cart/location_service.dart';
 import '../design_system/colors.dart';
+import '../design_system/components/insight_card.dart';
 import '../design_system/components/section_header.dart';
 import '../design_system/components/stat_card.dart';
 import '../design_system/spacing.dart';
-import '../pantry/pantry_glance.dart';
-import '../pantry/pantry_repo.dart';
 
 class CartPage extends ConsumerStatefulWidget {
   const CartPage({
     super.key,
     this.repo,
-    this.pantryRepo,
     this.linkLauncher,
     this.locationService,
   });
 
   /// Optional overrides so widget tests can inject in-memory fakes without a
   /// ProviderScope. In the running app these come from the composition root.
+  ///
+  /// Note: the Cart's BUY (restock) insights now come from the SHARED Brain
+  /// provider ([insightsForScreen]) rather than a directly-injected pantry repo,
+  /// so a test seeding pantry data must override [pantryRepoProvider] via
+  /// `ProviderScope` (the same way the Food page's tests do) — mirroring how the
+  /// live interconnection actually flows.
   final GroceryListRepo? repo;
-  final PantryRepo? pantryRepo;
   final LinkLauncher? linkLauncher;
   final LocationService? locationService;
 
@@ -59,8 +64,6 @@ class CartPage extends ConsumerStatefulWidget {
 class _CartPageState extends ConsumerState<CartPage> {
   late final GroceryListRepo _repo =
       widget.repo ?? ref.read(groceryListRepoProvider);
-  late final PantryRepo _pantry =
-      widget.pantryRepo ?? ref.read(pantryRepoProvider);
   late final LinkLauncher _launcher =
       widget.linkLauncher ?? const RealLinkLauncher();
   late final LocationService _location =
@@ -69,7 +72,6 @@ class _CartPageState extends ConsumerState<CartPage> {
   final _addCtrl = TextEditingController();
 
   List<GroceryItem> _items = [];
-  List<RestockItem> _restock = [];
   bool _loading = true;
 
   // Delivery near-me panel state.
@@ -92,21 +94,31 @@ class _CartPageState extends ConsumerState<CartPage> {
 
   Future<void> _reload() async {
     final items = await _repo.all();
-    final pantryItems = await _pantry.all();
     if (!mounted) return;
-    final now = DateTime.now();
     setState(() {
       _items = items;
-      // Only offer restock items that aren't already on the list (by name,
-      // case-insensitively) — never nudge the user to add a duplicate.
-      final onList =
-          items.map((i) => i.name.trim().toLowerCase()).toSet();
-      _restock = restockSoon(pantryItems, now)
-          .where((r) => !onList.contains(r.item.name.trim().toLowerCase()))
-          .toList();
       _loading = false;
     });
   }
+
+  /// The Brain's BUY insights for the Cart, via the SHARED provider (the same
+  /// path Food uses), minus any whose item is ALREADY on the list (by name,
+  /// case-insensitively) — we never nudge a duplicate. Reading through the
+  /// provider (not a local computeInsights) keeps the interconnection live: a
+  /// pantry mutation on another screen refreshes this list, and this screen's
+  /// own mutations invalidate the snapshot for everyone else.
+  List<Insight> _buyInsights(WidgetRef ref) {
+    final onList = _items.map((i) => i.name.trim().toLowerCase()).toSet();
+    return insightsForScreen(ref, BrainScreen.cart).where((i) {
+      final name = i.action?.payload?.trim().toLowerCase();
+      return name == null || !onList.contains(name);
+    }).toList();
+  }
+
+  /// Invalidate the shared Brain snapshot so every screen's BrainSection
+  /// re-reads. Called after any Cart mutation — adding an item can drop a BUY
+  /// insight (now on the list); removing/clearing can bring one back.
+  void _refreshBrain() => ref.invalidate(brainInputsProvider);
 
   Future<void> _add() async {
     final name = _addCtrl.text.trim();
@@ -115,7 +127,7 @@ class _CartPageState extends ConsumerState<CartPage> {
     if (!mounted) return;
     _addCtrl.clear();
     setState(() => _items = next);
-    await _reload();
+    _refreshBrain();
   }
 
   Future<void> _toggle(GroceryItem item) async {
@@ -128,21 +140,28 @@ class _CartPageState extends ConsumerState<CartPage> {
     final next = await _repo.remove(item.id);
     if (!mounted) return;
     setState(() => _items = next);
-    await _reload();
+    _refreshBrain();
   }
 
   Future<void> _clearDone() async {
     final next = await _repo.clearDone();
     if (!mounted) return;
     setState(() => _items = next);
-    await _reload();
+    _refreshBrain();
   }
 
-  Future<void> _addRestock(RestockItem r) async {
-    final next = await _repo.add(r.item.name);
+  /// Route a Brain BUY insight action: add the real item to the list, then
+  /// refresh the shared Brain snapshot (so it drops out of the suggestions —
+  /// it's now on the list — everywhere). Nothing faked; the same repo the list
+  /// renders from is written.
+  Future<void> _onInsightAction(InsightAction action) async {
+    if (action.kind != InsightActionKind.addToCart) return;
+    final name = action.payload;
+    if (name == null || name.trim().isEmpty) return;
+    final next = await _repo.add(name);
     if (!mounted) return;
     setState(() => _items = next);
-    await _reload();
+    _refreshBrain();
   }
 
   // ── Legacy clipboard copy (AppBar icon) ──────────────────────────────────
@@ -233,9 +252,11 @@ class _CartPageState extends ConsumerState<CartPage> {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
-    final text = Theme.of(context).textTheme;
 
     final doneCount = _items.where((i) => i.done).length;
+    // The Brain's BUY insights via the shared provider (watched in build so a
+    // pantry change elsewhere refreshes this list), minus what's already listed.
+    final buyInsights = _buyInsights(ref);
 
     return Scaffold(
       key: const Key('cart-page'),
@@ -286,40 +307,24 @@ class _CartPageState extends ConsumerState<CartPage> {
                 ),
                 AppSpacing.gapV6,
 
-                // Restock-soon offer — ONLY when real pantry data has something
-                // due that isn't already on the list. Omitted otherwise.
-                if (_restock.isNotEmpty) ...[
+                // Restock-soon offer — the Brain's BUY insights as connected
+                // cards with a visible "why". ONLY when real pantry data has
+                // something due that isn't already on the list. Omitted
+                // otherwise (never a fabricated urgency). One-tap "Add to list"
+                // writes the real item to the same list below.
+                if (buyInsights.isNotEmpty) ...[
                   const SectionHeader(title: 'RESTOCK SOON'),
-                  StatCard(
+                  Column(
                     key: const Key('cart-restock-suggestions'),
-                    padding: EdgeInsets.zero,
-                    child: Column(
-                      children: [
-                        for (var i = 0; i < _restock.length; i++) ...[
-                          if (i > 0)
-                            Divider(
-                                height: 1,
-                                thickness: 1,
-                                color: colors.hairline),
-                          ListTile(
-                            title: Text(_restock[i].item.name),
-                            subtitle: Text(
-                              _restockReasonLabel(_restock[i]),
-                              style: text.bodySmall
-                                  ?.copyWith(color: colors.textSecondary),
-                            ),
-                            trailing: IconButton(
-                              key: Key(
-                                  'cart-restock-add-${_restock[i].item.id}'),
-                              icon: Icon(Icons.add_circle_outline,
-                                  color: colors.primaryStrong),
-                              tooltip: 'Add to list',
-                              onPressed: () => _addRestock(_restock[i]),
-                            ),
-                          ),
-                        ],
+                    children: [
+                      for (var i = 0; i < buyInsights.length; i++) ...[
+                        if (i > 0) AppSpacing.gapV3,
+                        InsightCard(
+                          insight: buyInsights[i],
+                          onAction: _onInsightAction,
+                        ),
                       ],
-                    ),
+                    ],
                   ),
                   AppSpacing.gapV6,
                 ],
@@ -382,14 +387,6 @@ class _CartPageState extends ConsumerState<CartPage> {
     );
   }
 
-  String _restockReasonLabel(RestockItem r) {
-    final parts = <String>[
-      if (r.isExpiring) 'expiring soon',
-      if (r.isLow) 'running low',
-      if (r.isReorderDue) 'reorder due',
-    ];
-    return parts.join(' · ');
-  }
 }
 
 // ── _GroceryRow ──────────────────────────────────────────────────────────────

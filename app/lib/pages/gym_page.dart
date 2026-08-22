@@ -30,6 +30,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../app_providers.dart';
+import '../brain/brain_providers.dart';
+import '../brain/brain_section.dart';
+import '../brain/insight.dart';
 import '../design_system/colors.dart';
 import '../design_system/components/section_header.dart';
 import '../design_system/components/stat_card.dart';
@@ -165,6 +168,17 @@ class GymPageState extends ConsumerState<GymPage> {
       _repsCtrl.clear();
       _loading = false;
     });
+    // A finished session becomes real training history → refresh the Brain's
+    // TRAIN insight (last-trained + progression).
+    ref.invalidate(brainInputsProvider);
+  }
+
+  /// Route a Brain TRAIN insight action — "Start a workout" begins a real
+  /// session via the same flow the Create button uses.
+  Future<void> _onInsightAction(InsightAction action) async {
+    if (action.kind == InsightActionKind.startWorkout) {
+      await _startSession();
+    }
   }
 
   // ── Exercise selection ─────────────────────────────────────────────────────
@@ -426,10 +440,21 @@ class GymPageState extends ConsumerState<GymPage> {
     // existing start-session flow (so the app stays fully usable); "Upload" is
     // an honest STUB for importing a saved workout (photo/file → R-2). Once a
     // session exists, the normal active-session UI shows instead.
-    return Center(
-      child: Padding(
-        padding: AppSpacing.pagePadding,
-        child: StatCard(
+    //
+    // Above the gate: the Brain's TRAIN insight (shown ONLY when not mid-session,
+    // which is this view) — last-trained + honest progression, or an honest
+    // "log a workout" setup prompt. Omitted entirely when there's nothing.
+    return ListView(
+      padding: AppSpacing.pagePadding,
+      children: [
+        BrainSection(
+          sectionKey: const Key('gym-brain'),
+          screen: BrainScreen.gym,
+          title: 'TRAINING',
+          onAction: _onInsightAction,
+          trailingGap: true,
+        ),
+        StatCard(
           key: const Key('gym-gate'),
           warm: true,
           child: Column(
@@ -494,7 +519,7 @@ class GymPageState extends ConsumerState<GymPage> {
             ],
           ),
         ),
-      ),
+      ],
     );
   }
 

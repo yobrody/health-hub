@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../app_providers.dart';
+import '../brain/brain_providers.dart';
+import '../brain/brain_section.dart';
+import '../brain/insight.dart';
 import '../design_system/colors.dart';
 import '../design_system/components/progress_ring.dart';
 import '../design_system/components/section_header.dart';
@@ -58,6 +61,8 @@ class TodayPage extends ConsumerStatefulWidget {
     this.weighInRepo,
     this.pantryRepo,
     this.onOpenPantry,
+    this.onOpenGym,
+    this.onOpenCart,
   });
 
   final ProfileRepo? repo;
@@ -70,6 +75,14 @@ class TodayPage extends ConsumerStatefulWidget {
   /// (Food) page. Wired by the root shell to switch to the Food tab. When null
   /// (e.g. in isolated tests) the card still renders but tapping is a no-op.
   final VoidCallback? onOpenPantry;
+
+  /// Switch to the Gym tab (wired by the root shell). Used by a Brain TRAIN
+  /// insight's "Start a workout" action. Null in isolated tests → a no-op.
+  final VoidCallback? onOpenGym;
+
+  /// Switch to the Cart tab (wired by the root shell). Used by a Brain BUY
+  /// insight's "Add to list" action (after the item is added). Null → no-op.
+  final VoidCallback? onOpenCart;
 
   @override
   ConsumerState<TodayPage> createState() => _TodayPageState();
@@ -187,6 +200,26 @@ class _TodayPageState extends ConsumerState<TodayPage> {
     await _reload();
   }
 
+  /// Route a Brain insight action to the REAL flow. addToCart writes the item to
+  /// the real grocery list then jumps to Cart; the others navigate to where the
+  /// user acts. Nothing is faked — the item genuinely lands on the Cart list.
+  Future<void> _onInsightAction(InsightAction action) async {
+    switch (action.kind) {
+      case InsightActionKind.addToCart:
+        final added = await performInsightAction(ref, action);
+        if (!mounted) return;
+        if (added) widget.onOpenCart?.call();
+      case InsightActionKind.startWorkout:
+        widget.onOpenGym?.call();
+      case InsightActionKind.logMeal:
+        await _openLogMeal();
+      case InsightActionKind.openGoals:
+        await _editGoals();
+      case InsightActionKind.none:
+        break;
+    }
+  }
+
   Future<void> _openOnboarding() async {
     await Navigator.of(context).push<void>(
       _appRoute((_) => OnboardingFlow(
@@ -246,6 +279,19 @@ class _TodayPageState extends ConsumerState<TodayPage> {
           _SetupProfileCard(onTap: _openOnboarding),
           AppSpacing.gapV8,
         ],
+
+        // The Brain's "For you" section — the top few personalized insights
+        // across all kinds (Eat / Buy / Train), each an honest connected card
+        // with a visible "why". Renders NOTHING when there are no real insights
+        // (BrainSection returns SizedBox.shrink), so the section — and this
+        // trailing gap — simply collapse away. Keyed for tests.
+        BrainSection(
+          sectionKey: const Key('home-brain'),
+          screen: BrainScreen.home,
+          title: 'FOR YOU',
+          onAction: _onInsightAction,
+          trailingGap: true,
+        ),
 
         SectionHeader(
           title: 'WEIGHT',

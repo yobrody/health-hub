@@ -9,58 +9,40 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:health_hub/cart/grocery_item.dart';
 import 'package:health_hub/cart/grocery_list_repo.dart';
 import 'package:health_hub/design_system/app_theme.dart';
-import 'package:health_hub/offline/outbox.dart';
-import 'package:health_hub/offline/outbox_store.dart';
-import 'package:health_hub/offline/pending_mutation.dart';
 import 'package:health_hub/pages/cart_page.dart';
 import 'package:health_hub/pantry/pantry_item.dart';
-import 'package:health_hub/pantry/pantry_repo.dart';
 
-// ── Fakes ─────────────────────────────────────────────────────────────────────
+import '../brain/brain_scope.dart';
 
-class _FakeGroceryStore implements GroceryListStore {
-  List<GroceryItem> _items = [];
-  @override
-  Future<List<GroceryItem>> load() async => List.unmodifiable(_items);
-  @override
-  Future<void> save(List<GroceryItem> items) async => _items = List.of(items);
-}
-
-class _FakeOutboxStore implements OutboxStore {
-  List<PendingMutation> _items = [];
-  @override
-  Future<List<PendingMutation>> load() async => List.unmodifiable(_items);
-  @override
-  Future<void> save(List<PendingMutation> items) async =>
-      _items = List.of(items);
-}
-
-class _FakePantryStore implements PantryStore {
-  _FakePantryStore(this._items);
-  final List<PantryItem> _items;
-  @override
-  Future<List<PantryItem>> load() async => List.unmodifiable(_items);
-  @override
-  Future<void> save(List<PantryItem> items) async {}
-}
-
-PantryRepo _pantryRepo(List<PantryItem> seed) => PantryRepo(
-      outbox: Outbox(_FakeOutboxStore()),
-      store: _FakePantryStore(seed),
-    );
+// ── Harness ─────────────────────────────────────────────────────────────────
+//
+// The Cart's grocery list is injected via the `repo` param; its BUY (restock)
+// insights now come from the SHARED Brain provider, so pantry data is seeded by
+// overriding pantryRepoProvider (via brainOverrides) — the same way the live
+// interconnection flows and how the Food page tests seed it.
 
 Widget _cart({GroceryListRepo? repo, List<PantryItem> pantry = const []}) {
-  return MaterialApp(
-    theme: lightTheme,
-    home: CartPage(
-      repo: repo ?? GroceryListRepo(store: _FakeGroceryStore()),
-      pantryRepo: _pantryRepo(pantry),
+  final grocery = repo ?? GroceryListRepo(store: _FakeGroceryStore());
+  return ProviderScope(
+    overrides: brainOverrides(pantry: pantry, grocery: grocery),
+    child: MaterialApp(
+      theme: lightTheme,
+      home: CartPage(repo: grocery),
     ),
   );
+}
+
+class _FakeGroceryStore implements GroceryListStore {
+  List<GroceryItem> _i = [];
+  @override
+  Future<List<GroceryItem>> load() async => List.unmodifiable(_i);
+  @override
+  Future<void> save(List<GroceryItem> items) async => _i = List.of(items);
 }
 
 void main() {
@@ -166,10 +148,11 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byKey(const Key('cart-restock-suggestions')), findsOneWidget);
-    expect(find.text('Butter'), findsOneWidget);
+    // The Brain BUY card for the real item (id 'butter' → 'buy-butter').
+    expect(find.text('Restock Butter'), findsOneWidget);
 
     // Adding the suggestion puts it on the list (and it leaves the suggestions).
-    await tester.tap(find.byKey(const Key('cart-restock-add-butter')));
+    await tester.tap(find.byKey(const Key('insight-action-buy-butter')));
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('cart-restock-suggestions')), findsNothing);
     // Now on the grocery list (a real checkbox row exists for it).
