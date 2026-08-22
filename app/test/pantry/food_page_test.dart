@@ -1,19 +1,24 @@
-// Widget tests for FoodPage (P1-T3).
+// Widget tests for FoodPage — the interactive kitchen (R-3) + preserved
+// contracts (gate, add form, honest item facts, freshness).
 //
-// Four contracts:
-//  1. The page renders items grouped by zone and carries `Key('food-page')`.
-//  2. Adding an item (form submit) routes through the repo (item appears).
-//  3. The item detail sheet renders `—` for every unset field on a minimal item
-//     — no fabricated zeros, no fake dates.
-//  4. An item without an expiry date shows freshness `unknown` (grey dot), NOT
-//     `fresh` (green dot).
+// Contracts covered:
+//  1. Post-gate, the Food page renders the KITCHEN scene: four appliance panels
+//     (fridge/pantry/freezer/spices) with REAL item counts + Key('food-page').
+//  2. Tapping a zone panel opens that zone's REAL items (kitchen-zone-view);
+//     tapping an item opens the facts sheet with `—` for unset fields.
+//  3. A zone with no items shows an honest empty ("Fridge is empty").
+//  4. An item without an expiry shows freshness `unknown` (grey), not `fresh`.
+//  5. The single/double appliance toggle persists + changes the layout state.
+//  6. The gate still shows on an empty pantry; add-item still works.
 //
-// Fakes: FakeOutboxStore + FakePantryStore match the pattern in pantry_repo_test.
+// Fakes: FakeOutboxStore + FakePantryStore + FakeKitchenLayoutStore match the
+// pattern in pantry_repo_test.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:health_hub/app_providers.dart';
+import 'package:health_hub/kitchen/kitchen_layout.dart';
 import 'package:health_hub/offline/outbox.dart';
 import 'package:health_hub/offline/outbox_store.dart';
 import 'package:health_hub/offline/pending_mutation.dart';
@@ -41,9 +46,23 @@ class _FakePantryStore implements PantryStore {
   Future<void> save(List<PantryItem> items) async => _items = List.of(items);
 }
 
+/// In-memory kitchen-layout store — records saves so a test can assert the
+/// single/double toggle persisted.
+class _FakeKitchenLayoutStore implements KitchenLayoutStore {
+  KitchenLayout _layout = KitchenLayout.initial;
+  final List<KitchenLayout> saves = [];
+  @override
+  Future<KitchenLayout> load() async => _layout;
+  @override
+  Future<void> save(KitchenLayout layout) async {
+    _layout = layout;
+    saves.add(layout);
+  }
+}
+
 // ── Seed data ────────────────────────────────────────────────────────────────
 
-// A fully-specified item with a real far-future expiry for group/render tests.
+// A fully-specified fridge item with a real far-future expiry.
 final _fullWithExpiry = PantryItem(
   id: 'full-item-expiry',
   name: 'Chicken breast',
@@ -56,204 +75,282 @@ final _fullWithExpiry = PantryItem(
   source: 'manual',
 );
 
-/// Minimal item: only name + zone, everything else null.
+/// A fridge item expiring within the use-soon window (real expiry → honest
+/// "expiring" badge).
+final _expiringSoon = PantryItem(
+  id: 'expiring-item',
+  name: 'Milk',
+  zone: PantryZone.fridge,
+  expiry: DateTime.now().add(const Duration(days: 1)),
+  source: 'manual',
+);
+
+/// Minimal item: only name + zone, everything else null. Lives in condiments
+/// (the "Spices" appliance).
 const _minimal = PantryItem(
   id: 'minimal-item',
   name: 'Salt',
   zone: PantryZone.condiments,
   source: 'manual',
-  // qty, unit, expiry, priceGbp, store, purchasedAt, reorderCadenceDays — all null
 );
 
-// ── Helper: pump the page with a seeded fake repo ───────────────────────────
+// ── Helper: pump the page with seeded fakes ─────────────────────────────────
 
-Future<PantryRepo> _pumpPage(
+Future<(PantryRepo, _FakeKitchenLayoutStore)> _pumpPage(
   WidgetTester tester,
-  List<PantryItem> seed,
-) async {
-  final store = _FakePantryStore(seed);
+  List<PantryItem> seed, {
+  _FakeKitchenLayoutStore? layoutStore,
+}) async {
   final repo = PantryRepo(
     outbox: Outbox(_FakeOutboxStore()),
-    store: store,
+    store: _FakePantryStore(seed),
   );
+  final ls = layoutStore ?? _FakeKitchenLayoutStore();
 
   await tester.pumpWidget(
     ProviderScope(
       overrides: [
         pantryRepoProvider.overrideWithValue(repo),
+        kitchenLayoutRepoProvider
+            .overrideWithValue(KitchenLayoutRepo(store: ls)),
       ],
       child: const MaterialApp(home: FoodPage()),
     ),
   );
   await tester.pumpAndSettle();
-  return repo;
+  return (repo, ls);
 }
 
 // ── Tests ────────────────────────────────────────────────────────────────────
 
 void main() {
-  // Test 1: page renders with food-page key + items grouped by zone.
-  testWidgets('renders food-page key and items grouped by zone',
+  // Test 1: post-gate, the kitchen scene renders 4 zone panels with REAL counts.
+  testWidgets('renders the kitchen scene with 4 zone panels + real counts',
       (tester) async {
     await _pumpPage(tester, [_fullWithExpiry, _minimal]);
 
-    // Root key must be present.
     expect(find.byKey(const Key('food-page')), findsOneWidget);
+    expect(find.byKey(const Key('kitchen-scene')), findsOneWidget);
 
-    // Both item names are visible.
-    expect(find.text('Chicken breast'), findsWidgets);
+    // All four appliance panels are present.
+    expect(find.byKey(const Key('kitchen-zone-fridge')), findsOneWidget);
+    expect(find.byKey(const Key('kitchen-zone-pantry')), findsOneWidget);
+    expect(find.byKey(const Key('kitchen-zone-freezer')), findsOneWidget);
+    expect(find.byKey(const Key('kitchen-zone-condiments')), findsOneWidget);
+
+    // Appliance labels (condiments reads as "Spices" on the scene).
+    expect(find.text('Fridge'), findsOneWidget);
+    expect(find.text('Spices'), findsOneWidget);
+
+    // REAL counts: 1 item in fridge, 1 in spices, the other two empty.
+    expect(find.text('1 item'), findsNWidgets(2));
+    expect(find.text('Empty'), findsNWidgets(2));
+
+    // Item names are NOT on the scene — they live behind a tap.
+    expect(find.text('Chicken breast'), findsNothing);
+  });
+
+  // Test 2: an "N expiring" badge shows only from real expiry data.
+  testWidgets('expiring badge reflects real expiry data (honest urgency)',
+      (tester) async {
+    // Fridge has one expiring-soon item and one far-future item → "1 expiring".
+    await _pumpPage(tester, [_fullWithExpiry, _expiringSoon]);
+    expect(find.text('1 expiring'), findsOneWidget);
+  });
+
+  testWidgets('no expiring badge when no item is actually expiring',
+      (tester) async {
+    await _pumpPage(tester, [_fullWithExpiry]); // far-future only
+    expect(find.textContaining('expiring'), findsNothing);
+  });
+
+  // Test 3: tapping a zone opens its real items; tapping an item → facts sheet.
+  testWidgets('tapping a zone opens its real items + item-facts sheet with —',
+      (tester) async {
+    await _pumpPage(tester, [_minimal]); // Salt lives in condiments/Spices
+
+    // Open the Spices zone.
+    await tester.tap(find.byKey(const Key('kitchen-zone-condiments')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('kitchen-zone-view')), findsOneWidget);
     expect(find.text('Salt'), findsWidgets);
 
-    // Zone section headers are visible (fridge and condiments).
-    expect(find.text('Fridge'), findsOneWidget);
-    expect(find.text('Condiments'), findsOneWidget);
-  });
-
-  // Test 2: adding an item via the form shows it on the page.
-  testWidgets('adding an item via the form routes through the repo',
-      (tester) async {
-    final repo = await _pumpPage(tester, []);
-
-    // Tap the FAB to open the add form.
-    await tester.tap(find.byKey(const Key('food-add-fab')));
-    await tester.pumpAndSettle();
-
-    // Fill in name and pick a zone (name is required).
-    await tester.enterText(find.byKey(const Key('food-form-name')), 'Oat milk');
-    // Zone defaults to fridge; accept the default.
-
-    // Submit the form.
-    await tester.tap(find.byKey(const Key('food-form-submit')));
-    await tester.pumpAndSettle();
-
-    // The new item appears on the page.
-    expect(find.text('Oat milk'), findsWidgets);
-
-    // The repo received the add (item is in the store).
-    final all = await repo.all();
-    expect(all.any((i) => i.name == 'Oat milk'), isTrue);
-  });
-
-  // Test 3: detail sheet for a minimal item renders — for every null field.
-  testWidgets('detail sheet shows — for every unset field (no fabricated values)',
-      (tester) async {
-    await _pumpPage(tester, [_minimal]);
-
-    // Tap the item row to open the detail sheet.
+    // Tap the item → facts sheet renders `—` for every unset field.
     await tester.tap(find.text('Salt'));
     await tester.pumpAndSettle();
 
-    // Every unset field must show the em-dash.
-    // The sheet must contain multiple dashes (qty, unit, expiry, price, store,
-    // purchasedAt, reorderCadenceDays are all null).
     final dashes = tester.widgetList<Text>(find.text('—'));
     expect(dashes.length, greaterThanOrEqualTo(3),
         reason: 'qty, expiry, price, store all null → at least 3 em-dashes');
-
-    // Fabricated values must NOT appear.
     expect(find.text('0'), findsNothing,
         reason: 'a null qty must never be shown as 0');
     expect(find.textContaining('£0'), findsNothing,
         reason: 'a null price must never be shown as £0');
   });
 
-  // Test 4: an item with no expiry shows freshness 'unknown' (grey), NOT 'fresh'.
+  // Test 4: an empty zone shows an honest empty state.
+  testWidgets('an empty zone shows an honest empty state', (tester) async {
+    await _pumpPage(tester, [_minimal]); // nothing in the freezer
+
+    await tester.tap(find.byKey(const Key('kitchen-zone-freezer')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('kitchen-zone-view')), findsOneWidget);
+    expect(find.byKey(const Key('kitchen-zone-empty')), findsOneWidget);
+    expect(find.text('Freezer is empty'), findsOneWidget);
+  });
+
+  // Test 5: an item with no expiry shows freshness 'unknown' (grey), not fresh.
   testWidgets(
-      'item with no expiry shows unknown freshness (grey dot), not fresh (green)',
+      'item with no expiry shows unknown freshness (grey), not fresh (green)',
       (tester) async {
     await _pumpPage(tester, [_minimal]);
 
-    // The grey/unknown freshness indicator must be present.
-    expect(find.byKey(const Key('freshness-unknown')), findsOneWidget);
+    // Open the zone the item lives in to reach its tile.
+    await tester.tap(find.byKey(const Key('kitchen-zone-condiments')));
+    await tester.pumpAndSettle();
 
-    // The green/fresh indicator must NOT be present for an item with no expiry.
+    expect(find.byKey(const Key('freshness-unknown')), findsOneWidget);
     expect(find.byKey(const Key('freshness-fresh')), findsNothing);
   });
 
-  // Test 5 (P4-G): freshness dot exposes a plain-text Semantics label so that
-  // screen readers can announce "Expiry unknown" / "Expired" / "Use soon" /
-  // "Fresh" — colour alone is not accessible.
-  testWidgets(
-      'freshness dot exposes an accessible plain-text label (P4-G a11y)',
+  // Test 6: the freshness dot exposes an accessible plain-text Semantics label.
+  testWidgets('freshness dot exposes an accessible plain-text label (a11y)',
       (tester) async {
     await _pumpPage(tester, [_minimal]);
+    await tester.tap(find.byKey(const Key('kitchen-zone-condiments')));
+    await tester.pumpAndSettle();
 
-    // The dot must be findable by a Semantics label that contains "unknown"
-    // (case-insensitive). find.bySemanticsLabel uses a regex match by default;
-    // we supply a RegExp that accepts any label containing the word "unknown".
     expect(
       find.bySemanticsLabel(RegExp('unknown', caseSensitive: false)),
       findsWidgets,
-      reason:
-          'The freshness dot for a no-expiry item must expose a Semantics '
-          'label containing "unknown" so screen readers can announce the state',
     );
-
-    // The raw dot widget must still be present (Key contract unchanged).
     expect(find.byKey(const Key('freshness-unknown')), findsOneWidget);
   }, semanticsEnabled: true);
 
-  // ── First-run gate (R-1) ───────────────────────────────────────────────────
+  // ── Single/double appliance toggle ─────────────────────────────────────────
+
+  testWidgets(
+      'single/double toggle persists + changes the layout (fridge → double)',
+      (tester) async {
+    final ls = _FakeKitchenLayoutStore();
+    await _pumpPage(tester, [_fullWithExpiry], layoutStore: ls);
+
+    // Starts single — no "Double" badge on the fridge yet.
+    expect(find.text('Double'), findsNothing);
+
+    // Toggle the fridge to double.
+    await tester.tap(find.byKey(const Key('kitchen-toggle-fridge')));
+    await tester.pumpAndSettle();
+
+    // Layout state changed: a "Double" badge now shows, and it persisted.
+    expect(find.text('Double'), findsOneWidget);
+    expect(ls.saves, isNotEmpty);
+    expect(ls.saves.last.fridge, ApplianceSize.double_);
+    expect(ls.saves.last.pantry, ApplianceSize.single,
+        reason: 'toggling fridge must not change other appliances');
+
+    // Toggling again flips it back to single (state persists both ways).
+    await tester.tap(find.byKey(const Key('kitchen-toggle-fridge')));
+    await tester.pumpAndSettle();
+    expect(find.text('Double'), findsNothing);
+    expect(ls.saves.last.fridge, ApplianceSize.single);
+  });
+
+  testWidgets('spices (condiments) has no single/double toggle',
+      (tester) async {
+    await _pumpPage(tester, [_minimal]);
+    expect(find.byKey(const Key('kitchen-toggle-fridge')), findsOneWidget);
+    expect(find.byKey(const Key('kitchen-toggle-pantry')), findsOneWidget);
+    expect(find.byKey(const Key('kitchen-toggle-freezer')), findsOneWidget);
+    // Spices is always a single rack.
+    expect(find.byKey(const Key('kitchen-toggle-condiments')), findsNothing);
+  });
+
+  // Test: the toggle is COSMETIC only — it never changes item data.
+  testWidgets('single/double toggle never changes item data (cosmetic only)',
+      (tester) async {
+    final (repo, _) = await _pumpPage(tester, [_fullWithExpiry]);
+    final before = await repo.all();
+
+    await tester.tap(find.byKey(const Key('kitchen-toggle-fridge')));
+    await tester.pumpAndSettle();
+
+    final after = await repo.all();
+    expect(after.length, before.length);
+    expect(after.single.qty, before.single.qty);
+    expect(after.single.name, before.single.name);
+    // Count on the panel is still the REAL 1 item (no phantom stock).
+    expect(find.text('1 item'), findsOneWidget);
+  });
+
+  // ── First-run gate (R-1) — preserved ───────────────────────────────────────
 
   testWidgets('empty pantry shows the NON-BLOCKING first-run gate',
       (tester) async {
     await _pumpPage(tester, []);
 
-    // The gate hero + both a way-in paths are present.
     expect(find.byKey(const Key('food-gate')), findsOneWidget);
     expect(find.byKey(const Key('food-gate-upload')), findsOneWidget);
     expect(find.byKey(const Key('food-gate-manual')), findsOneWidget);
-    expect(
-      find.textContaining('Upload photos of your fridge'),
-      findsOneWidget,
-    );
-    // The FAB add path still exists too (app stays usable).
+    expect(find.textContaining('Upload photos of your fridge'), findsOneWidget);
     expect(find.byKey(const Key('food-add-fab')), findsOneWidget);
+    // No kitchen scene on an empty pantry.
+    expect(find.byKey(const Key('kitchen-scene')), findsNothing);
   });
 
-  testWidgets(
-      'gate upload button is the real capture entry (R-2), fabricates nothing '
-      'on its own', (tester) async {
-    final repo = await _pumpPage(tester, []);
-
-    // The upload button now launches the real capture→recognize→confirm flow
-    // (label "Snap photos"). Tapping it in a test env opens the camera seam,
-    // which returns nothing (no hardware) → a pure no-op. CRUCIALLY it never
-    // fabricates items. (The seam itself — runRecognition — is covered with
-    // fake bytes in pantry_recognition_page_test.dart.)
+  testWidgets('gate upload button is the real capture entry, fabricates nothing',
+      (tester) async {
+    final (repo, _) = await _pumpPage(tester, []);
     expect(find.byKey(const Key('food-gate-upload')), findsOneWidget);
     expect(find.text('Snap photos'), findsOneWidget);
-
-    // No items were invented just by rendering / the gate being present.
     final all = await repo.all();
     expect(all, isEmpty);
   });
 
-  testWidgets('gate "Add manually" opens the real add-item flow',
+  testWidgets('gate "Add manually" opens the real add-item flow → kitchen',
       (tester) async {
-    final repo = await _pumpPage(tester, []);
+    final (repo, _) = await _pumpPage(tester, []);
 
     await tester.tap(find.byKey(const Key('food-gate-manual')));
     await tester.pumpAndSettle();
 
-    // The existing add form appears; fill + submit it → a REAL item persists.
     expect(find.byKey(const Key('food-form-name')), findsOneWidget);
-    await tester.enterText(
-        find.byKey(const Key('food-form-name')), 'Eggs');
+    await tester.enterText(find.byKey(const Key('food-form-name')), 'Eggs');
+    // Zone defaults to fridge.
     await tester.tap(find.byKey(const Key('food-form-submit')));
     await tester.pumpAndSettle();
 
-    // The item now shows (gate is gone) and is in the store.
-    expect(find.text('Eggs'), findsWidgets);
+    // The gate is gone and the kitchen scene shows the fridge now has 1 item.
     expect(find.byKey(const Key('food-gate')), findsNothing);
+    expect(find.byKey(const Key('kitchen-scene')), findsOneWidget);
+    expect(find.text('1 item'), findsOneWidget);
     final all = await repo.all();
     expect(all.any((i) => i.name == 'Eggs'), isTrue);
   });
 
-  testWidgets('with items present, the normal pantry UI shows (no gate)',
+  testWidgets('adding an item via the FAB routes through the repo',
+      (tester) async {
+    final (repo, _) = await _pumpPage(tester, [_minimal]);
+
+    await tester.tap(find.byKey(const Key('food-add-fab')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+        find.byKey(const Key('food-form-name')), 'Oat milk');
+    await tester.tap(find.byKey(const Key('food-form-submit')));
+    await tester.pumpAndSettle();
+
+    final all = await repo.all();
+    expect(all.any((i) => i.name == 'Oat milk'), isTrue);
+    // Fridge (default zone) now shows 1 item on the panel.
+    expect(find.text('1 item'), findsWidgets);
+  });
+
+  testWidgets('with items present, the kitchen scene shows (no gate)',
       (tester) async {
     await _pumpPage(tester, [_minimal]);
     expect(find.byKey(const Key('food-gate')), findsNothing);
-    expect(find.text('Salt'), findsWidgets);
+    expect(find.byKey(const Key('kitchen-scene')), findsOneWidget);
   });
 }

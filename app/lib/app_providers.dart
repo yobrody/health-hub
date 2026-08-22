@@ -11,6 +11,7 @@ import 'core/config.dart';
 import 'core/secrets.dart';
 import 'core/secure_store.dart';
 import 'gym/workout_repo.dart';
+import 'kitchen/kitchen_layout.dart';
 import 'meals/eat_in_service.dart';
 import 'metrics/weigh_in_repo.dart';
 import 'nutrition/nutrition_goals_repo.dart';
@@ -130,6 +131,21 @@ final pantryRepoProvider = Provider<PantryRepo>((ref) {
     outbox: ref.watch(outboxProvider),
     store: ref.watch(pantryStoreProvider),
   );
+});
+
+/// Local kitchen-layout persistence — the single/double appliance display
+/// preference for the interactive kitchen (R-3). A device-local, COSMETIC-only
+/// config (survives restart). Deliberately NOT wired to the Outbox: it's a
+/// display preference, not user data worth syncing (mirrors [GroceryListRepo]).
+final kitchenLayoutStoreProvider = Provider<KitchenLayoutStore>((ref) {
+  return const SharedPrefsKitchenLayoutStore();
+});
+
+/// The kitchen-layout repository — the single/double appliance preference for
+/// the interactive kitchen. Cosmetic only: it never touches item data or invents
+/// stock. Overridable in tests via `ProviderScope(overrides: [...])`.
+final kitchenLayoutRepoProvider = Provider<KitchenLayoutRepo>((ref) {
+  return KitchenLayoutRepo(store: ref.watch(kitchenLayoutStoreProvider));
 });
 
 /// Local nutrition/food-log persistence (survives restart).
