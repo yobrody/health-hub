@@ -1,10 +1,10 @@
-// Cart page — grocery-list notepad + honest hand-off section (R-4).
+// Cart page — grocery-list notepad + honest hand-off section (R-4 + R-5).
 //
 // The Cart is the honest, physical end of the eat → deplete → restock → cart
 // loop: a real notepad you add to, check off, share, and hand off to a grocery
 // delivery service via pre-searched deep-links (not a faked checkout).
 //
-// R-4 additions (this file):
+// R-4 additions:
 //   • "Share List" — share_plus sheet with unchecked items first, then checked.
 //   • Per-item search icon — opens that item pre-searched in Amazon Fresh.
 //   • Store buttons — Amazon Fresh / Instacart pre-searching the first unchecked
@@ -12,11 +12,21 @@
 //   • "Grocery Delivery" section — requests location; shows all four services
 //     as tappable links.  Permission denied → same list + honest note.
 //
+// R-5 addition (Instacart pre-filled cart):
+//   • Instacart button now PREFERS a pre-filled shopping list (via the
+//     `instacart-cart` edge function), which opens Instacart with ALL items
+//     already loaded.  Falls back silently to the search deep-link when the
+//     edge function is unavailable or returns an error, so the button always
+//     does something useful.
+//   • Honest label while loading: "Opening Instacart…"
+//   • NEVER claims an order was placed or is in progress.
+//
 // Honesty rules (unchanged + extended):
 //   • Every line is real user data — nothing is fabricated or pre-seeded.
 //   • The "restock soon" suggestions come from REAL pantry data only.
 //   • NEVER use "order", "checkout", "add to cart", "buy now" labels.
 //   • Location section NEVER claims to verify delivery availability.
+//   • Pre-filled link: if unavailable → fall back, never show a broken state.
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -29,6 +39,7 @@ import '../brain/insight.dart';
 import '../cart/delivery_services.dart';
 import '../cart/grocery_item.dart';
 import '../cart/grocery_list_repo.dart';
+import '../cart/instacart_client.dart';
 import '../cart/link_launcher.dart';
 import '../cart/location_service.dart';
 import '../design_system/colors.dart';
@@ -43,6 +54,7 @@ class CartPage extends ConsumerStatefulWidget {
     this.repo,
     this.linkLauncher,
     this.locationService,
+    this.instacartClient,
   });
 
   /// Optional overrides so widget tests can inject in-memory fakes without a
@@ -57,6 +69,11 @@ class CartPage extends ConsumerStatefulWidget {
   final LinkLauncher? linkLauncher;
   final LocationService? locationService;
 
+  /// Optional override for the Instacart pre-filled cart client. In the running
+  /// app this comes from [instacartClientProvider] (via [ConsumerState]). Tests
+  /// inject a [FakeInstacartClient] here so no network is ever touched.
+  final InstacartClient? instacartClient;
+
   @override
   ConsumerState<CartPage> createState() => _CartPageState();
 }
@@ -69,6 +86,18 @@ class _CartPageState extends ConsumerState<CartPage> {
   late final LocationService _location =
       widget.locationService ?? const RealLocationService();
 
+  // Resolved lazily so tests that inject via widget.instacartClient don't
+  // trigger provider reads, and the real app reads the provider once on first
+  // use. We resolve on the first _openInstacart call.
+  InstacartClient? _instacartClientCache;
+
+  InstacartClient get _instacartClient {
+    if (_instacartClientCache != null) return _instacartClientCache!;
+    _instacartClientCache =
+        widget.instacartClient ?? ref.read(instacartClientProvider);
+    return _instacartClientCache!;
+  }
+
   final _addCtrl = TextEditingController();
 
   // Delivery near-me panel state.
@@ -76,6 +105,9 @@ class _CartPageState extends ConsumerState<CartPage> {
   bool _deliveryLoading = false;
   List<DeliveryService> _deliveryResult = [];
   String? _deliveryDeniedNote;
+
+  // Instacart pre-filled cart loading state.
+  bool _instacartLoading = false;
 
   @override
   void dispose() {
@@ -207,9 +239,56 @@ class _CartPageState extends ConsumerState<CartPage> {
         .launch(_serviceByName('Amazon Fresh').buildUri(query ?? _firstItemQuery));
   }
 
+  /// Open Instacart, preferring a pre-filled shopping list via the edge
+  /// function. Falls back to the search deep-link if the edge function fails or
+  /// is unavailable. Never claims an order was placed.
+  ///
+  /// When called without arguments, sends ALL current item names to the edge
+  /// function so every item lands in the pre-filled cart. The fallback uses
+  /// [_firstItemQuery] (the existing search behaviour) so the button is never
+  /// a dead end.
   Future<void> _openInstacart([String? query]) async {
-    await _launcher
-        .launch(_serviceByName('Instacart').buildUri(query ?? _firstItemQuery));
+    // If called with an explicit query (legacy path), use the search link as-is.
+    if (query != null) {
+      await _launcher
+          .launch(_serviceByName('Instacart').buildUri(query));
+      return;
+    }
+
+    // Build the real list: names from the live item list (unchecked first, then
+    // checked) — real user data, nothing fabricated.
+    final allNames = [
+      ..._items.where((i) => !i.done).map((i) => i.name),
+      ..._items.where((i) => i.done).map((i) => i.name),
+    ];
+
+    if (allNames.isEmpty) {
+      // Empty list → open Instacart store home (search link handles null).
+      await _launcher
+          .launch(_serviceByName('Instacart').buildUri(null));
+      return;
+    }
+
+    setState(() => _instacartLoading = true);
+
+    Uri? prefilled;
+    try {
+      prefilled = await _instacartClient.shoppingListUrl(allNames);
+    } finally {
+      if (mounted) setState(() => _instacartLoading = false);
+    }
+
+    if (!mounted) return;
+
+    if (prefilled != null) {
+      // Pre-filled list available — open it.
+      await _launcher.launch(prefilled);
+    } else {
+      // Honest fallback: the edge function was unavailable or returned an error.
+      // Fall back to the existing search deep-link so the button always works.
+      await _launcher
+          .launch(_serviceByName('Instacart').buildUri(_firstItemQuery));
+    }
   }
 
   // ── Delivery near me ─────────────────────────────────────────────────────
@@ -371,6 +450,7 @@ class _CartPageState extends ConsumerState<CartPage> {
                   onShare: _items.isEmpty ? null : _shareList,
                   onOpenAmazon: _openAmazon,
                   onOpenInstacart: _openInstacart,
+                  instacartLoading: _instacartLoading,
                   onDeliveryNearMe: _onDeliveryNearMe,
                   deliveryExpanded: _deliveryExpanded,
                   deliveryLoading: _deliveryLoading,
@@ -445,15 +525,17 @@ class _GroceryRow extends StatelessWidget {
 
 // ── _HandoffSection ──────────────────────────────────────────────────────────
 
-/// The R-4 hand-off card: share + store deep-links + delivery near me.
+/// The hand-off card: share + store deep-links + delivery near me.
 ///
 /// Honest labels throughout — no "order", "checkout", "add to cart", "buy".
+/// Instacart button prefers a pre-filled list; falls back to search silently.
 class _HandoffSection extends StatelessWidget {
   const _HandoffSection({
     required this.items,
     required this.onShare,
     required this.onOpenAmazon,
     required this.onOpenInstacart,
+    required this.instacartLoading,
     required this.onDeliveryNearMe,
     required this.deliveryExpanded,
     required this.deliveryLoading,
@@ -467,6 +549,11 @@ class _HandoffSection extends StatelessWidget {
   final VoidCallback? onShare;
   final VoidCallback onOpenAmazon;
   final VoidCallback onOpenInstacart;
+
+  /// True while the [instacartClient] is fetching the pre-filled list URL.
+  /// The button shows a loading state and is non-interactive during this time.
+  final bool instacartLoading;
+
   final VoidCallback onDeliveryNearMe;
   final bool deliveryExpanded;
   final bool deliveryLoading;
@@ -499,8 +586,12 @@ class _HandoffSection extends StatelessWidget {
           AppSpacing.gapV4,
 
           // b. Store buttons: Amazon Fresh + Instacart, honest labels.
+          //
+          // Amazon Fresh: opens a search for the first item (unchanged).
+          // Instacart: tries a pre-filled list first, falls back to search.
+          // Neither button claims an order was placed.
           Text(
-            'Opens a search — add items there',
+            'Opens Instacart with your list · Amazon searches the first item',
             style: text.bodySmall?.copyWith(color: colors.textSecondary),
             textAlign: TextAlign.center,
           ),
@@ -523,9 +614,22 @@ class _HandoffSection extends StatelessWidget {
               Expanded(
                 child: OutlinedButton.icon(
                   key: const Key('cart-instacart'),
-                  onPressed: onOpenInstacart,
-                  icon: const Icon(Icons.open_in_new, size: 16),
-                  label: const Text('Instacart'),
+                  // Disabled while fetching the pre-filled URL so double-taps
+                  // don't fire two separate launches.
+                  onPressed: instacartLoading ? null : onOpenInstacart,
+                  icon: instacartLoading
+                      ? SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: colors.primaryStrong,
+                          ),
+                        )
+                      : const Icon(Icons.open_in_new, size: 16),
+                  label: Text(
+                    instacartLoading ? 'Opening…' : 'Instacart',
+                  ),
                   style: OutlinedButton.styleFrom(
                     foregroundColor: colors.primaryStrong,
                     side: BorderSide(color: colors.primaryStrong),
