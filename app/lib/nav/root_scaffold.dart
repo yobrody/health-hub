@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../app_providers.dart';
 import '../pages/cart_page.dart';
 import '../pages/food_page.dart';
 import '../pages/gym_page.dart';
@@ -13,15 +15,20 @@ import '../sync/sync_status_banner.dart';
 /// restructure): Settings is reached via a gear button top-LEFT of Home, and
 /// "Log a meal" is a prominent Home action that pushes NutritionPage as a route.
 /// Both remain fully reachable — just not on the bottom bar.
-class RootScaffold extends StatefulWidget {
+///
+/// R-5: The Cart destination shows a live [Badge] when the grocery list has
+/// items. The badge count animates in/out using [AnimatedSwitcher] (finite,
+/// always settles) — [Badge.count] is only visible when count > 0.
+class RootScaffold extends ConsumerStatefulWidget {
   const RootScaffold({super.key});
 
   @override
-  State<RootScaffold> createState() => _RootScaffoldState();
+  ConsumerState<RootScaffold> createState() => _RootScaffoldState();
 }
 
-class _RootScaffoldState extends State<RootScaffold> {
+class _RootScaffoldState extends ConsumerState<RootScaffold> {
   int _selectedIndex = 0;
+  int _cartCount = 0;
 
   /// The Food (Fridge & Pantry) tab index — used by the home pantry-glance and
   /// restock-soon cross-links to jump straight to the pantry.
@@ -34,13 +41,41 @@ class _RootScaffoldState extends State<RootScaffold> {
     const CartPage(),
   ];
 
-  static const List<NavigationDestination> _destinations = [
-    NavigationDestination(icon: Icon(Icons.home_outlined), label: 'Home'),
-    NavigationDestination(icon: Icon(Icons.restaurant), label: 'Food'),
-    NavigationDestination(icon: Icon(Icons.fitness_center), label: 'Gym'),
-    NavigationDestination(
-        icon: Icon(Icons.shopping_cart_outlined), label: 'Cart'),
-  ];
+  @override
+  void initState() {
+    super.initState();
+    _reloadCartCount();
+  }
+
+  Future<void> _reloadCartCount() async {
+    final repo = ref.read(groceryListRepoProvider);
+    final items = await repo.all();
+    if (!mounted) return;
+    setState(() => _cartCount = items.length);
+  }
+
+  List<NavigationDestination> _buildDestinations() {
+    return [
+      const NavigationDestination(
+          icon: Icon(Icons.home_outlined), label: 'Home'),
+      const NavigationDestination(
+          icon: Icon(Icons.restaurant), label: 'Food'),
+      const NavigationDestination(
+          icon: Icon(Icons.fitness_center), label: 'Gym'),
+      NavigationDestination(
+        icon: AnimatedSwitcher(
+          duration: const Duration(milliseconds: 200),
+          child: Badge.count(
+            key: ValueKey(_cartCount > 0),
+            count: _cartCount,
+            isLabelVisible: _cartCount > 0,
+            child: const Icon(Icons.shopping_cart_outlined),
+          ),
+        ),
+        label: 'Cart',
+      ),
+    ];
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -66,8 +101,11 @@ class _RootScaffoldState extends State<RootScaffold> {
         selectedIndex: _selectedIndex,
         onDestinationSelected: (index) {
           setState(() => _selectedIndex = index);
+          // Refresh cart count when the user switches tabs — keeps the badge
+          // live without a full Riverpod watch (the list is local-only for now).
+          if (index == 3) _reloadCartCount();
         },
-        destinations: _destinations,
+        destinations: _buildDestinations(),
       ),
     );
   }
