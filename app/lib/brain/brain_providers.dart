@@ -129,6 +129,10 @@ Future<bool> performInsightAction(WidgetRef ref, InsightAction action) async {
     final name = action.payload;
     if (name == null || name.trim().isEmpty) return false;
     await ref.read(groceryListRepoProvider).add(name);
+    // Refresh the reactive grocery list so EVERY screen that reads it re-renders
+    // live: the Cart page's rows, the nav's Cart badge, and (via the Brain) this
+    // item's own BUY suggestion dropping out — no matter which screen added it.
+    ref.invalidate(groceryListProvider);
     return true;
   }
   return false;

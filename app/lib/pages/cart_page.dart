@@ -71,9 +71,6 @@ class _CartPageState extends ConsumerState<CartPage> {
 
   final _addCtrl = TextEditingController();
 
-  List<GroceryItem> _items = [];
-  bool _loading = true;
-
   // Delivery near-me panel state.
   bool _deliveryExpanded = false;
   bool _deliveryLoading = false;
@@ -81,32 +78,27 @@ class _CartPageState extends ConsumerState<CartPage> {
   String? _deliveryDeniedNote;
 
   @override
-  void initState() {
-    super.initState();
-    _reload();
-  }
-
-  @override
   void dispose() {
     _addCtrl.dispose();
     super.dispose();
   }
 
-  Future<void> _reload() async {
-    final items = await _repo.all();
-    if (!mounted) return;
-    setState(() {
-      _items = items;
-      _loading = false;
-    });
-  }
+  /// The current grocery list, read from the reactive [groceryListProvider] (the
+  /// SAME source the nav's Cart badge reads). Watched in [build], so the rows
+  /// re-render live on any change — including an item added from a BUY insight
+  /// on another screen while this page stays alive under the nav's IndexedStack.
+  /// Falls back to an empty list while the (fast, local) load resolves.
+  List<GroceryItem> get _items =>
+      ref.watch(groceryListProvider).valueOrNull ?? const [];
 
   /// The Brain's BUY insights for the Cart, via the SHARED provider (the same
   /// path Food uses), minus any whose item is ALREADY on the list (by name,
   /// case-insensitively) — we never nudge a duplicate. Reading through the
   /// provider (not a local computeInsights) keeps the interconnection live: a
   /// pantry mutation on another screen refreshes this list, and this screen's
-  /// own mutations invalidate the snapshot for everyone else.
+  /// own mutations invalidate the snapshot for everyone else. De-dupes against
+  /// the live [_items] (also provider-backed), so the moment an item is listed
+  /// its suggestion drops — even when the add happened on another screen.
   List<Insight> _buyInsights(WidgetRef ref) {
     final onList = _items.map((i) => i.name.trim().toLowerCase()).toSet();
     return insightsForScreen(ref, BrainScreen.cart).where((i) {
@@ -115,53 +107,51 @@ class _CartPageState extends ConsumerState<CartPage> {
     }).toList();
   }
 
-  /// Invalidate the shared Brain snapshot so every screen's BrainSection
-  /// re-reads. Called after any Cart mutation — adding an item can drop a BUY
-  /// insight (now on the list); removing/clearing can bring one back.
-  void _refreshBrain() => ref.invalidate(brainInputsProvider);
+  /// Refresh the reactive list + the shared Brain snapshot after a mutation, so
+  /// every screen's list rows, Cart badge, and BrainSection re-read the truth.
+  void _refresh() {
+    ref.invalidate(groceryListProvider);
+    ref.invalidate(brainInputsProvider);
+  }
 
   Future<void> _add() async {
     final name = _addCtrl.text.trim();
     if (name.isEmpty) return;
-    final next = await _repo.add(name);
+    await _repo.add(name);
     if (!mounted) return;
     _addCtrl.clear();
-    setState(() => _items = next);
-    _refreshBrain();
+    _refresh();
   }
 
   Future<void> _toggle(GroceryItem item) async {
-    final next = await _repo.toggle(item.id);
+    await _repo.toggle(item.id);
     if (!mounted) return;
-    setState(() => _items = next);
+    _refresh();
   }
 
   Future<void> _remove(GroceryItem item) async {
-    final next = await _repo.remove(item.id);
+    await _repo.remove(item.id);
     if (!mounted) return;
-    setState(() => _items = next);
-    _refreshBrain();
+    _refresh();
   }
 
   Future<void> _clearDone() async {
-    final next = await _repo.clearDone();
+    await _repo.clearDone();
     if (!mounted) return;
-    setState(() => _items = next);
-    _refreshBrain();
+    _refresh();
   }
 
   /// Route a Brain BUY insight action: add the real item to the list, then
-  /// refresh the shared Brain snapshot (so it drops out of the suggestions —
-  /// it's now on the list — everywhere). Nothing faked; the same repo the list
-  /// renders from is written.
+  /// refresh the reactive list + Brain snapshot (so it drops out of the
+  /// suggestions — it's now on the list — everywhere). Nothing faked; the same
+  /// repo the list renders from is written.
   Future<void> _onInsightAction(InsightAction action) async {
     if (action.kind != InsightActionKind.addToCart) return;
     final name = action.payload;
     if (name == null || name.trim().isEmpty) return;
-    final next = await _repo.add(name);
+    await _repo.add(name);
     if (!mounted) return;
-    setState(() => _items = next);
-    _refreshBrain();
+    _refresh();
   }
 
   // ── Legacy clipboard copy (AppBar icon) ──────────────────────────────────
@@ -253,6 +243,13 @@ class _CartPageState extends ConsumerState<CartPage> {
   Widget build(BuildContext context) {
     final colors = context.appColors;
 
+    // The reactive list — watched here (via [_items]) so the rows re-render live
+    // on any change, including an add from another screen. Loading is the very
+    // first (fast, local) resolve; after that a mutation invalidates the
+    // provider and the rebuild carries the fresh list.
+    final listAsync = ref.watch(groceryListProvider);
+    final loading = listAsync.isLoading && !listAsync.hasValue;
+
     final doneCount = _items.where((i) => i.done).length;
     // The Brain's BUY insights via the shared provider (watched in build so a
     // pantry change elsewhere refreshes this list), minus what's already listed.
@@ -275,7 +272,7 @@ class _CartPageState extends ConsumerState<CartPage> {
           ),
         ],
       ),
-      body: _loading
+      body: loading
           ? const SizedBox.shrink()
           : ListView(
               padding: AppSpacing.pagePadding,

@@ -28,7 +28,6 @@ class RootScaffold extends ConsumerStatefulWidget {
 
 class _RootScaffoldState extends ConsumerState<RootScaffold> {
   int _selectedIndex = 0;
-  int _cartCount = 0;
 
   /// Tab indices — used by the home cross-links (pantry-glance, restock, and the
   /// Brain's insight actions) to jump straight to the right tab.
@@ -38,7 +37,6 @@ class _RootScaffoldState extends ConsumerState<RootScaffold> {
 
   void _goToTab(int index) {
     setState(() => _selectedIndex = index);
-    if (index == _cartTabIndex) _reloadCartCount();
   }
 
   late final List<Widget> _pages = [
@@ -52,20 +50,7 @@ class _RootScaffoldState extends ConsumerState<RootScaffold> {
     const CartPage(),
   ];
 
-  @override
-  void initState() {
-    super.initState();
-    _reloadCartCount();
-  }
-
-  Future<void> _reloadCartCount() async {
-    final repo = ref.read(groceryListRepoProvider);
-    final items = await repo.all();
-    if (!mounted) return;
-    setState(() => _cartCount = items.length);
-  }
-
-  List<NavigationDestination> _buildDestinations() {
+  List<NavigationDestination> _buildDestinations(int cartCount) {
     return [
       const NavigationDestination(
           icon: Icon(Icons.home_outlined), label: 'Home'),
@@ -77,9 +62,9 @@ class _RootScaffoldState extends ConsumerState<RootScaffold> {
         icon: AnimatedSwitcher(
           duration: const Duration(milliseconds: 200),
           child: Badge.count(
-            key: ValueKey(_cartCount > 0),
-            count: _cartCount,
-            isLabelVisible: _cartCount > 0,
+            key: ValueKey(cartCount > 0),
+            count: cartCount,
+            isLabelVisible: cartCount > 0,
             child: const Icon(Icons.shopping_cart_outlined),
           ),
         ),
@@ -90,6 +75,12 @@ class _RootScaffoldState extends ConsumerState<RootScaffold> {
 
   @override
   Widget build(BuildContext context) {
+    // The Cart badge count comes from the reactive [groceryListProvider] — the
+    // SAME source the Cart page reads — so it updates live on any change (an add
+    // from a Brain BUY insight on Home/Food, a remove on Cart), without needing a
+    // tab-switch to trigger an imperative reload.
+    final cartCount = ref.watch(groceryListProvider).valueOrNull?.length ?? 0;
+
     return Scaffold(
       body: Column(
         children: [
@@ -110,13 +101,9 @@ class _RootScaffoldState extends ConsumerState<RootScaffold> {
       ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _selectedIndex,
-        onDestinationSelected: (index) {
-          setState(() => _selectedIndex = index);
-          // Refresh cart count when the user switches tabs — keeps the badge
-          // live without a full Riverpod watch (the list is local-only for now).
-          if (index == 3) _reloadCartCount();
-        },
-        destinations: _buildDestinations(),
+        onDestinationSelected: (index) =>
+            setState(() => _selectedIndex = index),
+        destinations: _buildDestinations(cartCount),
       ),
     );
   }
