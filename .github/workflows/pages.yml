@@ -1,0 +1,60 @@
+name: pages
+
+# Builds the Flutter web app and deploys it to GitHub Pages so it's usable in
+# any browser — including iPhone Safari — with no Apple account or Mac.
+# The Supabase URL + PUBLISHABLE key are the public client values (safe to
+# expose; protected by Row-Level Security), so they're inline here.
+#
+# One-time setup by the repo owner: Settings → Pages → Source: "GitHub Actions".
+# Then the app is live at https://<owner>.github.io/health-hub/ and every push
+# to main re-deploys the latest.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'app/**'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build-deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.0'
+          channel: stable
+          cache: true
+
+      - name: Build Flutter web
+        working-directory: app
+        run: |
+          flutter pub get
+          flutter build web --release \
+            --base-href /health-hub/ \
+            --dart-define=SUPABASE_URL=https://eazwtlqieizvsqvbbknj.supabase.co \
+            --dart-define=SUPABASE_PUBLISHABLE_KEY=[REDACTED-MOVED-TO-VAULT]
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: app/build/web
+
+      - id: deploy
+        uses: actions/deploy-pages@v4
