@@ -24,16 +24,18 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../app_providers.dart';
+import '../brain/brain.dart';
+import '../brain/insight.dart';
 import '../cart/delivery_services.dart';
 import '../cart/grocery_item.dart';
 import '../cart/grocery_list_repo.dart';
 import '../cart/link_launcher.dart';
 import '../cart/location_service.dart';
 import '../design_system/colors.dart';
+import '../design_system/components/insight_card.dart';
 import '../design_system/components/section_header.dart';
 import '../design_system/components/stat_card.dart';
 import '../design_system/spacing.dart';
-import '../pantry/pantry_glance.dart';
 import '../pantry/pantry_repo.dart';
 
 class CartPage extends ConsumerStatefulWidget {
@@ -69,7 +71,11 @@ class _CartPageState extends ConsumerState<CartPage> {
   final _addCtrl = TextEditingController();
 
   List<GroceryItem> _items = [];
-  List<RestockItem> _restock = [];
+  // The Brain's BUY insights for the Cart — connected cards with a visible
+  // "why", built from the real pantry data and rendered as the shared
+  // InsightCard. Computed via the pure engine over the injected pantry (no
+  // provider dependency, so widget tests with injected repos work).
+  List<Insight> _buyInsights = [];
   bool _loading = true;
 
   // Delivery near-me panel state.
@@ -95,15 +101,20 @@ class _CartPageState extends ConsumerState<CartPage> {
     final pantryItems = await _pantry.all();
     if (!mounted) return;
     final now = DateTime.now();
+    // The Brain's BUY insights from this exact pantry snapshot (pure engine).
+    final buys = computeInsights(BrainInputs(now: now, pantryItems: pantryItems))
+        .where((i) => i.kind == InsightKind.buy)
+        .toList();
     setState(() {
       _items = items;
       // Only offer restock items that aren't already on the list (by name,
       // case-insensitively) — never nudge the user to add a duplicate.
       final onList =
           items.map((i) => i.name.trim().toLowerCase()).toSet();
-      _restock = restockSoon(pantryItems, now)
-          .where((r) => !onList.contains(r.item.name.trim().toLowerCase()))
-          .toList();
+      _buyInsights = buys.where((i) {
+        final name = i.action?.payload?.trim().toLowerCase();
+        return name == null || !onList.contains(name);
+      }).toList();
       _loading = false;
     });
   }
@@ -138,8 +149,14 @@ class _CartPageState extends ConsumerState<CartPage> {
     await _reload();
   }
 
-  Future<void> _addRestock(RestockItem r) async {
-    final next = await _repo.add(r.item.name);
+  /// Route a Brain BUY insight action: add the real item to the list, then
+  /// refresh (so it drops out of the suggestions — it's now on the list).
+  /// Nothing faked; the same repo the list renders from is written.
+  Future<void> _onInsightAction(InsightAction action) async {
+    if (action.kind != InsightActionKind.addToCart) return;
+    final name = action.payload;
+    if (name == null || name.trim().isEmpty) return;
+    final next = await _repo.add(name);
     if (!mounted) return;
     setState(() => _items = next);
     await _reload();
@@ -233,7 +250,6 @@ class _CartPageState extends ConsumerState<CartPage> {
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
-    final text = Theme.of(context).textTheme;
 
     final doneCount = _items.where((i) => i.done).length;
 
@@ -286,40 +302,24 @@ class _CartPageState extends ConsumerState<CartPage> {
                 ),
                 AppSpacing.gapV6,
 
-                // Restock-soon offer — ONLY when real pantry data has something
-                // due that isn't already on the list. Omitted otherwise.
-                if (_restock.isNotEmpty) ...[
+                // Restock-soon offer — the Brain's BUY insights as connected
+                // cards with a visible "why". ONLY when real pantry data has
+                // something due that isn't already on the list. Omitted
+                // otherwise (never a fabricated urgency). One-tap "Add to list"
+                // writes the real item to the same list below.
+                if (_buyInsights.isNotEmpty) ...[
                   const SectionHeader(title: 'RESTOCK SOON'),
-                  StatCard(
+                  Column(
                     key: const Key('cart-restock-suggestions'),
-                    padding: EdgeInsets.zero,
-                    child: Column(
-                      children: [
-                        for (var i = 0; i < _restock.length; i++) ...[
-                          if (i > 0)
-                            Divider(
-                                height: 1,
-                                thickness: 1,
-                                color: colors.hairline),
-                          ListTile(
-                            title: Text(_restock[i].item.name),
-                            subtitle: Text(
-                              _restockReasonLabel(_restock[i]),
-                              style: text.bodySmall
-                                  ?.copyWith(color: colors.textSecondary),
-                            ),
-                            trailing: IconButton(
-                              key: Key(
-                                  'cart-restock-add-${_restock[i].item.id}'),
-                              icon: Icon(Icons.add_circle_outline,
-                                  color: colors.primaryStrong),
-                              tooltip: 'Add to list',
-                              onPressed: () => _addRestock(_restock[i]),
-                            ),
-                          ),
-                        ],
+                    children: [
+                      for (var i = 0; i < _buyInsights.length; i++) ...[
+                        if (i > 0) AppSpacing.gapV3,
+                        InsightCard(
+                          insight: _buyInsights[i],
+                          onAction: _onInsightAction,
+                        ),
                       ],
-                    ),
+                    ],
                   ),
                   AppSpacing.gapV6,
                 ],
@@ -382,14 +382,6 @@ class _CartPageState extends ConsumerState<CartPage> {
     );
   }
 
-  String _restockReasonLabel(RestockItem r) {
-    final parts = <String>[
-      if (r.isExpiring) 'expiring soon',
-      if (r.isLow) 'running low',
-      if (r.isReorderDue) 'reorder due',
-    ];
-    return parts.join(' · ');
-  }
 }
 
 // ── _GroceryRow ──────────────────────────────────────────────────────────────

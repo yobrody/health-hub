@@ -30,12 +30,23 @@ class _RootScaffoldState extends ConsumerState<RootScaffold> {
   int _selectedIndex = 0;
   int _cartCount = 0;
 
-  /// The Food (Fridge & Pantry) tab index — used by the home pantry-glance and
-  /// restock-soon cross-links to jump straight to the pantry.
+  /// Tab indices — used by the home cross-links (pantry-glance, restock, and the
+  /// Brain's insight actions) to jump straight to the right tab.
   static const int _foodTabIndex = 1;
+  static const int _gymTabIndex = 2;
+  static const int _cartTabIndex = 3;
+
+  void _goToTab(int index) {
+    setState(() => _selectedIndex = index);
+    if (index == _cartTabIndex) _reloadCartCount();
+  }
 
   late final List<Widget> _pages = [
-    TodayPage(onOpenPantry: () => setState(() => _selectedIndex = _foodTabIndex)),
+    TodayPage(
+      onOpenPantry: () => _goToTab(_foodTabIndex),
+      onOpenGym: () => _goToTab(_gymTabIndex),
+      onOpenCart: () => _goToTab(_cartTabIndex),
+    ),
     const FoodPage(),
     const GymPage(),
     const CartPage(),

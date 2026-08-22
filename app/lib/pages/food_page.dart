@@ -15,6 +15,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../app_providers.dart';
+import '../brain/brain_providers.dart';
+import '../brain/brain_section.dart';
+import '../brain/insight.dart';
 import '../capture/camera_service.dart';
 import '../design_system/colors.dart';
 import '../design_system/components/stat_card.dart';
@@ -165,6 +168,23 @@ class FoodPageState extends ConsumerState<FoodPage> {
       _layout = layout;
       _loading = false;
     });
+    // Pantry changes (add/edit/delete) alter the Brain's BUY insights → refresh.
+    ref.invalidate(brainInputsProvider);
+  }
+
+  /// Route a Brain BUY insight action: add the real item to the real grocery
+  /// list, then confirm honestly (this tab can't switch to Cart, so the Cart
+  /// tab's own badge + list is where the user sees it land).
+  Future<void> _onInsightAction(InsightAction action) async {
+    if (action.kind != InsightActionKind.addToCart) return;
+    final added = await performInsightAction(ref, action);
+    if (!mounted || !added) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        key: const Key('food-brain-added-snackbar'),
+        content: Text('Added ${action.payload} to your Cart list'),
+      ),
+    );
   }
 
   /// Toggle an appliance single⇄double. COSMETIC ONLY — persists the display
@@ -465,6 +485,16 @@ class FoodPageState extends ConsumerState<FoodPage> {
           style: text.bodyMedium?.copyWith(color: colors.textSecondary),
         ),
         AppSpacing.gapV6,
+        // The Brain's BUY insights — real low/expiring/reorder-due items from
+        // this kitchen, each with a one-tap "Add to list". Omitted when nothing
+        // is honestly due.
+        BrainSection(
+          sectionKey: const Key('food-brain'),
+          screen: BrainScreen.food,
+          title: 'RESTOCK SOON',
+          onAction: _onInsightAction,
+          trailingGap: true,
+        ),
         for (final zone in _zoneOrder) ...[
           _AppliancePanel(
             zone: zone,

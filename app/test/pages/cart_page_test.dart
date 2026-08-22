@@ -166,10 +166,11 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byKey(const Key('cart-restock-suggestions')), findsOneWidget);
-    expect(find.text('Butter'), findsOneWidget);
+    // The Brain BUY card for the real item (id 'butter' → 'buy-butter').
+    expect(find.text('Restock Butter'), findsOneWidget);
 
     // Adding the suggestion puts it on the list (and it leaves the suggestions).
-    await tester.tap(find.byKey(const Key('cart-restock-add-butter')));
+    await tester.tap(find.byKey(const Key('insight-action-buy-butter')));
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('cart-restock-suggestions')), findsNothing);
     // Now on the grocery list (a real checkbox row exists for it).

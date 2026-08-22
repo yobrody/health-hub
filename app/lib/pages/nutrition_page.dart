@@ -25,6 +25,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
 import '../app_providers.dart';
+import '../brain/brain_providers.dart';
+import '../brain/brain_section.dart';
+import '../brain/insight.dart';
 import '../design_system/colors.dart';
 import '../design_system/components/section_header.dart';
 import '../design_system/components/stat_card.dart';
@@ -40,6 +43,7 @@ import '../nutrition/packaged_food_model.dart';
 import '../pantry/pantry_item.dart';
 import '../pantry/pantry_repo.dart';
 import '../profile/profile_model.dart'; // showOrDash
+import '../widgets/nutrition_goals_editor.dart';
 
 // ── NutritionPage ─────────────────────────────────────────────────────────────
 
@@ -124,6 +128,32 @@ class NutritionPageState extends ConsumerState<NutritionPage> {
     setState(() {
       _todayLog = _repo.logsForDay(all, DateTime.now());
     });
+    // Logging a meal changes today's intake → the Brain's EAT insight is stale.
+    // Recompute it from the fresh real data.
+    ref.invalidate(brainInputsProvider);
+  }
+
+  /// Route a Brain EAT insight action. logMeal keeps the user here (they're
+  /// already on the log screen); openGoals opens the daily-targets editor so the
+  /// honest "set a goal" prompt has a real destination.
+  Future<void> _onInsightAction(InsightAction action) async {
+    switch (action.kind) {
+      case InsightActionKind.openGoals:
+        final goals = await ref.read(nutritionGoalsRepoProvider).load();
+        if (!mounted) return;
+        final saved = await showNutritionGoalsEditor(
+          context,
+          repo: ref.read(nutritionGoalsRepoProvider),
+          current: goals,
+        );
+        if (saved == true && mounted) ref.invalidate(brainInputsProvider);
+      case InsightActionKind.logMeal:
+      case InsightActionKind.addToCart:
+      case InsightActionKind.startWorkout:
+      case InsightActionKind.none:
+        // Already on the log screen — no navigation needed.
+        break;
+    }
   }
 
   // ── Scanner seam ───────────────────────────────────────────────────────────
@@ -401,6 +431,16 @@ class NutritionPageState extends ConsumerState<NutritionPage> {
           : ListView(
               padding: AppSpacing.pagePadding,
               children: [
+                // The Brain's EAT insight at the top — what to eat now, grounded
+                // in the real remaining goal vs today's real intake (or an honest
+                // "set a goal" prompt). Omitted entirely when nothing to show.
+                BrainSection(
+                  sectionKey: const Key('nutrition-brain'),
+                  screen: BrainScreen.nutrition,
+                  title: 'WHAT TO EAT',
+                  onAction: _onInsightAction,
+                  trailingGap: true,
+                ),
                 _buildInOutToggle(),
                 AppSpacing.gapV5,
                 _buildForm(),
