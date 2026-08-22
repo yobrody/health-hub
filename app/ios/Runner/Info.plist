@@ -16,9 +16,9 @@
 	<!-- image_picker: photo library access for picking existing progress photos. -->
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Health Hub can read photos from your library so you can choose an existing progress photo. We only access photos you select.</string>
-	<!-- geolocator: coarse location for gym-proximity and regional features. -->
+	<!-- geolocator: coarse location for gym-proximity, grocery delivery suggestions, and regional features. -->
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>Health Hub uses your approximate location to suggest nearby gyms and personalise regional health content. Location is only used while the app is open.</string>
+	<string>Health Hub uses your approximate location to suggest grocery delivery services near you and for regional health content. Location is only used while the app is open.</string>
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>

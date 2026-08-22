@@ -1,26 +1,34 @@
-// Cart page — a working grocery-list notepad (R-1).
+// Cart page — grocery-list notepad + honest hand-off section (R-4).
 //
 // The Cart is the honest, physical end of the eat → deplete → restock → cart
-// loop: a real notepad you add to, check off, and clear. It persists locally via
-// [GroceryListRepo] (local-only in R-1 — no Supabase table yet; sync is a later
-// phase). Optionally you can pull today's "restock soon" pantry items straight
-// onto the list.
+// loop: a real notepad you add to, check off, share, and hand off to a grocery
+// delivery service via pre-searched deep-links (not a faked checkout).
 //
-// Honesty rules:
-//   • Every line is real user data — added by the user or an accepted "restock
-//     soon" suggestion. Nothing is fabricated or pre-seeded.
-//   • The "restock soon" suggestions come from REAL pantry data only (the pure
-//     [restockSoon] selector); when nothing is due, the offer is simply absent.
-//   • "Share / Export" REALLY copies the real list to the clipboard — it is not
-//     a stub. The Amazon/Instacart deep-links + location are R-4 (not here).
+// R-4 additions (this file):
+//   • "Share List" — share_plus sheet with unchecked items first, then checked.
+//   • Per-item search icon — opens that item pre-searched in Amazon Fresh.
+//   • Store buttons — Amazon Fresh / Instacart pre-searching the first unchecked
+//     item.  Label: "Opens a search — add items there".
+//   • "Grocery Delivery" section — requests location; shows all four services
+//     as tappable links.  Permission denied → same list + honest note.
+//
+// Honesty rules (unchanged + extended):
+//   • Every line is real user data — nothing is fabricated or pre-seeded.
+//   • The "restock soon" suggestions come from REAL pantry data only.
+//   • NEVER use "order", "checkout", "add to cart", "buy now" labels.
+//   • Location section NEVER claims to verify delivery availability.
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../app_providers.dart';
+import '../cart/delivery_services.dart';
 import '../cart/grocery_item.dart';
 import '../cart/grocery_list_repo.dart';
+import '../cart/link_launcher.dart';
+import '../cart/location_service.dart';
 import '../design_system/colors.dart';
 import '../design_system/components/section_header.dart';
 import '../design_system/components/stat_card.dart';
@@ -29,12 +37,20 @@ import '../pantry/pantry_glance.dart';
 import '../pantry/pantry_repo.dart';
 
 class CartPage extends ConsumerStatefulWidget {
-  const CartPage({super.key, this.repo, this.pantryRepo});
+  const CartPage({
+    super.key,
+    this.repo,
+    this.pantryRepo,
+    this.linkLauncher,
+    this.locationService,
+  });
 
   /// Optional overrides so widget tests can inject in-memory fakes without a
-  /// ProviderScope. In the running app both come from the composition root.
+  /// ProviderScope. In the running app these come from the composition root.
   final GroceryListRepo? repo;
   final PantryRepo? pantryRepo;
+  final LinkLauncher? linkLauncher;
+  final LocationService? locationService;
 
   @override
   ConsumerState<CartPage> createState() => _CartPageState();
@@ -45,12 +61,22 @@ class _CartPageState extends ConsumerState<CartPage> {
       widget.repo ?? ref.read(groceryListRepoProvider);
   late final PantryRepo _pantry =
       widget.pantryRepo ?? ref.read(pantryRepoProvider);
+  late final LinkLauncher _launcher =
+      widget.linkLauncher ?? const RealLinkLauncher();
+  late final LocationService _location =
+      widget.locationService ?? const RealLocationService();
 
   final _addCtrl = TextEditingController();
 
   List<GroceryItem> _items = [];
   List<RestockItem> _restock = [];
   bool _loading = true;
+
+  // Delivery near-me panel state.
+  bool _deliveryExpanded = false;
+  bool _deliveryLoading = false;
+  List<DeliveryService> _deliveryResult = [];
+  String? _deliveryDeniedNote;
 
   @override
   void initState() {
@@ -89,7 +115,7 @@ class _CartPageState extends ConsumerState<CartPage> {
     if (!mounted) return;
     _addCtrl.clear();
     setState(() => _items = next);
-    await _reload(); // refresh the restock offer (this name may now be on-list)
+    await _reload();
   }
 
   Future<void> _toggle(GroceryItem item) async {
@@ -119,9 +145,9 @@ class _CartPageState extends ConsumerState<CartPage> {
     await _reload();
   }
 
-  /// REAL share: copy the current (unchecked-first) list to the clipboard as
-  /// plain text. Not a stub — the deep-links come later (R-4).
-  Future<void> _share() async {
+  // ── Legacy clipboard copy (AppBar icon) ──────────────────────────────────
+
+  Future<void> _copyToClipboard() async {
     if (_items.isEmpty) return;
     final lines = _items
         .map((i) => '${i.done ? '[x]' : '[ ]'} ${i.name}')
@@ -135,6 +161,74 @@ class _CartPageState extends ConsumerState<CartPage> {
       ),
     );
   }
+
+  // ── Share via OS sheet ────────────────────────────────────────────────────
+
+  /// Share the list via the OS share sheet.
+  /// Unchecked items first (what's still needed), then checked (already got).
+  Future<void> _shareList() async {
+    if (_items.isEmpty) return;
+    final unchecked = _items.where((i) => !i.done).toList();
+    final checked = _items.where((i) => i.done).toList();
+    final lines = [
+      ...unchecked.map((i) => '• ${i.name}'),
+      if (checked.isNotEmpty) ...[
+        '',
+        'Already got:',
+        ...checked.map((i) => '✓ ${i.name}'),
+      ],
+    ].join('\n');
+    await SharePlus.instance.share(ShareParams(text: lines));
+  }
+
+  // ── Store deep-links ─────────────────────────────────────────────────────
+
+  /// First unchecked item name, or first item if all are checked, or null.
+  String? get _firstItemQuery {
+    if (_items.isEmpty) return null;
+    final unchecked = _items.where((i) => !i.done);
+    return unchecked.isNotEmpty ? unchecked.first.name : _items.first.name;
+  }
+
+  DeliveryService _serviceByName(String name) =>
+      deliveryServices.firstWhere((s) => s.name == name);
+
+  Future<void> _openAmazon([String? query]) async {
+    await _launcher
+        .launch(_serviceByName('Amazon Fresh').buildUri(query ?? _firstItemQuery));
+  }
+
+  Future<void> _openInstacart([String? query]) async {
+    await _launcher
+        .launch(_serviceByName('Instacart').buildUri(query ?? _firstItemQuery));
+  }
+
+  // ── Delivery near me ─────────────────────────────────────────────────────
+
+  Future<void> _onDeliveryNearMe() async {
+    // Toggle collapse.
+    if (_deliveryExpanded) {
+      setState(() => _deliveryExpanded = false);
+      return;
+    }
+    setState(() {
+      _deliveryExpanded = true;
+      _deliveryLoading = true;
+    });
+
+    final result = await _location.getLocation();
+
+    if (!mounted) return;
+    setState(() {
+      _deliveryLoading = false;
+      _deliveryResult = deliveryServices;
+      _deliveryDeniedNote = result.isSuccess
+          ? null
+          : 'These deliver in many areas — open each to check delivery to your address';
+    });
+  }
+
+  // ── Build ─────────────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
@@ -154,8 +248,8 @@ class _CartPageState extends ConsumerState<CartPage> {
         actions: [
           IconButton(
             key: const Key('cart-share'),
-            onPressed: _items.isEmpty ? null : _share,
-            tooltip: 'Share / Export',
+            onPressed: _items.isEmpty ? null : _copyToClipboard,
+            tooltip: 'Copy list to clipboard',
             icon: const Icon(Icons.ios_share),
           ),
         ],
@@ -215,7 +309,8 @@ class _CartPageState extends ConsumerState<CartPage> {
                                   ?.copyWith(color: colors.textSecondary),
                             ),
                             trailing: IconButton(
-                              key: Key('cart-restock-add-${_restock[i].item.id}'),
+                              key: Key(
+                                  'cart-restock-add-${_restock[i].item.id}'),
                               icon: Icon(Icons.add_circle_outline,
                                   color: colors.primaryStrong),
                               tooltip: 'Add to list',
@@ -257,11 +352,31 @@ class _CartPageState extends ConsumerState<CartPage> {
                             item: _items[i],
                             onToggle: () => _toggle(_items[i]),
                             onRemove: () => _remove(_items[i]),
+                            // Per-item search: opens this item in Amazon Fresh.
+                            onSearch: () => _openAmazon(_items[i].name),
                           ),
                         ],
                       ],
                     ),
                   ),
+
+                AppSpacing.gapV8,
+
+                // ── Hand-off section ────────────────────────────────────────
+                const SectionHeader(title: 'HAND-OFF'),
+                _HandoffSection(
+                  items: _items,
+                  onShare: _items.isEmpty ? null : _shareList,
+                  onOpenAmazon: _openAmazon,
+                  onOpenInstacart: _openInstacart,
+                  onDeliveryNearMe: _onDeliveryNearMe,
+                  deliveryExpanded: _deliveryExpanded,
+                  deliveryLoading: _deliveryLoading,
+                  deliveryResult: _deliveryResult,
+                  deliveryDeniedNote: _deliveryDeniedNote,
+                  launcher: _launcher,
+                  firstItemQuery: _firstItemQuery,
+                ),
               ],
             ),
     );
@@ -284,11 +399,13 @@ class _GroceryRow extends StatelessWidget {
     required this.item,
     required this.onToggle,
     required this.onRemove,
+    required this.onSearch,
   });
 
   final GroceryItem item;
   final VoidCallback onToggle;
   final VoidCallback onRemove;
+  final VoidCallback onSearch;
 
   @override
   Widget build(BuildContext context) {
@@ -312,6 +429,14 @@ class _GroceryRow extends StatelessWidget {
             ),
           ),
         ),
+        // Per-item search — "Search in Amazon Fresh", never "Buy on Amazon".
+        IconButton(
+          key: Key('cart-item-search-${item.id}'),
+          icon: Icon(Icons.search, size: 18, color: colors.textSecondary),
+          tooltip: 'Search in Amazon Fresh',
+          visualDensity: VisualDensity.compact,
+          onPressed: onSearch,
+        ),
         IconButton(
           key: Key('cart-remove-${item.id}'),
           icon: Icon(Icons.close, size: 18, color: colors.textSecondary),
@@ -320,6 +445,172 @@ class _GroceryRow extends StatelessWidget {
           onPressed: onRemove,
         ),
       ],
+    );
+  }
+}
+
+// ── _HandoffSection ──────────────────────────────────────────────────────────
+
+/// The R-4 hand-off card: share + store deep-links + delivery near me.
+///
+/// Honest labels throughout — no "order", "checkout", "add to cart", "buy".
+class _HandoffSection extends StatelessWidget {
+  const _HandoffSection({
+    required this.items,
+    required this.onShare,
+    required this.onOpenAmazon,
+    required this.onOpenInstacart,
+    required this.onDeliveryNearMe,
+    required this.deliveryExpanded,
+    required this.deliveryLoading,
+    required this.deliveryResult,
+    required this.deliveryDeniedNote,
+    required this.launcher,
+    required this.firstItemQuery,
+  });
+
+  final List<GroceryItem> items;
+  final VoidCallback? onShare;
+  final VoidCallback onOpenAmazon;
+  final VoidCallback onOpenInstacart;
+  final VoidCallback onDeliveryNearMe;
+  final bool deliveryExpanded;
+  final bool deliveryLoading;
+  final List<DeliveryService> deliveryResult;
+  final String? deliveryDeniedNote;
+  final LinkLauncher launcher;
+  final String? firstItemQuery;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    final text = Theme.of(context).textTheme;
+
+    return StatCard(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // a. Share the list via OS share sheet.
+          FilledButton.icon(
+            key: const Key('cart-share-sheet'),
+            onPressed: onShare,
+            icon: const Icon(Icons.share),
+            label: const Text('Share List'),
+            style: FilledButton.styleFrom(
+              backgroundColor: colors.primary,
+              foregroundColor: colors.textPrimary,
+            ),
+          ),
+
+          AppSpacing.gapV4,
+
+          // b. Store buttons: Amazon Fresh + Instacart, honest labels.
+          Text(
+            'Opens a search — add items there',
+            style: text.bodySmall?.copyWith(color: colors.textSecondary),
+            textAlign: TextAlign.center,
+          ),
+          AppSpacing.gapV2,
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  key: const Key('cart-amazon'),
+                  onPressed: onOpenAmazon,
+                  icon: const Icon(Icons.open_in_new, size: 16),
+                  label: const Text('Amazon Fresh'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: colors.primaryStrong,
+                    side: BorderSide(color: colors.primaryStrong),
+                  ),
+                ),
+              ),
+              AppSpacing.gapH3,
+              Expanded(
+                child: OutlinedButton.icon(
+                  key: const Key('cart-instacart'),
+                  onPressed: onOpenInstacart,
+                  icon: const Icon(Icons.open_in_new, size: 16),
+                  label: const Text('Instacart'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: colors.primaryStrong,
+                    side: BorderSide(color: colors.primaryStrong),
+                  ),
+                ),
+              ),
+            ],
+          ),
+
+          AppSpacing.gapV4,
+
+          // d. Delivery near me — requests location, then shows service list.
+          OutlinedButton.icon(
+            key: const Key('cart-delivery-near-me'),
+            onPressed: onDeliveryNearMe,
+            icon: Icon(
+              deliveryExpanded
+                  ? Icons.expand_less
+                  : Icons.location_on_outlined,
+              size: 16,
+            ),
+            label: const Text('Grocery Delivery'),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: colors.textSecondary,
+              side: BorderSide(color: colors.hairline),
+            ),
+          ),
+
+          if (deliveryExpanded) ...[
+            AppSpacing.gapV4,
+            if (deliveryLoading)
+              const Center(
+                child: Padding(
+                  padding: EdgeInsets.all(AppSpacing.space4),
+                  child: CircularProgressIndicator(),
+                ),
+              )
+            else ...[
+              if (deliveryDeniedNote != null)
+                Padding(
+                  padding:
+                      const EdgeInsets.only(bottom: AppSpacing.space3),
+                  child: Text(
+                    deliveryDeniedNote!,
+                    key: const Key('cart-delivery-denied-note'),
+                    style: text.bodySmall
+                        ?.copyWith(color: colors.textSecondary),
+                  ),
+                ),
+              // Service list — always shown with or without real location.
+              for (final service in deliveryResult)
+                ListTile(
+                  key: Key(
+                    'cart-delivery-${service.name.toLowerCase().replaceAll(' ', '-')}',
+                  ),
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  title: Text(
+                    service.name,
+                    style: text.bodyMedium
+                        ?.copyWith(color: colors.primaryStrong),
+                  ),
+                  subtitle: Text(
+                    'Open to check delivery to your address',
+                    style: text.bodySmall
+                        ?.copyWith(color: colors.textSecondary),
+                  ),
+                  trailing: Icon(
+                    Icons.open_in_new,
+                    size: 16,
+                    color: colors.textSecondary,
+                  ),
+                  onTap: () =>
+                      launcher.launch(service.buildUri(firstItemQuery)),
+                ),
+            ],
+          ],
+        ],
+      ),
     );
   }
 }
