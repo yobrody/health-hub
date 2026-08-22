@@ -17,9 +17,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../app_providers.dart';
 import '../capture/camera_service.dart';
 import '../design_system/colors.dart';
-import '../design_system/components/section_header.dart';
 import '../design_system/components/stat_card.dart';
+import '../design_system/motion.dart';
+import '../design_system/shape.dart';
 import '../design_system/spacing.dart';
+import '../kitchen/kitchen_layout.dart';
 import '../pantry/pantry_item.dart';
 import '../pantry/pantry_repo.dart';
 import '../pantry/recognition/pantry_recognition.dart';
@@ -43,13 +45,41 @@ String _zoneName(PantryZone zone) {
   }
 }
 
-// All zones in display order.
+/// The kitchen appliance label for a zone. Differs from [_zoneName] only for
+/// condiments, which read as "Spices" on the kitchen scene (the detail sheet +
+/// add form keep the canonical "Condiments" via [_zoneName]).
+String _kitchenZoneLabel(PantryZone zone) =>
+    zone == PantryZone.condiments ? 'Spices' : _zoneName(zone);
+
+/// The kitchen icon for each appliance panel.
+IconData _zoneIcon(PantryZone zone) {
+  switch (zone) {
+    case PantryZone.fridge:
+      return Icons.kitchen_outlined;
+    case PantryZone.pantry:
+      return Icons.shelves;
+    case PantryZone.freezer:
+      return Icons.ac_unit;
+    case PantryZone.condiments:
+      return Icons.local_dining_outlined;
+  }
+}
+
+/// All zones in display order.
 const _zoneOrder = [
   PantryZone.fridge,
   PantryZone.pantry,
   PantryZone.freezer,
   PantryZone.condiments,
 ];
+
+/// The three zones that support a single/double appliance toggle. Spices
+/// (condiments) is always a single rack, so it is excluded.
+const Map<PantryZone, ToggleableAppliance> _toggleableFor = {
+  PantryZone.fridge: ToggleableAppliance.fridge,
+  PantryZone.pantry: ToggleableAppliance.pantry,
+  PantryZone.freezer: ToggleableAppliance.freezer,
+};
 
 // ── Freshness dot ────────────────────────────────────────────────────────────
 
@@ -114,6 +144,7 @@ class FoodPage extends ConsumerStatefulWidget {
 
 class FoodPageState extends ConsumerState<FoodPage> {
   List<PantryItem> _items = [];
+  KitchenLayout _layout = KitchenLayout.initial;
   bool _loading = true;
 
   @override
@@ -123,14 +154,42 @@ class FoodPageState extends ConsumerState<FoodPage> {
   }
 
   PantryRepo get _repo => ref.read(pantryRepoProvider);
+  KitchenLayoutRepo get _layoutRepo => ref.read(kitchenLayoutRepoProvider);
 
   Future<void> _reload() async {
     final items = await _repo.all();
+    final layout = await _layoutRepo.load();
     if (!mounted) return;
     setState(() {
       _items = items;
+      _layout = layout;
       _loading = false;
     });
+  }
+
+  /// Toggle an appliance single⇄double. COSMETIC ONLY — persists the display
+  /// preference; never touches item data or invents stock.
+  Future<void> _toggleAppliance(ToggleableAppliance appliance) async {
+    final next = await _layoutRepo.toggle(appliance);
+    if (!mounted) return;
+    setState(() => _layout = next);
+  }
+
+  /// Open a single zone's real contents (the tappable items). Items reload on
+  /// return so an edit/delete inside the zone view is reflected on the scene.
+  Future<void> _openZone(PantryZone zone) async {
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute<void>(
+        builder: (_) => _ZoneView(
+          zone: zone,
+          onShowDetail: _showDetail,
+          onEdit: _openEditForm,
+          onDelete: _delete,
+        ),
+      ),
+    );
+    if (!mounted) return;
+    await _reload();
   }
 
   // ── CRUD ───────────────────────────────────────────────────────────────────
@@ -380,42 +439,441 @@ class FoodPageState extends ConsumerState<FoodPage> {
       );
     }
 
+    // ── The interactive kitchen (R-3) ──────────────────────────────────────
+    // A stylized, tappable kitchen scene: one appliance panel per zone, drawn
+    // with the design system (warm surfaces, depth, rounded appliance shapes).
+    // Each panel shows the zone's REAL item count + (only when real) an
+    // "N expiring" badge from genuine expiry data. Tapping a panel opens that
+    // zone's real contents.
+    //
+    // NOTE (future): an illustrated kitchen background could be layered behind
+    // these panels later; the stylized panels here meet the R-3 bar on their own.
     final now = DateTime.now();
-    final sections = <Widget>[];
+    return ListView(
+      key: const Key('kitchen-scene'),
+      padding: AppSpacing.pagePadding,
+      children: [
+        Text(
+          'Your kitchen',
+          style: text.headlineSmall?.copyWith(color: colors.textPrimary),
+        ),
+        AppSpacing.gapV2,
+        Text(
+          'Tap an appliance to see what’s inside.',
+          style: text.bodyMedium?.copyWith(color: colors.textSecondary),
+        ),
+        AppSpacing.gapV6,
+        for (final zone in _zoneOrder) ...[
+          _AppliancePanel(
+            zone: zone,
+            items: _items.where((i) => i.zone == zone).toList(),
+            now: now,
+            size: _toggleableFor[zone] == null
+                ? ApplianceSize.single
+                : _layout.sizeOf(_toggleableFor[zone]!),
+            onTap: () => _openZone(zone),
+            onToggle: _toggleableFor[zone] == null
+                ? null
+                : () => _toggleAppliance(_toggleableFor[zone]!),
+          ),
+          AppSpacing.gapV4,
+        ],
+      ],
+    );
+  }
+}
 
-    for (final zone in _zoneOrder) {
-      final zoneItems = _items.where((i) => i.zone == zone).toList();
-      if (zoneItems.isEmpty) continue;
+// ── _AppliancePanel ───────────────────────────────────────────────────────────
 
-      sections.add(SectionHeader(title: _zoneName(zone)));
+/// One stylized appliance in the kitchen scene: fridge / pantry / freezer /
+/// spices. A tappable rounded surface resembling an appliance, showing the
+/// zone's REAL item count and — only when there's genuine expiry data — an
+/// "N expiring" badge. A [size] of [ApplianceSize.double_] renders taller (a
+/// larger / second unit) — a purely COSMETIC capacity cue that never implies
+/// any extra stock.
+class _AppliancePanel extends StatelessWidget {
+  const _AppliancePanel({
+    required this.zone,
+    required this.items,
+    required this.now,
+    required this.size,
+    required this.onTap,
+    required this.onToggle,
+  });
 
-      sections.add(
-        StatCard(
-          padding: EdgeInsets.zero,
-          child: Column(
-            children: [
-              for (var i = 0; i < zoneItems.length; i++) ...[
-                if (i > 0)
-                  Divider(height: 1, thickness: 1, color: colors.hairline),
-                _PantryItemTile(
-                  item: zoneItems[i],
-                  freshness: freshnessOf(zoneItems[i], now),
-                  onTap: () => _showDetail(zoneItems[i]),
-                  onEdit: () => _openEditForm(zoneItems[i]),
-                  onDelete: () => _delete(zoneItems[i].id),
+  final PantryZone zone;
+  final List<PantryItem> items;
+  final DateTime now;
+  final ApplianceSize size;
+  final VoidCallback onTap;
+
+  /// Null for spices (no single/double toggle).
+  final VoidCallback? onToggle;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    final text = Theme.of(context).textTheme;
+    final isDouble = size.isDouble;
+
+    // REAL data only: the count of items genuinely in this zone, and the count
+    // with a REAL expiry at/before now (already expired or use-by passed) — an
+    // honest urgency cue, omitted entirely when zero (never fabricated).
+    final count = items.length;
+    final expiringCount = items.where((i) {
+      final freshness = freshnessOf(i, now);
+      return freshness == Freshness.useSoon || freshness == Freshness.expired;
+    }).length;
+
+    final label = _kitchenZoneLabel(zone);
+    // A double appliance draws taller — a visual "more capacity" cue only.
+    final minHeight = isDouble ? 132.0 : 96.0;
+
+    return AnimatedContainer(
+      key: Key('kitchen-zone-${zone.name}'),
+      duration: AppMotion.base,
+      curve: AppMotion.standard,
+      constraints: BoxConstraints(minHeight: minHeight),
+      decoration: BoxDecoration(
+        // Appliance body: warm surface with a soft gradient for depth so it
+        // reads as a stylized appliance, not a flat card.
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [colors.surfaceWarm, colors.surface],
+        ),
+        borderRadius: AppShape.card,
+        border: Border.all(color: colors.hairline),
+        boxShadow: AppShape.cardShadow(Theme.of(context).brightness),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Material(
+        type: MaterialType.transparency,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: AppShape.card,
+          splashColor: colors.primary.withValues(alpha: 0.08),
+          child: Padding(
+            padding: const EdgeInsets.all(AppSpacing.cardPadding),
+            child: Row(
+              children: [
+                // Appliance "door" — an icon plaque; a double shows two plates.
+                _AppliancePlate(
+                  icon: _zoneIcon(zone),
+                  isDouble: isDouble,
+                  color: colors.primaryStrong,
+                  surface: colors.surface,
+                  border: colors.hairline,
                 ),
+                AppSpacing.gapH4,
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Row(
+                        children: [
+                          Text(
+                            label,
+                            style: text.titleMedium?.copyWith(
+                              color: colors.textPrimary,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          if (isDouble) ...[
+                            AppSpacing.gapH2,
+                            _DoubleBadge(colors: colors, text: text),
+                          ],
+                        ],
+                      ),
+                      AppSpacing.gapV1,
+                      Text(
+                        // Real count, honestly singular/plural. Zero → still
+                        // honest ("empty") rather than hidden.
+                        count == 0
+                            ? 'Empty'
+                            : '$count ${count == 1 ? 'item' : 'items'}',
+                        style: text.bodyMedium?.copyWith(
+                          color: colors.textSecondary,
+                        ),
+                      ),
+                      if (expiringCount > 0) ...[
+                        AppSpacing.gapV2,
+                        _ExpiringBadge(
+                          count: expiringCount,
+                          colors: colors,
+                          text: text,
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                // Single/double toggle (fridge/pantry/freezer only).
+                if (onToggle != null)
+                  IconButton(
+                    key: Key('kitchen-toggle-${zone.name}'),
+                    onPressed: onToggle,
+                    tooltip: isDouble
+                        ? 'Switch to a single $label'
+                        : 'Switch to a double $label',
+                    icon: Icon(
+                      isDouble
+                          ? Icons.splitscreen_outlined
+                          : Icons.add_box_outlined,
+                      color: colors.textSecondary,
+                    ),
+                  ),
+                Icon(Icons.chevron_right, color: colors.textSecondary),
               ],
-            ],
+            ),
           ),
         ),
-      );
+      ),
+    );
+  }
+}
 
-      sections.add(AppSpacing.gapV8);
-    }
+/// The appliance "door" plaque — a rounded plate with the zone icon. A double
+/// draws a faint second plate behind it (cosmetic capacity cue).
+class _AppliancePlate extends StatelessWidget {
+  const _AppliancePlate({
+    required this.icon,
+    required this.isDouble,
+    required this.color,
+    required this.surface,
+    required this.border,
+  });
 
-    return ListView(
-      padding: AppSpacing.pagePadding,
-      children: sections,
+  final IconData icon;
+  final bool isDouble;
+  final Color color;
+  final Color surface;
+  final Color border;
+
+  @override
+  Widget build(BuildContext context) {
+    Widget plate({Color? bg}) => Container(
+          width: 44,
+          height: 56,
+          decoration: BoxDecoration(
+            color: bg ?? surface,
+            borderRadius: AppShape.button,
+            border: Border.all(color: border),
+          ),
+          child: Icon(icon, color: color),
+        );
+
+    if (!isDouble) return plate();
+
+    // Two units side by side for a double appliance.
+    return SizedBox(
+      width: 62,
+      height: 56,
+      child: Stack(
+        children: [
+          Positioned(left: 18, top: 0, child: plate(bg: surface)),
+          Positioned(left: 0, top: 0, child: plate(bg: surface)),
+        ],
+      ),
+    );
+  }
+}
+
+/// A small "Double" pill next to the appliance name when it's in double mode.
+class _DoubleBadge extends StatelessWidget {
+  const _DoubleBadge({required this.colors, required this.text});
+  final AppColors colors;
+  final TextTheme text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+      decoration: BoxDecoration(
+        color: colors.primary.withValues(alpha: 0.16),
+        borderRadius: AppShape.chip,
+      ),
+      child: Text(
+        'Double',
+        style: text.labelSmall?.copyWith(
+          color: colors.primaryStrong,
+          fontWeight: FontWeight.w600,
+        ),
+      ),
+    );
+  }
+}
+
+/// The honest "N expiring" badge — shown only when [count] > 0 (real expiry
+/// data). Never fabricates urgency.
+class _ExpiringBadge extends StatelessWidget {
+  const _ExpiringBadge({
+    required this.count,
+    required this.colors,
+    required this.text,
+  });
+  final int count;
+  final AppColors colors;
+  final TextTheme text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: Colors.orange.withValues(alpha: 0.16),
+        borderRadius: AppShape.chip,
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(Icons.schedule, size: 13, color: Colors.orange),
+          AppSpacing.gapH1,
+          Text(
+            '$count expiring',
+            style: text.labelSmall?.copyWith(
+              color: colors.textPrimary,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── _ZoneView (tap a zone → its real contents) ────────────────────────────────
+
+/// The opened contents of a single zone: its REAL items (from the repo, filtered
+/// by [zone]), each tappable → the item-facts sheet. An empty zone shows an
+/// honest empty state ("Fridge is empty") — never a fabricated item. Items load
+/// once here (the parent reloads on return), and the list fades/slides in
+/// (design-system motion) — a finite entrance, so `pumpAndSettle` never hangs.
+class _ZoneView extends ConsumerStatefulWidget {
+  const _ZoneView({
+    required this.zone,
+    required this.onShowDetail,
+    required this.onEdit,
+    required this.onDelete,
+  });
+
+  final PantryZone zone;
+  final void Function(PantryItem) onShowDetail;
+  final Future<void> Function(PantryItem) onEdit;
+  final Future<void> Function(String id) onDelete;
+
+  @override
+  ConsumerState<_ZoneView> createState() => _ZoneViewState();
+}
+
+class _ZoneViewState extends ConsumerState<_ZoneView> {
+  List<PantryItem> _items = [];
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final items = await ref.read(pantryRepoProvider).byZone(widget.zone);
+    if (!mounted) return;
+    setState(() {
+      _items = items;
+      _loading = false;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    final text = Theme.of(context).textTheme;
+    final now = DateTime.now();
+    final label = _kitchenZoneLabel(widget.zone);
+
+    return Scaffold(
+      key: const Key('kitchen-zone-view'),
+      backgroundColor: colors.canvas,
+      appBar: AppBar(
+        title: Text(label),
+        backgroundColor: colors.canvas,
+        surfaceTintColor: Colors.transparent,
+        elevation: 0,
+      ),
+      body: _loading
+          ? const SizedBox.shrink()
+          : _items.isEmpty
+              // Honest empty state — the zone genuinely has no items.
+              ? Center(
+                  child: Padding(
+                    padding: AppSpacing.pagePadding,
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          _zoneIcon(widget.zone),
+                          size: 40,
+                          color: colors.textSecondary,
+                        ),
+                        AppSpacing.gapV4,
+                        Text(
+                          '$label is empty',
+                          key: const Key('kitchen-zone-empty'),
+                          style: text.titleMedium
+                              ?.copyWith(color: colors.textSecondary),
+                        ),
+                      ],
+                    ),
+                  ),
+                )
+              // A finite entrance (base duration, no repeat) — alive but
+              // test-friendly: pumpAndSettle completes.
+              : TweenAnimationBuilder<double>(
+                  tween: Tween(begin: 0, end: 1),
+                  duration: AppMotion.base,
+                  curve: AppMotion.enter,
+                  builder: (context, t, child) => Opacity(
+                    opacity: t,
+                    child: Transform.translate(
+                      offset: Offset(0, (1 - t) * 12),
+                      child: child,
+                    ),
+                  ),
+                  child: ListView(
+                    padding: AppSpacing.pagePadding,
+                    children: [
+                      StatCard(
+                        padding: EdgeInsets.zero,
+                        child: Column(
+                          children: [
+                            for (var i = 0; i < _items.length; i++) ...[
+                              if (i > 0)
+                                Divider(
+                                  height: 1,
+                                  thickness: 1,
+                                  color: colors.hairline,
+                                ),
+                              _PantryItemTile(
+                                item: _items[i],
+                                freshness: freshnessOf(_items[i], now),
+                                onTap: () => widget.onShowDetail(_items[i]),
+                                onEdit: () async {
+                                  await widget.onEdit(_items[i]);
+                                  await _load();
+                                },
+                                onDelete: () async {
+                                  await widget.onDelete(_items[i].id);
+                                  await _load();
+                                },
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
     );
   }
 }
