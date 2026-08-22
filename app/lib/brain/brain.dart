@@ -397,6 +397,10 @@ void _addTrainInsight(BrainInputs inputs, List<Insight> out) {
     final hasReal = log.sets.any((s) => (s.reps ?? 0) > 0);
     if (!hasReal) continue;
     final ex = _exerciseFor(log.exerciseId);
+    // TODO: extend catalog / carry equipment on the log when custom exercises
+    // land — an unknown id here falls back to bodyweight (no external stack), so
+    // a custom MACHINE exercise would suggest an un-snapped weight. All current
+    // exercises are catalog-seeded, so this is safe today.
     final result = evaluateProgression(
       sets: log.sets,
       repTargetLow: kDefaultRepTargetLow,
@@ -541,7 +545,16 @@ String _joinNames(List<String> names) {
 }
 
 String _joinReasons(List<String> parts) {
-  if (parts.isEmpty) return 'worth restocking';
+  // A BUY insight is only emitted for a real restock reason (restockSoon
+  // guarantees ≥1, and _addBuyInsights skips any with an empty `why`), so an
+  // empty `parts` here would mean a real item got a GENERIC, ungrounded "urgency"
+  // string — a fabrication. Fail loudly instead: if a 4th RestockReason is ever
+  // added without teaching _buyReasonSentence about it, this assert catches it.
+  assert(
+    parts.isNotEmpty,
+    'BUY insight has no grounded reason — _addBuyInsights should have skipped it',
+  );
+  if (parts.isEmpty) return ''; // release-mode safety (assert stripped) — no fake urgency
   if (parts.length == 1) return parts.first;
   if (parts.length == 2) return '${parts[0]} and ${parts[1]}';
   return '${parts.sublist(0, parts.length - 1).join(', ')}, and ${parts.last}';

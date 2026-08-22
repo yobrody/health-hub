@@ -11,6 +11,7 @@
 //  8. All existing tests still pass (verified by running the full suite).
 
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:health_hub/cart/delivery_services.dart';
 import 'package:health_hub/cart/grocery_item.dart';
@@ -18,12 +19,9 @@ import 'package:health_hub/cart/grocery_list_repo.dart';
 import 'package:health_hub/cart/link_launcher.dart';
 import 'package:health_hub/cart/location_service.dart';
 import 'package:health_hub/design_system/app_theme.dart';
-import 'package:health_hub/offline/outbox.dart';
-import 'package:health_hub/offline/outbox_store.dart';
-import 'package:health_hub/offline/pending_mutation.dart';
 import 'package:health_hub/pages/cart_page.dart';
-import 'package:health_hub/pantry/pantry_item.dart';
-import 'package:health_hub/pantry/pantry_repo.dart';
+
+import '../brain/brain_scope.dart';
 
 // ── Fakes ─────────────────────────────────────────────────────────────────────
 
@@ -54,29 +52,10 @@ class _FakeGroceryStore implements GroceryListStore {
   Future<void> save(List<GroceryItem> items) async => _items = List.of(items);
 }
 
-class _FakeOutboxStore implements OutboxStore {
-  List<PendingMutation> _items = [];
-  @override
-  Future<List<PendingMutation>> load() async => List.unmodifiable(_items);
-  @override
-  Future<void> save(List<PendingMutation> items) async =>
-      _items = List.of(items);
-}
-
-class _FakePantryStore implements PantryStore {
-  @override
-  Future<List<PantryItem>> load() async => [];
-  @override
-  Future<void> save(List<PantryItem> items) async {}
-}
-
-PantryRepo _emptyPantry() => PantryRepo(
-      outbox: Outbox(_FakeOutboxStore()),
-      store: _FakePantryStore(),
-    );
-
 /// Build a CartPage with injected fakes. [seed] items are pre-added to the
-/// repo before the widget is built.
+/// repo before the widget is built. The Brain's BUY insights come from the
+/// shared provider (empty pantry here → no restock cards), overridden via
+/// [brainOverrides].
 Future<({Widget widget, GroceryListRepo repo, FakeLinkLauncher launcher})>
     _buildCart(
   WidgetTester tester, {
@@ -94,13 +73,15 @@ Future<({Widget widget, GroceryListRepo repo, FakeLinkLauncher launcher})>
         const LocationResult(latitude: 51.5, longitude: -0.1),
   );
 
-  final widget = MaterialApp(
-    theme: lightTheme,
-    home: CartPage(
-      repo: repo,
-      pantryRepo: _emptyPantry(),
-      linkLauncher: launcher,
-      locationService: location,
+  final widget = ProviderScope(
+    overrides: brainOverrides(grocery: repo), // empty pantry → no BUY cards
+    child: MaterialApp(
+      theme: lightTheme,
+      home: CartPage(
+        repo: repo,
+        linkLauncher: launcher,
+        locationService: location,
+      ),
     ),
   );
   return (widget: widget, repo: repo, launcher: launcher);
