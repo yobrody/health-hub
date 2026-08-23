@@ -47,6 +47,7 @@ import '../gym/rest_timer.dart';
 import '../gym/workout_repo.dart';
 import '../gym/workout_session.dart';
 import '../profile/profile_model.dart'; // showOrDash
+import 'transformation_page.dart';
 
 // ── GymPage ───────────────────────────────────────────────────────────────────
 
@@ -171,6 +172,21 @@ class GymPageState extends ConsumerState<GymPage> {
     // A finished session becomes real training history → refresh the Brain's
     // TRAIN insight (last-trained + progression).
     ref.invalidate(brainInputsProvider);
+  }
+
+  /// Open the Transformation page — ties the gym to the user's real goal with
+  /// an honest roadmap, physique milestones, and goal-aware strength targets.
+  /// Reads the same repos the composition root wires up.
+  void _openTransformation() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => TransformationPage(
+          weighInRepo: ref.read(weighInRepoProvider),
+          profileRepo: ref.read(profileRepoProvider),
+          workoutRepo: ref.read(workoutRepoProvider),
+        ),
+      ),
+    );
   }
 
   /// Route a Brain TRAIN insight action — "Start a workout" begins a real
@@ -454,6 +470,8 @@ class GymPageState extends ConsumerState<GymPage> {
           onAction: _onInsightAction,
           trailingGap: true,
         ),
+        _buildTransformationCard(),
+        AppSpacing.gapV4,
         StatCard(
           key: const Key('gym-gate'),
           warm: true,
@@ -520,6 +538,39 @@ class GymPageState extends ConsumerState<GymPage> {
           ),
         ),
       ],
+    );
+  }
+
+  /// The "Transformation" entry card — the reachable-from-Gym affordance that
+  /// opens the goal roadmap / physique milestones / strength targets.
+  Widget _buildTransformationCard() {
+    final colors = context.appColors;
+    final text = Theme.of(context).textTheme;
+
+    return StatCard(
+      key: const Key('gym-transformation-card'),
+      onTap: _openTransformation,
+      child: Row(
+        children: [
+          Icon(Icons.auto_graph, color: colors.primaryStrong, size: 28),
+          AppSpacing.gapH4,
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Transformation', style: text.titleMedium),
+                AppSpacing.gapV1,
+                Text(
+                  'Your goal roadmap, physique milestones & strength targets.',
+                  style:
+                      text.bodySmall?.copyWith(color: colors.textSecondary),
+                ),
+              ],
+            ),
+          ),
+          Icon(Icons.chevron_right, color: colors.textSecondary),
+        ],
+      ),
     );
   }
 

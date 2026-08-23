@@ -176,6 +176,20 @@ void main() {
       expect(Profile.fromJson(const {}).activityLevel, isNull);
     });
 
+    test('bodyFatPercent round-trips via toJson→fromJson (the sync data path)',
+        () {
+      // Body fat drives the honest, weight-independent "visible abs" milestone.
+      // It persists through the profile JSON blob (SharedPrefs locally, the
+      // `data` jsonb / `body_fat_percent` column in Supabase). Absent → stays
+      // null (needs-data), never a fabricated reading.
+      final withBf = Profile.fromJson(
+        const Profile(bodyFatPercent: 16.0).toJson(),
+      );
+      expect(withBf.bodyFatPercent, 16.0);
+      expect(const Profile().toJson().containsKey('body_fat_percent'), isFalse);
+      expect(Profile.fromJson(const {}).bodyFatPercent, isNull);
+    });
+
     test('a partial profile round-trips, keeping the omitted fields null', () {
       const p = Profile(weightKg: 62.5, goalDirection: 'gain');
       final p2 = Profile.fromJson(p.toJson());
