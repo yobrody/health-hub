@@ -62,14 +62,15 @@ class _PlanPageState extends State<PlanPage> {
   List<PantryItem> _pantry = const [];
   MealPlan? _plan;
 
-  DateTime get _weekStart {
-    final n = widget.now ?? DateTime.now();
-    return DateTime(n.year, n.month, n.day);
-  }
+  /// Captured ONCE (not recomputed per generate) so the week's start can't shift
+  /// under the app across a midnight boundary mid-session.
+  late final DateTime _weekStart;
 
   @override
   void initState() {
     super.initState();
+    final n = widget.now ?? DateTime.now();
+    _weekStart = DateTime(n.year, n.month, n.day);
     _load();
   }
 
@@ -90,33 +91,47 @@ class _PlanPageState extends State<PlanPage> {
   /// guess, which the app never shows.
   bool get _hasGoal => _goals.caloriesKcal != null;
 
+  static const _planFailed =
+      "Couldn't build a plan right now. Please try again in a moment.";
+
   Future<void> _generate() async {
     setState(() {
       _generating = true;
       _error = null;
       _addedToCart = false;
     });
-    final plan = await widget.planClient.planWeek(
-      goals: _goals,
-      pantry: _pantry,
-      weekStart: _weekStart,
-    );
-    if (!mounted) return;
-    if (plan == null) {
-      // Honest failure — never a fabricated week.
+    try {
+      // Re-read fresh goals + pantry so we plan against the CURRENT kitchen, not
+      // a snapshot taken when the page opened (else we could tell you to buy
+      // something you've since added).
+      final goals = await widget.goalsRepo.load();
+      final pantry = await widget.pantryRepo.all();
+      if (!mounted) return;
       setState(() {
-        _generating = false;
-        _error =
-            "Couldn't build a plan right now. Please try again in a moment.";
+        _goals = goals;
+        _pantry = pantry;
       });
-      return;
+
+      final plan = await widget.planClient.planWeek(
+        goals: goals,
+        pantry: pantry,
+        weekStart: _weekStart,
+      );
+      if (!mounted) return;
+      if (plan == null) {
+        setState(() => _error = _planFailed); // honest failure, never fabricated.
+        return;
+      }
+      await widget.planRepo.save(plan);
+      if (!mounted) return;
+      setState(() => _plan = plan);
+    } catch (_) {
+      // A persist/read failure must not fabricate a plan — surface it honestly.
+      if (mounted) setState(() => _error = _planFailed);
+    } finally {
+      // Always clear the spinner, even if save threw (else it spins forever).
+      if (mounted) setState(() => _generating = false);
     }
-    await widget.planRepo.save(plan);
-    if (!mounted) return;
-    setState(() {
-      _plan = plan;
-      _generating = false;
-    });
   }
 
   Future<void> _addGapsToCart(List<NeededIngredient> gaps) async {
