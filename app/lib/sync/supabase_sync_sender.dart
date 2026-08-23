@@ -287,6 +287,7 @@ class SupabaseSyncSender implements MutationSender {
         _put(row, 'goal_direction', body['goal_direction']);
         _put(row, 'target_weight_kg', body['target_weight_kg']);
         _put(row, 'primary_gym', body['primary_gym']);
+        _put(row, 'activity_level', body['activity_level']);
         break;
       case 'nutrition_goals':
         // NutritionGoals.toJson(): caloriesKcal/proteinG/carbsG/fatG, all

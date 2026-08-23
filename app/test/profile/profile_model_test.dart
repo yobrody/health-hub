@@ -151,6 +151,7 @@ void main() {
         goalDirection: 'gain',
         targetWeightKg: 72.0,
         primaryGym: 'PureGym',
+        activityLevel: 'moderate',
       );
       final p2 = Profile.fromJson(p.toJson());
       expect(p2.heightCm, 178.0);
@@ -160,6 +161,19 @@ void main() {
       expect(p2.goalDirection, 'gain');
       expect(p2.targetWeightKg, 72.0);
       expect(p2.primaryGym, 'PureGym');
+      expect(p2.activityLevel, 'moderate');
+    });
+
+    test('activityLevel round-trips via toJson→fromJson (the sync data path)', () {
+      // The activity level persists through the profile JSON blob (SharedPrefs
+      // locally, the `data` jsonb / `activity_level` column in Supabase), so a
+      // save→load cycle preserves it. Absent → stays null, never fabricated.
+      final withLevel = Profile.fromJson(
+        const Profile(activityLevel: 'veryActive').toJson(),
+      );
+      expect(withLevel.activityLevel, 'veryActive');
+      expect(const Profile().toJson().containsKey('activity_level'), isFalse);
+      expect(Profile.fromJson(const {}).activityLevel, isNull);
     });
 
     test('a partial profile round-trips, keeping the omitted fields null', () {

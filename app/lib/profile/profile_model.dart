@@ -20,6 +20,7 @@ class Profile {
     this.goalDirection, // 'gain' | 'cut' | 'maintain'
     this.targetWeightKg,
     this.primaryGym,
+    this.activityLevel,
   });
 
   /// Height in centimetres. `null` until the user provides it.
@@ -45,6 +46,13 @@ class Profile {
   /// The user's primary gym (free text). `null` if unset.
   final String? primaryGym;
 
+  /// Physical-activity level, stored as an [ActivityLevel.name] string
+  /// (`sedentary`/`light`/`moderate`/`active`/`veryActive`). `null` until the
+  /// user provides it — used to derive TDEE for goal suggestions. Never
+  /// defaulted: a missing activity level honestly blocks a suggestion rather
+  /// than fabricating a multiplier.
+  final String? activityLevel;
+
   /// True only when every field is null (a brand-new, untouched profile).
   bool get isEmpty =>
       heightCm == null &&
@@ -53,7 +61,8 @@ class Profile {
       weightKg == null &&
       goalDirection == null &&
       targetWeightKg == null &&
-      primaryGym == null;
+      primaryGym == null &&
+      activityLevel == null;
 
   /// Parse a [Profile] from stored/loaded JSON.
   ///
@@ -70,6 +79,7 @@ class Profile {
       goalDirection: _readGoalDirection(json['goal_direction'] as String?),
       targetWeightKg: (json['target_weight_kg'] as num?)?.toDouble(),
       primaryGym: json['primary_gym'] as String?,
+      activityLevel: json['activity_level'] as String?,
     );
   }
 
@@ -98,6 +108,7 @@ class Profile {
         if (goalDirection != null) 'goal_direction': goalDirection,
         if (targetWeightKg != null) 'target_weight_kg': targetWeightKg,
         if (primaryGym != null) 'primary_gym': primaryGym,
+        if (activityLevel != null) 'activity_level': activityLevel,
       };
 
   /// Return a copy with the given fields overridden. Omitted args keep the
@@ -111,6 +122,7 @@ class Profile {
     String? goalDirection,
     double? targetWeightKg,
     String? primaryGym,
+    String? activityLevel,
   }) {
     return Profile(
       heightCm: heightCm ?? this.heightCm,
@@ -120,6 +132,7 @@ class Profile {
       goalDirection: goalDirection ?? this.goalDirection,
       targetWeightKg: targetWeightKg ?? this.targetWeightKg,
       primaryGym: primaryGym ?? this.primaryGym,
+      activityLevel: activityLevel ?? this.activityLevel,
     );
   }
 }
