@@ -154,11 +154,15 @@ class NutritionPageState extends ConsumerState<NutritionPage> {
     switch (action.kind) {
       case InsightActionKind.openGoals:
         final goals = await ref.read(nutritionGoalsRepoProvider).load();
+        // Load the real profile so "Suggest from your body" can compute a
+        // TDEE-derived estimate; an incomplete profile honestly prompts instead.
+        final profile = await ref.read(profileRepoProvider).load();
         if (!mounted) return;
         final saved = await showNutritionGoalsEditor(
           context,
           repo: ref.read(nutritionGoalsRepoProvider),
           current: goals,
+          profile: profile,
         );
         if (saved == true && mounted) ref.invalidate(brainInputsProvider);
       case InsightActionKind.logMeal:

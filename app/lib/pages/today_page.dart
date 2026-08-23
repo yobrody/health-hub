@@ -142,6 +142,7 @@ class _TodayPageState extends ConsumerState<TodayPage> {
       context,
       repo: _goals,
       current: _goalsData,
+      profile: _profile,
     );
     if (saved == true) await _reload();
   }
