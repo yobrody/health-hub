@@ -26,6 +26,9 @@ import 'package:health_hub/cart/instacart_client.dart';
 import 'package:health_hub/cart/link_launcher.dart';
 import 'package:health_hub/cart/location_service.dart';
 import 'package:health_hub/design_system/app_theme.dart';
+import 'package:health_hub/offline/outbox.dart';
+import 'package:health_hub/offline/outbox_store.dart';
+import 'package:health_hub/offline/pending_mutation.dart';
 import 'package:health_hub/pages/cart_page.dart';
 
 import '../brain/brain_scope.dart';
@@ -45,6 +48,14 @@ class _FakeLocation implements LocationService {
   @override
   Future<LocationResult> getLocation() async =>
       const LocationResult(latitude: 51.5, longitude: -0.1);
+}
+
+class _FakeOutboxStore implements OutboxStore {
+  List<PendingMutation> _m = [];
+  @override
+  Future<List<PendingMutation>> load() async => List.unmodifiable(_m);
+  @override
+  Future<void> save(List<PendingMutation> m) async => _m = List.of(m);
 }
 
 class _FakeGroceryStore implements GroceryListStore {
@@ -68,7 +79,7 @@ Future<
   Uri? instacartResult, // the URL the fake Instacart client returns (null = simulate failure)
 }) async {
   final store = _FakeGroceryStore();
-  final repo = GroceryListRepo(store: store);
+  final repo = GroceryListRepo(outbox: Outbox(_FakeOutboxStore()), store: store);
   for (final name in seed) {
     await repo.add(name);
   }

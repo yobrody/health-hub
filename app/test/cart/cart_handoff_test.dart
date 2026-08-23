@@ -19,6 +19,9 @@ import 'package:health_hub/cart/grocery_list_repo.dart';
 import 'package:health_hub/cart/link_launcher.dart';
 import 'package:health_hub/cart/location_service.dart';
 import 'package:health_hub/design_system/app_theme.dart';
+import 'package:health_hub/offline/outbox.dart';
+import 'package:health_hub/offline/outbox_store.dart';
+import 'package:health_hub/offline/pending_mutation.dart';
 import 'package:health_hub/pages/cart_page.dart';
 
 import '../brain/brain_scope.dart';
@@ -52,6 +55,14 @@ class _FakeGroceryStore implements GroceryListStore {
   Future<void> save(List<GroceryItem> items) async => _items = List.of(items);
 }
 
+class _FakeOutboxStore implements OutboxStore {
+  List<PendingMutation> _m = [];
+  @override
+  Future<List<PendingMutation>> load() async => List.unmodifiable(_m);
+  @override
+  Future<void> save(List<PendingMutation> m) async => _m = List.of(m);
+}
+
 /// Build a CartPage with injected fakes. [seed] items are pre-added to the
 /// repo before the widget is built. The Brain's BUY insights come from the
 /// shared provider (empty pantry here → no restock cards), overridden via
@@ -63,7 +74,7 @@ Future<({Widget widget, GroceryListRepo repo, FakeLinkLauncher launcher})>
   LocationResult? locationResult,
 }) async {
   final store = _FakeGroceryStore();
-  final repo = GroceryListRepo(store: store);
+  final repo = GroceryListRepo(outbox: Outbox(_FakeOutboxStore()), store: store);
   for (final name in seed) {
     await repo.add(name);
   }

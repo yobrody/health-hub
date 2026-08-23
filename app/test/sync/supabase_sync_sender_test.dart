@@ -212,6 +212,42 @@ void main() {
       expect(row['at'], '2026-08-21T08:00:00.000');
     });
 
+    test('/grocery → grocery_list, lifting name + checked + user_id + data',
+        () async {
+      final w = FakeSupabaseWriter();
+      final s = _sender(w);
+      final body = {
+        'id': 'grocery-1',
+        'name': 'Milk',
+        'done': false,
+        'createdAt': '2026-08-21T08:00:00.000Z',
+      };
+      final r = await s.sendMutation(_mut(path: '/grocery', body: body));
+      expect(r, ProbeStatus.online);
+      final u = w.upserts.single;
+      expect(u.table, 'grocery_list');
+      expect(u.onConflict, 'id'); // multi-row keyed on the client id
+      expect(u.row['user_id'], 'user-123');
+      expect(u.row['id'], 'grocery-1');
+      expect(u.row['data'], body); // full snapshot = source of truth
+      expect(u.row['name'], 'Milk');
+      expect(u.row['checked'], false); // `done` → `checked`
+      expect(u.row['created_at'], '2026-08-21T08:00:00.000Z');
+    });
+
+    test('/grocery/{id} DELETE maps to a real row delete (no ghost row)',
+        () async {
+      final w = FakeSupabaseWriter();
+      final s = _sender(w);
+      final r = await s
+          .sendMutation(_mut(path: '/grocery/grocery-1', method: 'DELETE'));
+      expect(r, ProbeStatus.online);
+      expect(w.upserts, isEmpty);
+      expect(w.deletes.single.table, 'grocery_list');
+      expect(w.deletes.single.idColumn, 'id');
+      expect(w.deletes.single.idValue, 'grocery-1');
+    });
+
     test('UNKNOWN path is NOT dropped — stays queued (offline)', () async {
       final w = FakeSupabaseWriter();
       final s = _sender(w);

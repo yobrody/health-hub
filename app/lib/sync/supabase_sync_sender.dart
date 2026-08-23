@@ -255,6 +255,15 @@ class SupabaseSyncSender implements MutationSender {
         _put(row, 'weight_kg', body['weightKg'] ?? body['weight_kg']);
         _put(row, 'at', body['at']);
         break;
+      case 'grocery_list':
+        // GroceryItem.toJson(): name (required), done (bool → `checked`),
+        // createdAt (ISO, only when known). `name`/`checked` are always emitted
+        // by the model, so they land NOT NULL; an absent createdAt stays absent
+        // (the column defaults to now()), never a fabricated timestamp.
+        _put(row, 'name', body['name']);
+        _put(row, 'checked', body['done']);
+        _put(row, 'created_at', body['createdAt']);
+        break;
     }
   }
 

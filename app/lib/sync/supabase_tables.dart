@@ -47,6 +47,8 @@ const _profile =
     SupabaseTable(name: 'profile', conflictColumn: 'user_id', singleton: true);
 const _goals = SupabaseTable(
     name: 'nutrition_goals', conflictColumn: 'user_id', singleton: true);
+const _grocery = SupabaseTable(
+    name: 'grocery_list', conflictColumn: 'id', singleton: false);
 
 /// Every table the hydrator pulls on login, in a stable order.
 const List<SupabaseTable> kAllSyncTables = [
@@ -56,6 +58,7 @@ const List<SupabaseTable> kAllSyncTables = [
   _pantry,
   _food,
   _workouts,
+  _grocery,
 ];
 
 /// Resolve a mutation [path] to its backing table, or `null` if unknown.
@@ -77,6 +80,8 @@ SupabaseTable? tableForPath(String path) {
       return _pantry;
     case 'nutrition':
       return _food;
+    case 'grocery':
+      return _grocery;
     case 'weigh-ins':
     case 'weighins':
       return _weighIns;

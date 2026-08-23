@@ -12,6 +12,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:health_hub/cart/grocery_item.dart';
 import 'package:health_hub/cart/grocery_list_repo.dart';
+import 'package:health_hub/offline/outbox.dart';
+import 'package:health_hub/offline/outbox_store.dart';
+import 'package:health_hub/offline/pending_mutation.dart';
 import 'package:health_hub/design_system/app_theme.dart';
 import 'package:health_hub/nutrition/food_log_entry.dart';
 import 'package:health_hub/pages/cart_page.dart';
@@ -62,7 +65,16 @@ PantryItem _low(String n) => PantryItem(
       source: 'manual',
     );
 
-GroceryListRepo _grocery() => GroceryListRepo(store: _MemGrocery());
+GroceryListRepo _grocery() =>
+    GroceryListRepo(outbox: Outbox(_MemOutboxStore()), store: _MemGrocery());
+
+class _MemOutboxStore implements OutboxStore {
+  List<PendingMutation> _m = [];
+  @override
+  Future<List<PendingMutation>> load() async => List.unmodifiable(_m);
+  @override
+  Future<void> save(List<PendingMutation> m) async => _m = List.of(m);
+}
 
 class _MemGrocery implements GroceryListStore {
   List<GroceryItem> _i = [];

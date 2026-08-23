@@ -143,7 +143,7 @@ void main() {
             WeighInRepo(outbox: Outbox(_FakeOutboxStore()), store: _FakeWeighInStore()),
           ),
           groceryListRepoProvider.overrideWithValue(
-            GroceryListRepo(store: _FakeGroceryStore()),
+            GroceryListRepo(outbox: Outbox(_FakeOutboxStore()), store: _FakeGroceryStore()),
           ),
         ],
         child: const HealthHubApp(),
