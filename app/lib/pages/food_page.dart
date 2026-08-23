@@ -25,6 +25,7 @@ import '../design_system/motion.dart';
 import '../design_system/shape.dart';
 import '../design_system/spacing.dart';
 import '../kitchen/kitchen_layout.dart';
+import '../pantry/acquisition_service.dart';
 import '../pantry/pantry_item.dart';
 import '../pantry/pantry_repo.dart';
 import '../pantry/recognition/pantry_recognition.dart';
@@ -158,6 +159,8 @@ class FoodPageState extends ConsumerState<FoodPage> {
 
   PantryRepo get _repo => ref.read(pantryRepoProvider);
   KitchenLayoutRepo get _layoutRepo => ref.read(kitchenLayoutRepoProvider);
+  AcquisitionService get _acquisitions =>
+      ref.read(acquisitionServiceProvider);
 
   Future<void> _reload() async {
     final items = await _repo.all();
@@ -221,6 +224,11 @@ class FoodPageState extends ConsumerState<FoodPage> {
     );
     if (result != null) {
       await _repo.add(result);
+      // Adding an item to the pantry is a REAL acquisition — record it so the
+      // honest reorder-cadence learner can, once there are ≥2 real buys, stamp a
+      // learned cadence + lastBought and surface "reorder-due" organically. An
+      // EDIT (via _openEditForm) is deliberately NOT recorded — it isn't a re-buy.
+      await _acquisitions.recordAcquisition(result.name, DateTime.now());
       await _reload();
     }
   }

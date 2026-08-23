@@ -21,7 +21,9 @@ import 'nutrition/off_client.dart';
 import 'offline/failed_store.dart';
 import 'offline/outbox.dart';
 import 'offline/outbox_store.dart';
+import 'pantry/acquisition_service.dart';
 import 'pantry/pantry_repo.dart';
+import 'pantry/purchase_history.dart';
 import 'profile/profile_repo.dart';
 import 'sync/connectivity_monitor.dart';
 import 'sync/supabase_hydrator.dart';
@@ -131,6 +133,31 @@ final pantryRepoProvider = Provider<PantryRepo>((ref) {
   return PantryRepo(
     outbox: ref.watch(outboxProvider),
     store: ref.watch(pantryStoreProvider),
+  );
+});
+
+/// Local purchase-history persistence — the append-only real repeat-buy log that
+/// the honest reorder-cadence learner reads. Device-local, survives restart.
+final purchaseHistoryStoreProvider = Provider<PurchaseHistoryStore>((ref) {
+  return const SharedPrefsPurchaseHistoryStore();
+});
+
+/// The purchase-history repository — the append-only log of REAL acquisitions
+/// per item (keyed by normalized name). Overridable in tests.
+final purchaseHistoryRepoProvider = Provider<PurchaseHistoryRepo>((ref) {
+  return PurchaseHistoryRepo(store: ref.watch(purchaseHistoryStoreProvider));
+});
+
+/// The acquisition service — the WRITE half of the honest reorder-cadence
+/// learner. On a genuine re-buy it appends to the purchase history and, once ≥2
+/// real buys exist, stamps a learned [reorderCadenceDays] + [lastBought] onto the
+/// matching pantry item (via the SAME [pantryRepoProvider]), so `restockSoon`'s
+/// reorder-due signal fires organically. Cadence is NEVER guessed. Overridable
+/// in tests via `ProviderScope(overrides: [...])`.
+final acquisitionServiceProvider = Provider<AcquisitionService>((ref) {
+  return AcquisitionService(
+    historyRepo: ref.watch(purchaseHistoryRepoProvider),
+    pantryRepo: ref.watch(pantryRepoProvider),
   );
 });
 

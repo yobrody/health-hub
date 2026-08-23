@@ -32,6 +32,7 @@ import 'package:health_hub/offline/outbox_store.dart';
 import 'package:health_hub/offline/pending_mutation.dart';
 import 'package:health_hub/pantry/pantry_item.dart';
 import 'package:health_hub/pantry/pantry_repo.dart';
+import 'package:health_hub/pantry/purchase_history.dart';
 import 'package:health_hub/profile/profile_repo.dart';
 import 'package:health_hub/sync/connectivity_monitor.dart';
 
@@ -124,6 +125,14 @@ class _MemKitchenLayoutStore implements KitchenLayoutStore {
   Future<void> save(KitchenLayout layout) async => _layout = layout;
 }
 
+class _MemPurchaseHistoryStore implements PurchaseHistoryStore {
+  List<PurchaseHistory> _i = [];
+  @override
+  Future<List<PurchaseHistory>> load() async => List.unmodifiable(_i);
+  @override
+  Future<void> save(List<PurchaseHistory> h) async => _i = List.of(h);
+}
+
 /// A connectivity monitor that never emits — keeps `syncServiceProvider.start()`
 /// (subscribed at the app root) inert in tests, so nothing tries to flush over a
 /// real network and `pumpAndSettle` isn't kept awake by a live stream.
@@ -186,6 +195,8 @@ class JourneyHarness {
     );
     groceryRepo = GroceryListRepo(store: _MemGroceryStore());
     kitchenLayoutRepo = KitchenLayoutRepo(store: _MemKitchenLayoutStore());
+    purchaseHistoryRepo =
+        PurchaseHistoryRepo(store: _MemPurchaseHistoryStore());
   }
 
   /// The signed-in user the fake auth service reports — resolves the auth gate
@@ -201,6 +212,7 @@ class JourneyHarness {
   late final WeighInRepo weighInRepo;
   late final GroceryListRepo groceryRepo;
   late final KitchenLayoutRepo kitchenLayoutRepo;
+  late final PurchaseHistoryRepo purchaseHistoryRepo;
 
   /// The full override set: signed-in fake auth, a silent connectivity monitor,
   /// and every data repo on a shared in-memory store. Spread into a
@@ -218,6 +230,11 @@ class JourneyHarness {
         weighInRepoProvider.overrideWithValue(weighInRepo),
         groceryListRepoProvider.overrideWithValue(groceryRepo),
         kitchenLayoutRepoProvider.overrideWithValue(kitchenLayoutRepo),
+        // The honest reorder-cadence learner: its acquisitionServiceProvider
+        // reads the pantryRepo override above + this shared in-memory history
+        // repo, so a real add / check-off records a genuine acquisition and can
+        // stamp a learned cadence onto the harness's own pantry items.
+        purchaseHistoryRepoProvider.overrideWithValue(purchaseHistoryRepo),
       ];
 }
 

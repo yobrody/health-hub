@@ -25,6 +25,7 @@ import 'package:health_hub/offline/pending_mutation.dart';
 import 'package:health_hub/pages/food_page.dart';
 import 'package:health_hub/pantry/pantry_item.dart';
 import 'package:health_hub/pantry/pantry_repo.dart';
+import 'package:health_hub/pantry/purchase_history.dart';
 
 // ── Fakes ────────────────────────────────────────────────────────────────────
 
@@ -44,6 +45,16 @@ class _FakePantryStore implements PantryStore {
   Future<List<PantryItem>> load() async => List.unmodifiable(_items);
   @override
   Future<void> save(List<PantryItem> items) async => _items = List.of(items);
+}
+
+/// In-memory purchase-history store — lets the acquisition wiring run in widget
+/// tests (no SharedPreferences) and lets a test assert a recorded acquisition.
+class _FakePurchaseHistoryStore implements PurchaseHistoryStore {
+  List<PurchaseHistory> _i = [];
+  @override
+  Future<List<PurchaseHistory>> load() async => List.unmodifiable(_i);
+  @override
+  Future<void> save(List<PurchaseHistory> h) async => _i = List.of(h);
 }
 
 /// In-memory kitchen-layout store — records saves so a test can assert the
@@ -96,16 +107,19 @@ const _minimal = PantryItem(
 
 // ── Helper: pump the page with seeded fakes ─────────────────────────────────
 
-Future<(PantryRepo, _FakeKitchenLayoutStore)> _pumpPage(
+Future<(PantryRepo, _FakeKitchenLayoutStore, PurchaseHistoryRepo)> _pumpPage(
   WidgetTester tester,
   List<PantryItem> seed, {
   _FakeKitchenLayoutStore? layoutStore,
+  _FakePurchaseHistoryStore? historyStore,
 }) async {
   final repo = PantryRepo(
     outbox: Outbox(_FakeOutboxStore()),
     store: _FakePantryStore(seed),
   );
   final ls = layoutStore ?? _FakeKitchenLayoutStore();
+  final hs = historyStore ?? _FakePurchaseHistoryStore();
+  final historyRepo = PurchaseHistoryRepo(store: hs);
 
   await tester.pumpWidget(
     ProviderScope(
@@ -113,12 +127,15 @@ Future<(PantryRepo, _FakeKitchenLayoutStore)> _pumpPage(
         pantryRepoProvider.overrideWithValue(repo),
         kitchenLayoutRepoProvider
             .overrideWithValue(KitchenLayoutRepo(store: ls)),
+        // In-memory purchase history so the acquisitionServiceProvider (which
+        // reads the overridden pantryRepo above) runs without SharedPreferences.
+        purchaseHistoryStoreProvider.overrideWithValue(hs),
       ],
       child: const MaterialApp(home: FoodPage()),
     ),
   );
   await tester.pumpAndSettle();
-  return (repo, ls);
+  return (repo, ls, historyRepo);
 }
 
 // ── Tests ────────────────────────────────────────────────────────────────────
@@ -271,7 +288,7 @@ void main() {
   // Test: the toggle is COSMETIC only — it never changes item data.
   testWidgets('single/double toggle never changes item data (cosmetic only)',
       (tester) async {
-    final (repo, _) = await _pumpPage(tester, [_fullWithExpiry]);
+    final (repo, _, _) = await _pumpPage(tester, [_fullWithExpiry]);
     final before = await repo.all();
 
     await tester.tap(find.byKey(const Key('kitchen-toggle-fridge')));
@@ -302,7 +319,7 @@ void main() {
 
   testWidgets('gate upload button is the real capture entry, fabricates nothing',
       (tester) async {
-    final (repo, _) = await _pumpPage(tester, []);
+    final (repo, _, _) = await _pumpPage(tester, []);
     expect(find.byKey(const Key('food-gate-upload')), findsOneWidget);
     expect(find.text('Snap photos'), findsOneWidget);
     final all = await repo.all();
@@ -311,7 +328,7 @@ void main() {
 
   testWidgets('gate "Add manually" opens the real add-item flow → kitchen',
       (tester) async {
-    final (repo, _) = await _pumpPage(tester, []);
+    final (repo, _, _) = await _pumpPage(tester, []);
 
     await tester.tap(find.byKey(const Key('food-gate-manual')));
     await tester.pumpAndSettle();
@@ -332,7 +349,7 @@ void main() {
 
   testWidgets('adding an item via the FAB routes through the repo',
       (tester) async {
-    final (repo, _) = await _pumpPage(tester, [_minimal]);
+    final (repo, _, _) = await _pumpPage(tester, [_minimal]);
 
     await tester.tap(find.byKey(const Key('food-add-fab')));
     await tester.pumpAndSettle();
@@ -345,6 +362,56 @@ void main() {
     expect(all.any((i) => i.name == 'Oat milk'), isTrue);
     // Fridge (default zone) now shows 1 item on the panel.
     expect(find.text('1 item'), findsWidgets);
+  });
+
+  // The honest reorder-cadence learner's REAL acquisition signal: adding an item
+  // through the Food page records a genuine acquisition in purchase history (so
+  // that, once there are ≥2 real buys, a cadence can be learned). One buy stays
+  // honest — the pantry item's cadence is still null (never a guessed cadence).
+  testWidgets('adding an item records a real acquisition (one buy → no cadence)',
+      (tester) async {
+    final hs = _FakePurchaseHistoryStore();
+    final (repo, _, historyRepo) =
+        await _pumpPage(tester, const [], historyStore: hs);
+
+    await tester.tap(find.byKey(const Key('food-gate-manual')));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const Key('food-form-name')), 'Yoghurt');
+    await tester.tap(find.byKey(const Key('food-form-submit')));
+    await tester.pumpAndSettle();
+
+    // A REAL acquisition was recorded (one timestamp).
+    final history = await historyRepo.forName('Yoghurt');
+    expect(history.timestamps, hasLength(1));
+    // But with a single buy, no cadence is fabricated on the pantry item.
+    expect(history.cadenceDays, isNull);
+    final item = (await repo.all()).firstWhere((i) => i.name == 'Yoghurt');
+    expect(item.reorderCadenceDays, isNull);
+    expect(item.lastBought, isNull);
+  });
+
+  // Editing an item is NOT an acquisition — it must never be recorded as a buy,
+  // or an edit would fabricate reorder urgency.
+  testWidgets('editing an item does NOT record an acquisition', (tester) async {
+    final hs = _FakePurchaseHistoryStore();
+    final (repo, _, historyRepo) =
+        await _pumpPage(tester, [_minimal], historyStore: hs);
+
+    // Open the Spices zone, then edit the Salt item.
+    await tester.tap(find.byKey(const Key('kitchen-zone-condiments')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byIcon(Icons.edit_outlined).first);
+    await tester.pumpAndSettle();
+    await tester.enterText(
+        find.byKey(const Key('food-form-name')), 'Sea salt');
+    await tester.tap(find.byKey(const Key('food-form-submit')));
+    await tester.pumpAndSettle();
+
+    // The edit persisted...
+    expect((await repo.all()).any((i) => i.name == 'Sea salt'), isTrue);
+    // ...but NO acquisition was recorded for either name.
+    expect((await historyRepo.forName('Sea salt')).timestamps, isEmpty);
+    expect((await historyRepo.forName('Salt')).timestamps, isEmpty);
   });
 
   testWidgets('with items present, the kitchen scene shows (no gate)',
