@@ -15,7 +15,9 @@ import 'package:health_hub/cart/grocery_item.dart';
 import 'package:health_hub/cart/grocery_list_repo.dart';
 import 'package:health_hub/design_system/app_theme.dart';
 import 'package:health_hub/pages/cart_page.dart';
+import 'package:health_hub/app_providers.dart';
 import 'package:health_hub/pantry/pantry_item.dart';
+import 'package:health_hub/pantry/purchase_history.dart';
 
 import '../brain/brain_scope.dart';
 
@@ -26,15 +28,33 @@ import '../brain/brain_scope.dart';
 // overriding pantryRepoProvider (via brainOverrides) — the same way the live
 // interconnection flows and how the Food page tests seed it.
 
-Widget _cart({GroceryListRepo? repo, List<PantryItem> pantry = const []}) {
+Widget _cart({
+  GroceryListRepo? repo,
+  List<PantryItem> pantry = const [],
+  PurchaseHistoryStore? historyStore,
+}) {
   final grocery = repo ?? GroceryListRepo(store: _FakeGroceryStore());
   return ProviderScope(
-    overrides: brainOverrides(pantry: pantry, grocery: grocery),
+    overrides: [
+      ...brainOverrides(pantry: pantry, grocery: grocery),
+      // A later override wins — inject an inspectable purchase-history store so a
+      // test can assert that checking an item off records a REAL acquisition.
+      if (historyStore != null)
+        purchaseHistoryStoreProvider.overrideWithValue(historyStore),
+    ],
     child: MaterialApp(
       theme: lightTheme,
       home: CartPage(repo: grocery),
     ),
   );
+}
+
+class _FakePurchaseHistoryStore implements PurchaseHistoryStore {
+  List<PurchaseHistory> _i = [];
+  @override
+  Future<List<PurchaseHistory>> load() async => List.unmodifiable(_i);
+  @override
+  Future<void> save(List<PurchaseHistory> h) async => _i = List.of(h);
 }
 
 class _FakeGroceryStore implements GroceryListStore {
@@ -83,6 +103,49 @@ void main() {
     await tester.tap(find.byKey(const Key('cart-clear-done')));
     await tester.pumpAndSettle();
     expect(await repo.all(), isEmpty);
+  });
+
+  // Checking an item OFF = "got it" = a real acquisition. It must record a
+  // genuine buy in purchase history (so a cadence can be learned across buys).
+  testWidgets('checking an item off records a real acquisition', (tester) async {
+    final repo = GroceryListRepo(store: _FakeGroceryStore());
+    final list = await repo.add('Milk');
+    final id = list.single.id;
+    final hs = _FakePurchaseHistoryStore();
+    final historyRepo = PurchaseHistoryRepo(store: hs);
+
+    await tester.pumpWidget(_cart(repo: repo, historyStore: hs));
+    await tester.pumpAndSettle();
+
+    // Check it off ("got it").
+    await tester.tap(find.byKey(Key('cart-check-$id')));
+    await tester.pumpAndSettle();
+
+    final history = await historyRepo.forName('Milk');
+    expect(history.timestamps, hasLength(1)); // a REAL acquisition recorded
+  });
+
+  // Un-checking is NOT an acquisition — only the false→true transition counts.
+  testWidgets('un-checking an item does NOT record an acquisition',
+      (tester) async {
+    final repo = GroceryListRepo(store: _FakeGroceryStore());
+    final list = await repo.add('Milk');
+    final id = list.single.id;
+    final hs = _FakePurchaseHistoryStore();
+    final historyRepo = PurchaseHistoryRepo(store: hs);
+
+    await tester.pumpWidget(_cart(repo: repo, historyStore: hs));
+    await tester.pumpAndSettle();
+
+    // Check off (records once), then un-check (must record nothing more).
+    await tester.tap(find.byKey(Key('cart-check-$id')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(Key('cart-check-$id')));
+    await tester.pumpAndSettle();
+
+    final history = await historyRepo.forName('Milk');
+    // Still exactly ONE acquisition — the un-check didn't fabricate a buy.
+    expect(history.timestamps, hasLength(1));
   });
 
   testWidgets('remove deletes the item', (tester) async {

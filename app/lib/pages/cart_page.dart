@@ -156,7 +156,25 @@ class _CartPageState extends ConsumerState<CartPage> {
   }
 
   Future<void> _toggle(GroceryItem item) async {
+    // Checking an item OFF means "got it" — a real acquisition. Record it so the
+    // honest reorder-cadence learner appends a genuine buy timestamp (and, once
+    // there are ≥2 real buys of a matching pantry item, stamps a learned cadence
+    // + lastBought → reorder-due fires organically). Un-checking is NOT an
+    // acquisition, so we only record on the false→true transition.
+    final becomingDone = !item.done;
     await _repo.toggle(item.id);
+    if (becomingDone) {
+      // Tolerant like every other write in the app: a failure to learn the
+      // cadence must never break checking an item off. The stores already
+      // swallow their own errors; this guard covers any unexpected throw.
+      try {
+        await ref
+            .read(acquisitionServiceProvider)
+            .recordAcquisition(item.name, DateTime.now());
+      } catch (_) {
+        // Cadence learning is best-effort — never fabricated, never fatal.
+      }
+    }
     if (!mounted) return;
     _refresh();
   }

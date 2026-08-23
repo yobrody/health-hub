@@ -22,6 +22,7 @@ import 'package:health_hub/offline/outbox_store.dart';
 import 'package:health_hub/offline/pending_mutation.dart';
 import 'package:health_hub/pantry/pantry_item.dart';
 import 'package:health_hub/pantry/pantry_repo.dart';
+import 'package:health_hub/pantry/purchase_history.dart';
 import 'package:health_hub/profile/profile_repo.dart';
 import 'package:health_hub/cart/grocery_item.dart';
 import 'package:health_hub/cart/grocery_list_repo.dart';
@@ -103,6 +104,14 @@ class _Grocery implements GroceryListStore {
   Future<void> save(List<GroceryItem> items) async => _i = List.of(items);
 }
 
+class _PurchaseHistory implements PurchaseHistoryStore {
+  List<PurchaseHistory> _i = [];
+  @override
+  Future<List<PurchaseHistory>> load() async => List.unmodifiable(_i);
+  @override
+  Future<void> save(List<PurchaseHistory> h) async => _i = List.of(h);
+}
+
 /// The full set of overrides the Brain needs, seeded with the given real data.
 /// Pass a shared [grocery] repo when a test needs to inspect what was written.
 List<Override> brainOverrides({
@@ -140,4 +149,8 @@ List<Override> brainOverrides({
       groceryListRepoProvider.overrideWithValue(
         grocery ?? GroceryListRepo(store: _Grocery()),
       ),
+      // In-memory purchase-history store so the honest reorder-cadence learner
+      // (acquisitionServiceProvider, which reads the SAME overridden pantry repo
+      // above) works in widget tests without touching SharedPreferences.
+      purchaseHistoryStoreProvider.overrideWithValue(_PurchaseHistory()),
     ];
