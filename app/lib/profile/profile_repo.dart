@@ -104,6 +104,7 @@ class ProfileRepo {
       if (p.goalDirection != null)
         'goal_direction': p.goalDirection == 'cut' ? 'lose' : p.goalDirection,
       if (p.targetWeightKg != null) 'target_weight_kg': p.targetWeightKg,
+      if (p.bodyFatPercent != null) 'body_fat_percent': p.bodyFatPercent,
       if (p.primaryGym != null) 'primary_gym': p.primaryGym,
       if (p.activityLevel != null) 'activity_level': p.activityLevel,
     };

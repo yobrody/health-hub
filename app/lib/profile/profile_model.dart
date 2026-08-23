@@ -19,6 +19,7 @@ class Profile {
     this.weightKg,
     this.goalDirection, // 'gain' | 'cut' | 'maintain'
     this.targetWeightKg,
+    this.bodyFatPercent,
     this.primaryGym,
     this.activityLevel,
   });
@@ -43,6 +44,13 @@ class Profile {
   /// **never** defaulted to 72.
   final double? targetWeightKg;
 
+  /// Measured body-fat percentage (e.g. `16` for 16%). `null` until the user
+  /// enters a real reading — **never** guessed. Body-fat drives the honest,
+  /// weight-independent "visible abs" milestone on the Transformation page; with
+  /// no reading that milestone stays honestly `needs-data` rather than
+  /// fabricating a value.
+  final double? bodyFatPercent;
+
   /// The user's primary gym (free text). `null` if unset.
   final String? primaryGym;
 
@@ -61,6 +69,7 @@ class Profile {
       weightKg == null &&
       goalDirection == null &&
       targetWeightKg == null &&
+      bodyFatPercent == null &&
       primaryGym == null &&
       activityLevel == null;
 
@@ -78,6 +87,7 @@ class Profile {
       weightKg: (json['weight_kg'] as num?)?.toDouble(),
       goalDirection: _readGoalDirection(json['goal_direction'] as String?),
       targetWeightKg: (json['target_weight_kg'] as num?)?.toDouble(),
+      bodyFatPercent: (json['body_fat_percent'] as num?)?.toDouble(),
       primaryGym: json['primary_gym'] as String?,
       activityLevel: json['activity_level'] as String?,
     );
@@ -107,6 +117,7 @@ class Profile {
         if (weightKg != null) 'weight_kg': weightKg,
         if (goalDirection != null) 'goal_direction': goalDirection,
         if (targetWeightKg != null) 'target_weight_kg': targetWeightKg,
+        if (bodyFatPercent != null) 'body_fat_percent': bodyFatPercent,
         if (primaryGym != null) 'primary_gym': primaryGym,
         if (activityLevel != null) 'activity_level': activityLevel,
       };
@@ -121,6 +132,7 @@ class Profile {
     double? weightKg,
     String? goalDirection,
     double? targetWeightKg,
+    double? bodyFatPercent,
     String? primaryGym,
     String? activityLevel,
   }) {
@@ -131,6 +143,7 @@ class Profile {
       weightKg: weightKg ?? this.weightKg,
       goalDirection: goalDirection ?? this.goalDirection,
       targetWeightKg: targetWeightKg ?? this.targetWeightKg,
+      bodyFatPercent: bodyFatPercent ?? this.bodyFatPercent,
       primaryGym: primaryGym ?? this.primaryGym,
       activityLevel: activityLevel ?? this.activityLevel,
     );
