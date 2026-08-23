@@ -14,6 +14,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:health_hub/cart/grocery_item.dart';
 import 'package:health_hub/cart/grocery_list_repo.dart';
 import 'package:health_hub/design_system/app_theme.dart';
+import 'package:health_hub/offline/outbox.dart';
+import 'package:health_hub/offline/outbox_store.dart';
+import 'package:health_hub/offline/pending_mutation.dart';
 import 'package:health_hub/pages/cart_page.dart';
 import 'package:health_hub/app_providers.dart';
 import 'package:health_hub/pantry/pantry_item.dart';
@@ -33,7 +36,7 @@ Widget _cart({
   List<PantryItem> pantry = const [],
   PurchaseHistoryStore? historyStore,
 }) {
-  final grocery = repo ?? GroceryListRepo(store: _FakeGroceryStore());
+  final grocery = repo ?? _repo();
   return ProviderScope(
     overrides: [
       ...brainOverrides(pantry: pantry, grocery: grocery),
@@ -65,6 +68,21 @@ class _FakeGroceryStore implements GroceryListStore {
   Future<void> save(List<GroceryItem> items) async => _i = List.of(items);
 }
 
+class _FakeOutboxStore implements OutboxStore {
+  List<PendingMutation> _m = [];
+  @override
+  Future<List<PendingMutation>> load() async => List.unmodifiable(_m);
+  @override
+  Future<void> save(List<PendingMutation> m) async => _m = List.of(m);
+}
+
+/// Build a repo wired to a fresh in-memory outbox (the sync seam every synced
+/// repo now takes). Grocery mutations queue here; no network in any test path.
+GroceryListRepo _repo([GroceryListStore? store]) => GroceryListRepo(
+      outbox: Outbox(_FakeOutboxStore()),
+      store: store ?? _FakeGroceryStore(),
+    );
+
 void main() {
   testWidgets('renders with cart-page key + honest empty state', (tester) async {
     await tester.pumpWidget(_cart());
@@ -75,7 +93,7 @@ void main() {
   });
 
   testWidgets('add an item persists and renders', (tester) async {
-    final repo = GroceryListRepo(store: _FakeGroceryStore());
+    final repo = _repo();
     await tester.pumpWidget(_cart(repo: repo));
     await tester.pumpAndSettle();
 
@@ -89,7 +107,7 @@ void main() {
 
   testWidgets('check + clear-done removes the checked item', (tester) async {
     final store = _FakeGroceryStore();
-    final repo = GroceryListRepo(store: store);
+    final repo = _repo(store);
     final list = await repo.add('Bread');
     final id = list.single.id;
 
@@ -108,7 +126,7 @@ void main() {
   // Checking an item OFF = "got it" = a real acquisition. It must record a
   // genuine buy in purchase history (so a cadence can be learned across buys).
   testWidgets('checking an item off records a real acquisition', (tester) async {
-    final repo = GroceryListRepo(store: _FakeGroceryStore());
+    final repo = _repo();
     final list = await repo.add('Milk');
     final id = list.single.id;
     final hs = _FakePurchaseHistoryStore();
@@ -128,7 +146,7 @@ void main() {
   // Un-checking is NOT an acquisition — only the false→true transition counts.
   testWidgets('un-checking an item does NOT record an acquisition',
       (tester) async {
-    final repo = GroceryListRepo(store: _FakeGroceryStore());
+    final repo = _repo();
     final list = await repo.add('Milk');
     final id = list.single.id;
     final hs = _FakePurchaseHistoryStore();
@@ -149,7 +167,7 @@ void main() {
   });
 
   testWidgets('remove deletes the item', (tester) async {
-    final repo = GroceryListRepo(store: _FakeGroceryStore());
+    final repo = _repo();
     final list = await repo.add('Eggs');
     final id = list.single.id;
 
@@ -175,7 +193,7 @@ void main() {
       },
     );
 
-    final repo = GroceryListRepo(store: _FakeGroceryStore());
+    final repo = _repo();
     await repo.add('Milk');
     await repo.add('Bread');
 

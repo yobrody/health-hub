@@ -245,16 +245,20 @@ final weighInRepoProvider = Provider<WeighInRepo>((ref) {
 });
 
 /// Local grocery-list persistence — the Cart notepad (survives restart).
-/// **Local-only in R-1** (no Supabase table yet); see [GroceryListRepo].
 final groceryListStoreProvider = Provider<GroceryListStore>((ref) {
   return const SharedPrefsGroceryListStore();
 });
 
-/// The grocery-list repository — the Cart notepad data layer. Deliberately NOT
-/// wired to the shared [Outbox]: the list is local-only in this release (sync is
-/// a later phase). Overridable in tests via `ProviderScope(overrides: [...])`.
+/// The grocery-list repository — the Cart notepad data layer. Wired to the
+/// shared [Outbox] like every other synced repo: each mutation persists locally
+/// AND queues a write to the `grocery_list` table, so the list syncs per-user
+/// across devices (offline-safe — a queued write is never lost). Overridable in
+/// tests via `ProviderScope(overrides: [...])`.
 final groceryListRepoProvider = Provider<GroceryListRepo>((ref) {
-  return GroceryListRepo(store: ref.watch(groceryListStoreProvider));
+  return GroceryListRepo(
+    outbox: ref.watch(outboxProvider),
+    store: ref.watch(groceryListStoreProvider),
+  );
 });
 
 /// The live grocery list — the reactive source of truth for BOTH the Cart page's
@@ -344,6 +348,7 @@ final supabaseHydratorProvider = Provider<SupabaseHydrator?>((ref) {
     workoutStore: ref.watch(workoutStoreProvider),
     goalsStore: ref.watch(nutritionGoalsStoreProvider),
     weighInStore: ref.watch(weighInStoreProvider),
+    groceryStore: ref.watch(groceryListStoreProvider),
   );
 });
 

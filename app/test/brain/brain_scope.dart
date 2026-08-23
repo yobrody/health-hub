@@ -147,7 +147,7 @@ List<Override> brainOverrides({
         KitchenLayoutRepo(store: _KitchenLayout()),
       ),
       groceryListRepoProvider.overrideWithValue(
-        grocery ?? GroceryListRepo(store: _Grocery()),
+        grocery ?? GroceryListRepo(outbox: Outbox(_Outbox()), store: _Grocery()),
       ),
       // In-memory purchase-history store so the honest reorder-cadence learner
       // (acquisitionServiceProvider, which reads the SAME overridden pantry repo

@@ -12,6 +12,8 @@
 //   • a corrupt/dataless row is skipped, not fabricated.
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:health_hub/cart/grocery_item.dart';
+import 'package:health_hub/cart/grocery_list_repo.dart' show GroceryListStore;
 import 'package:health_hub/gym/workout_repo.dart' show WorkoutStore;
 import 'package:health_hub/gym/workout_session.dart';
 import 'package:health_hub/metrics/weigh_in.dart';
@@ -106,6 +108,15 @@ class FakeWeighInStore implements WeighInStore {
   Future<void> save(List<WeighIn> next) async => items = List.of(next);
 }
 
+class FakeGroceryStore implements GroceryListStore {
+  List<GroceryItem> items;
+  FakeGroceryStore([this.items = const []]);
+  @override
+  Future<List<GroceryItem>> load() async => items;
+  @override
+  Future<void> save(List<GroceryItem> next) async => items = List.of(next);
+}
+
 ({
   SupabaseHydrator hydrator,
   FakeProfileStore profile,
@@ -114,6 +125,7 @@ class FakeWeighInStore implements WeighInStore {
   FakeWorkoutStore workout,
   FakeGoalsStore goals,
   FakeWeighInStore weighIns,
+  FakeGroceryStore grocery,
 }) _build(
   FakeSupabaseWriter writer, {
   FakeProfileStore? profile,
@@ -122,6 +134,7 @@ class FakeWeighInStore implements WeighInStore {
   FakeWorkoutStore? workout,
   FakeGoalsStore? goals,
   FakeWeighInStore? weighIns,
+  FakeGroceryStore? grocery,
 }) {
   final p = profile ?? FakeProfileStore();
   final pa = pantry ?? FakePantryStore();
@@ -129,6 +142,7 @@ class FakeWeighInStore implements WeighInStore {
   final w = workout ?? FakeWorkoutStore();
   final g = goals ?? FakeGoalsStore();
   final wi = weighIns ?? FakeWeighInStore();
+  final gr = grocery ?? FakeGroceryStore();
   return (
     hydrator: SupabaseHydrator(
       writer: writer,
@@ -138,6 +152,7 @@ class FakeWeighInStore implements WeighInStore {
       workoutStore: w,
       goalsStore: g,
       weighInStore: wi,
+      groceryStore: gr,
     ),
     profile: p,
     pantry: pa,
@@ -145,6 +160,7 @@ class FakeWeighInStore implements WeighInStore {
     workout: w,
     goals: g,
     weighIns: wi,
+    grocery: gr,
   );
 }
 
@@ -320,5 +336,46 @@ void main() {
 
     // Only the well-formed row is hydrated; the dataless one is skipped.
     expect(env.nutrition.entries.map((e) => e.id), ['food-ok']);
+  });
+
+  test('grocery list rebuilt from its data jsonb into the local store',
+      () async {
+    final writer = FakeSupabaseWriter()
+      ..seed('grocery_list', [
+        {
+          'id': 'grocery-1',
+          'user_id': 'u1',
+          'name': 'Milk',
+          'checked': false,
+          'data': {'id': 'grocery-1', 'name': 'Milk', 'done': false},
+        },
+        {
+          'id': 'grocery-2',
+          'user_id': 'u1',
+          'name': 'Bread',
+          'checked': true,
+          'data': {'id': 'grocery-2', 'name': 'Bread', 'done': true},
+        },
+      ]);
+    final env = _build(writer);
+    await env.hydrator.hydrate('u1');
+
+    expect(env.grocery.items.map((i) => i.id), ['grocery-1', 'grocery-2']);
+    expect(env.grocery.items.firstWhere((i) => i.id == 'grocery-2').done,
+        isTrue);
+  });
+
+  test('a FAILED grocery pull leaves the local list INTACT (no wipe)',
+      () async {
+    final writer = FakeSupabaseWriter()..throwOnSelect.add('grocery_list');
+    final existing = FakeGroceryStore([
+      const GroceryItem(id: 'local-g1', name: 'Eggs'),
+    ]);
+    final env = _build(writer, grocery: existing);
+
+    await env.hydrator.hydrate('u1');
+
+    // The grocery pull threw → local list untouched, NOT cleared.
+    expect(env.grocery.items.single.id, 'local-g1');
   });
 }

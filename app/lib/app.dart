@@ -66,7 +66,14 @@ class _AuthGateState extends ConsumerState<_AuthGate> {
     final hydrator = ref.read(supabaseHydratorProvider);
     // Null when Supabase isn't configured (degraded local mode) — nothing to
     // pull. Fire-and-forget; the app reads local regardless of the outcome.
-    hydrator?.hydrate(user.id);
+    // Once the pull lands, invalidate the reactive grocery list so the Cart page
+    // + nav badge re-render from THIS user's pulled list (the hydrator wrote it
+    // into the local store; the provider still holds the pre-pull snapshot).
+    // A failed pull leaves local intact, so a refresh then is harmless.
+    hydrator?.hydrate(user.id).whenComplete(() {
+      if (!mounted) return;
+      ref.invalidate(groceryListProvider);
+    });
   }
 
   @override

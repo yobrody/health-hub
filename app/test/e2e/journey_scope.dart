@@ -193,7 +193,8 @@ class JourneyHarness {
       outbox: Outbox(_MemOutboxStore()),
       store: _MemWeighInStore(weighIns),
     );
-    groceryRepo = GroceryListRepo(store: _MemGroceryStore());
+    groceryRepo =
+        GroceryListRepo(outbox: Outbox(_MemOutboxStore()), store: _MemGroceryStore());
     kitchenLayoutRepo = KitchenLayoutRepo(store: _MemKitchenLayoutStore());
     purchaseHistoryRepo =
         PurchaseHistoryRepo(store: _MemPurchaseHistoryStore());

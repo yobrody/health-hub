@@ -1,5 +1,7 @@
 // ignore_for_file: prefer_initializing_formals
 
+import '../cart/grocery_item.dart';
+import '../cart/grocery_list_repo.dart' show GroceryListStore;
 import '../gym/workout_repo.dart' show WorkoutStore;
 import '../gym/workout_session.dart';
 import '../metrics/weigh_in.dart';
@@ -40,13 +42,15 @@ class SupabaseHydrator {
     required WorkoutStore workoutStore,
     required NutritionGoalsStore goalsStore,
     required WeighInStore weighInStore,
+    required GroceryListStore groceryStore,
   })  : _writer = writer,
         _profileStore = profileStore,
         _pantryStore = pantryStore,
         _nutritionStore = nutritionStore,
         _workoutStore = workoutStore,
         _goalsStore = goalsStore,
-        _weighInStore = weighInStore;
+        _weighInStore = weighInStore,
+        _groceryStore = groceryStore;
 
   final SupabaseWriter _writer;
   final ProfileStore _profileStore;
@@ -55,6 +59,7 @@ class SupabaseHydrator {
   final WorkoutStore _workoutStore;
   final NutritionGoalsStore _goalsStore;
   final WeighInStore _weighInStore;
+  final GroceryListStore _groceryStore;
 
   /// Hydrate every synced store for [userId]. RLS already restricts each
   /// `select` to the caller's own rows; [userId] is accepted for clarity and so
@@ -70,6 +75,7 @@ class SupabaseHydrator {
       _hydrateWorkouts(),
       _hydrateGoals(),
       _hydrateWeighIns(),
+      _hydrateGrocery(),
     ]);
   }
 
@@ -141,6 +147,17 @@ class SupabaseHydrator {
       final weighIns = _rebuild(rows, WeighIn.fromJson);
       if (weighIns == null) return; // parse/pull failure → leave local intact.
       await _weighInStore.save(weighIns);
+    } catch (_) {
+      // Leave local intact.
+    }
+  }
+
+  Future<void> _hydrateGrocery() async {
+    try {
+      final rows = await _writer.selectAll('grocery_list');
+      final items = _rebuild(rows, GroceryItem.fromJson);
+      if (items == null) return; // parse/pull failure → leave local intact.
+      await _groceryStore.save(items);
     } catch (_) {
       // Leave local intact.
     }

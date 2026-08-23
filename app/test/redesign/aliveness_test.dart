@@ -223,6 +223,7 @@ void main() {
     // 2. Cart badge is visible when the grocery list has items.
     testWidgets('Cart badge shows when count > 0', (tester) async {
       final groceryRepo = GroceryListRepo(
+        outbox: _outbox(),
         store: _FakeGroceryListStore([
           const GroceryItem(id: 'g1', name: 'Milk'),
         ]),
