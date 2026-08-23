@@ -48,7 +48,7 @@ jobs:
           flutter build web --release \
             --base-href /health-hub/ \
             --dart-define=SUPABASE_URL=https://eazwtlqieizvsqvbbknj.supabase.co \
-            --dart-define=SUPABASE_PUBLISHABLE_KEY=[REDACTED-MOVED-TO-VAULT]
+            --dart-define=SUPABASE_PUBLISHABLE_KEY=sb_publishable_zuKTonIi1rrL7R1KSxujhA_m1Wc1lQP
 
       - uses: actions/configure-pages@v5
 

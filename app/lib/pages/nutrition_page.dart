@@ -20,6 +20,8 @@
 // _InlineMobileScanner (which wraps MobileScanner) is only pumped when the
 // scanner route is actually pushed — never during widget tests.
 
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
@@ -28,6 +30,7 @@ import '../app_providers.dart';
 import '../brain/brain_providers.dart';
 import '../brain/brain_section.dart';
 import '../brain/insight.dart';
+import '../capture/camera_service.dart';
 import '../design_system/colors.dart';
 import '../design_system/components/section_header.dart';
 import '../design_system/components/stat_card.dart';
@@ -36,6 +39,8 @@ import '../design_system/shape.dart';
 import '../design_system/spacing.dart';
 import '../meals/eat_in_service.dart';
 import '../meals/meal_composition.dart';
+import '../nutrition/estimate/nutrition_estimate.dart';
+import '../nutrition/estimate/nutrition_estimate_client.dart';
 import '../nutrition/food_log_entry.dart';
 import '../nutrition/nutrition_repo.dart';
 import '../nutrition/off_client.dart';
@@ -81,6 +86,13 @@ class NutritionPageState extends ConsumerState<NutritionPage> {
   /// Scaled nutrition from barcode lookup (set when scanner returns a hit).
   Map<String, double?>? _barcodeNutrition;
 
+  /// The AI estimate currently prefilling the form, or `null` when the form is
+  /// not from an AI estimate. When non-null, the form is an ESTIMATE: the tier
+  /// is forced to [AccuracyTier.estimate], the `~` marker shows, and the
+  /// honest confidence banner renders. Cleared on reset or any manual edit path
+  /// that no longer represents the estimate (e.g. barcode/reset).
+  NutritionEstimate? _aiEstimate;
+
   /// Today's food log (refreshed after each Log submission).
   List<FoodLogEntry> _todayLog = [];
 
@@ -98,6 +110,8 @@ class NutritionPageState extends ConsumerState<NutritionPage> {
   OffClient get _offClient => ref.read(offClientProvider);
   PantryRepo get _pantryRepo => ref.read(pantryRepoProvider);
   EatInService get _eatIn => ref.read(eatInServiceProvider);
+  NutritionEstimateClient get _estimateClient =>
+      ref.read(nutritionEstimateClientProvider);
 
   // ── Lifecycle ──────────────────────────────────────────────────────────────
 
@@ -188,6 +202,8 @@ class NutritionPageState extends ConsumerState<NutritionPage> {
       setState(() {
         _scannedBarcode = code;
         _barcodeNutrition = nutrition;
+        // A barcode is an EXACT source — it supersedes any prior AI estimate.
+        _aiEstimate = null;
         _loading = false;
 
         // Pre-fill name with product name or blank for user to confirm.
@@ -216,6 +232,149 @@ class NutritionPageState extends ConsumerState<NutritionPage> {
     }
   }
 
+  // ── AI estimate seam ─────────────────────────────────────────────────────
+  //
+  // The "Estimate with AI" path: snap/pick a photo OR type a short description,
+  // ask the estimate client, and — on success — PREFILL the form as an ESTIMATE
+  // (tier=estimate, `~`, honest confidence + note). On null/failure, surface a
+  // truthful snackbar and leave the manual form untouched (nothing fabricated).
+  //
+  // [handleAiPhotoResult] / [handleAiTextResult] are public (no `_`) so widget
+  // tests drive them directly with fake bytes/text — the camera + network are
+  // never touched in tests, exactly like [handleBarcodeResult].
+
+  /// Public seam: estimate from photo bytes (from camera OR a test). Prefills
+  /// the form as an estimate on success; honest snackbar + manual form on null.
+  Future<void> handleAiPhotoResult(Uint8List bytes) async {
+    if (bytes.isEmpty) return;
+    setState(() => _loading = true);
+    final estimate = await _estimateClient.estimateFromPhoto(bytes);
+    if (!mounted) return;
+    _applyEstimate(estimate);
+  }
+
+  /// Public seam: estimate from a text description (from the dialog OR a test).
+  Future<void> handleAiTextResult(String description) async {
+    final text = description.trim();
+    if (text.isEmpty) return;
+    setState(() => _loading = true);
+    final estimate = await _estimateClient.estimateFromText(text);
+    if (!mounted) return;
+    _applyEstimate(estimate, fallbackName: text);
+  }
+
+  /// Prefill the form from an AI [estimate], honestly, OR fall back to manual.
+  ///
+  /// On success the form becomes an ESTIMATE: estimated macros populate the
+  /// fields (null macros stay BLANK — never a fabricated 0), the name prefills
+  /// (or [fallbackName] for the text path), and [_aiEstimate] drives the `~`
+  /// marker + the honest confidence banner. On `null` (failure/empty), a
+  /// truthful snackbar shows and nothing is prefilled/fabricated.
+  void _applyEstimate(NutritionEstimate? estimate, {String? fallbackName}) {
+    if (estimate == null) {
+      setState(() => _loading = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          key: Key('nutrition-ai-snackbar'),
+          content: Text(
+            "Couldn't estimate this — fill it in manually below.",
+          ),
+        ),
+      );
+      return;
+    }
+
+    setState(() {
+      _loading = false;
+      // An AI estimate is NEVER a barcode/exact source — clear those so the
+      // tier logic treats this purely as an estimate.
+      _scannedBarcode = null;
+      _barcodeNutrition = null;
+      _aiEstimate = estimate;
+
+      final name = estimate.name ?? fallbackName?.trim() ?? '';
+      _nameCtrl.text = name;
+
+      // Estimated macros → fields; a NULL macro stays blank (honest), never 0.
+      _kcalCtrl.text = _fmtEstimate(estimate.kcal, 0);
+      _proteinCtrl.text = _fmtEstimate(estimate.proteinG, 1);
+      _carbsCtrl.text = _fmtEstimate(estimate.carbsG, 1);
+      _fatCtrl.text = _fmtEstimate(estimate.fatG, 1);
+    });
+  }
+
+  /// Format an estimated macro for a form field: blank for null (honest
+  /// "unknown"), else fixed to [digits] decimals.
+  static String _fmtEstimate(double? v, int digits) =>
+      v == null ? '' : v.toStringAsFixed(digits);
+
+  /// Open the "Estimate with AI" chooser: photo or text.
+  Future<void> _openAiEstimate() async {
+    final choice = await showModalBottomSheet<_AiEstimateChoice>(
+      context: context,
+      builder: (ctx) => const _AiEstimateChooserSheet(),
+    );
+    if (!mounted || choice == null) return;
+    switch (choice) {
+      case _AiEstimateChoice.photo:
+        await _captureAndEstimate();
+      case _AiEstimateChoice.text:
+        await _promptAndEstimate();
+    }
+  }
+
+  /// Camera driver for the AI-estimate photo path. NOT unit-tested — it opens
+  /// [CameraService] (the `image_picker` plugin, real hardware). Captures one
+  /// photo, reads its bytes, and hands them to [handleAiPhotoResult] (the
+  /// testable seam). Tests call [handleAiPhotoResult] directly with fake bytes.
+  Future<void> _captureAndEstimate() async {
+    final camera = CameraService();
+    final path = await camera.pickImage(
+      source: CaptureSource.camera,
+      maxWidth: 1600,
+      maxHeight: 1600,
+    );
+    if (path == null || !mounted) return; // cancelled / no camera — no-op
+    final bytes = await XImageBytes.read(path);
+    if (!mounted || bytes == null || bytes.isEmpty) return;
+    await handleAiPhotoResult(bytes);
+  }
+
+  /// Text driver for the AI-estimate description path. Shows a small dialog,
+  /// then hands the text to [handleAiTextResult] (the testable seam).
+  Future<void> _promptAndEstimate() async {
+    final ctrl = TextEditingController();
+    final text = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Describe your meal'),
+        content: TextField(
+          key: const Key('nutrition-ai-text-field'),
+          controller: ctrl,
+          autofocus: true,
+          textCapitalization: TextCapitalization.sentences,
+          decoration: const InputDecoration(
+            hintText: 'e.g. chicken breast, rice and broccoli',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            key: const Key('nutrition-ai-text-submit'),
+            onPressed: () => Navigator.of(ctx).pop(ctrl.text),
+            child: const Text('Estimate'),
+          ),
+        ],
+      ),
+    );
+    ctrl.dispose();
+    if (!mounted || text == null || text.trim().isEmpty) return;
+    await handleAiTextResult(text);
+  }
+
   /// Opens the real device camera scanner.
   /// Only called on real devices — never in widget tests (the route push is
   /// never triggered in tests).
@@ -239,7 +398,10 @@ class NutritionPageState extends ConsumerState<NutritionPage> {
   /// barcode; estimate when [isEstimate] is true OR no macros present.
   FoodLogEntry _buildEntry({required bool isEstimate}) {
     final name = _nameCtrl.text.trim();
-    final logName = isEstimate ? '~$name' : name;
+    // An AI estimate is shown as an estimate too — mark it with `~`, never
+    // exact framing.
+    final showTilde = isEstimate || _aiEstimate != null;
+    final logName = showTilde ? '~$name' : name;
 
     final grams = double.tryParse(_gramsCtrl.text.trim());
     final kcal = double.tryParse(_kcalCtrl.text.trim());
@@ -249,11 +411,12 @@ class NutritionPageState extends ConsumerState<NutritionPage> {
     final spend = double.tryParse(_spendCtrl.text.trim());
     final restaurant = _restaurantCtrl.text.trim();
 
-    // Determine tier: estimate when explicitly guessing; exact when macros
-    // present or from barcode.
+    // Determine tier: an AI estimate is ALWAYS estimate (never exact), as is an
+    // explicit Guess. Otherwise exact when macros present or from barcode.
+    final fromAi = _aiEstimate != null;
     final hasMacros =
         kcal != null || protein != null || carbs != null || fat != null;
-    final tier = isEstimate
+    final tier = (isEstimate || fromAi)
         ? AccuracyTier.estimate
         : (hasMacros || _scannedBarcode != null
             ? AccuracyTier.exact
@@ -286,7 +449,9 @@ class NutritionPageState extends ConsumerState<NutritionPage> {
       restaurant: _ateOut && restaurant.isNotEmpty ? restaurant : null,
       spendGbp: _ateOut ? spend : null,
       barcode: _scannedBarcode,
-      source: _scannedBarcode != null ? 'barcode' : 'manual',
+      source: _scannedBarcode != null
+          ? 'barcode'
+          : (_aiEstimate != null ? 'ai' : 'manual'),
     );
   }
 
@@ -383,6 +548,7 @@ class NutritionPageState extends ConsumerState<NutritionPage> {
       _spendCtrl.clear();
       _scannedBarcode = null;
       _barcodeNutrition = null;
+      _aiEstimate = null;
       _ingredients.clear();
     });
   }
@@ -498,37 +664,82 @@ class NutritionPageState extends ConsumerState<NutritionPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Barcode button — opens real scanner on device, never in tests.
-          // The Semantics tooltip surfaces the action name to screen readers
-          // when focus is on this button.
-          Semantics(
-            button: true,
-            label: _scannedBarcode != null
-                ? 'Scanned barcode: $_scannedBarcode'
-                : 'Scan barcode',
-            child: OutlinedButton.icon(
-              key: const Key('nutrition-scan-btn'),
-              onPressed: _openScanner,
-              icon: Icon(Icons.qr_code_scanner,
-                  color: colors.primaryStrong, size: 18),
-              label: Text(
-                _scannedBarcode != null
-                    ? 'Scanned: $_scannedBarcode'
-                    : 'Scan barcode',
-                style: text.labelMedium?.copyWith(color: colors.primaryStrong),
-              ),
-              style: OutlinedButton.styleFrom(
-                side: BorderSide(color: colors.hairline),
-                shape: AppShape.buttonBorder,
-                // 48 logical-px minimum height — accessibility touch target.
-                minimumSize: const Size(0, 48),
-                padding: const EdgeInsets.symmetric(
-                  horizontal: AppSpacing.space4,
-                  vertical: AppSpacing.space2,
+          // Capture shortcuts — Barcode + Estimate-with-AI, side by side so the
+          // added AI affordance costs no extra vertical space. Both open real
+          // hardware/network on device, never in tests.
+          Row(
+            children: [
+              // Barcode button — opens real scanner on device, never in tests.
+              Expanded(
+                child: Semantics(
+                  button: true,
+                  label: _scannedBarcode != null
+                      ? 'Scanned barcode: $_scannedBarcode'
+                      : 'Scan barcode',
+                  child: OutlinedButton.icon(
+                    key: const Key('nutrition-scan-btn'),
+                    onPressed: _openScanner,
+                    icon: Icon(Icons.qr_code_scanner,
+                        color: colors.primaryStrong, size: 18),
+                    label: Text(
+                      _scannedBarcode != null ? 'Scanned' : 'Barcode',
+                      overflow: TextOverflow.ellipsis,
+                      style: text.labelMedium
+                          ?.copyWith(color: colors.primaryStrong),
+                    ),
+                    style: OutlinedButton.styleFrom(
+                      side: BorderSide(color: colors.hairline),
+                      shape: AppShape.buttonBorder,
+                      // 48 logical-px min height — accessibility touch target.
+                      minimumSize: const Size(0, 48),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: AppSpacing.space3,
+                        vertical: AppSpacing.space2,
+                      ),
+                    ),
+                  ),
                 ),
               ),
-            ),
+              AppSpacing.gapH2,
+              // Estimate with AI — snap a photo OR describe the meal. Prefills
+              // the form as an ESTIMATE (never exact); user confirms/edits + Logs.
+              Expanded(
+                child: Semantics(
+                  button: true,
+                  label: 'Estimate with AI',
+                  child: OutlinedButton.icon(
+                    key: const Key('nutrition-ai-estimate-btn'),
+                    onPressed: _openAiEstimate,
+                    icon: Icon(Icons.auto_awesome_outlined,
+                        color: colors.primaryStrong, size: 18),
+                    label: Text(
+                      'Estimate AI',
+                      overflow: TextOverflow.ellipsis,
+                      style: text.labelMedium
+                          ?.copyWith(color: colors.primaryStrong),
+                    ),
+                    style: OutlinedButton.styleFrom(
+                      side: BorderSide(color: colors.hairline),
+                      shape: AppShape.buttonBorder,
+                      minimumSize: const Size(0, 48),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: AppSpacing.space3,
+                        vertical: AppSpacing.space2,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ),
+
+          // Honest AI-estimate banner — only when the form is an AI estimate.
+          // Shows the confidence + an explicit "check before saving" note so it
+          // is NEVER mistaken for a measured/exact value.
+          if (_aiEstimate != null) ...[
+            AppSpacing.gapV3,
+            _AiEstimateBanner(estimate: _aiEstimate!),
+          ],
           AppSpacing.gapV4,
 
           // Name (required)
@@ -1184,6 +1395,121 @@ class _EatInConfirmationSheet extends StatelessWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+// ── AI estimate chooser + banner ──────────────────────────────────────────────
+
+/// Which AI-estimate input the user picked.
+enum _AiEstimateChoice { photo, text }
+
+/// A small sheet letting the user estimate from a photo or a text description.
+class _AiEstimateChooserSheet extends StatelessWidget {
+  const _AiEstimateChooserSheet();
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    final text = Theme.of(context).textTheme;
+
+    return SafeArea(
+      top: false,
+      child: Padding(
+        key: const Key('nutrition-ai-chooser'),
+        padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Estimate with AI',
+                style: text.titleMedium?.copyWith(color: colors.textPrimary)),
+            AppSpacing.gapV1,
+            Text(
+              'Snap a photo or describe your meal — we\'ll estimate the macros. '
+              'It\'s an estimate; check it before saving.',
+              style: text.bodySmall?.copyWith(color: colors.textSecondary),
+            ),
+            AppSpacing.gapV4,
+            ListTile(
+              key: const Key('nutrition-ai-photo'),
+              leading: Icon(Icons.photo_camera_outlined,
+                  color: colors.primaryStrong),
+              title: const Text('Snap a photo'),
+              onTap: () => Navigator.of(context).pop(_AiEstimateChoice.photo),
+            ),
+            ListTile(
+              key: const Key('nutrition-ai-text'),
+              leading:
+                  Icon(Icons.edit_outlined, color: colors.primaryStrong),
+              title: const Text('Describe it in words'),
+              onTap: () => Navigator.of(context).pop(_AiEstimateChoice.text),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// An honest banner shown while the form holds an AI estimate. Surfaces the
+/// confidence and an explicit "estimate — check before saving" note so the
+/// numbers are NEVER mistaken for measured/exact values.
+class _AiEstimateBanner extends StatelessWidget {
+  const _AiEstimateBanner({required this.estimate});
+
+  final NutritionEstimate estimate;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    final text = Theme.of(context).textTheme;
+    final pct = (estimate.confidence * 100).round();
+    final note = estimate.note;
+
+    return Container(
+      key: const Key('nutrition-ai-estimate-banner'),
+      padding: const EdgeInsets.all(AppSpacing.space3),
+      decoration: BoxDecoration(
+        color: colors.primaryStrong.withValues(alpha: 0.08),
+        borderRadius: AppShape.field,
+        border: Border.all(color: colors.primaryStrong.withValues(alpha: 0.3)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.auto_awesome_outlined,
+              size: 16, color: colors.primaryStrong),
+          AppSpacing.gapH2,
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'AI estimate · $pct% confidence — check before saving',
+                  style: text.labelMedium?.copyWith(
+                    color: colors.textPrimary,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                if (note != null) ...[
+                  AppSpacing.gapV1,
+                  Text(
+                    note,
+                    style:
+                        text.bodySmall?.copyWith(color: colors.textSecondary),
+                  ),
+                ],
+                AppSpacing.gapV1,
+                Text(
+                  'Blank macros couldn\'t be estimated — fill any in yourself.',
+                  style: text.bodySmall?.copyWith(color: colors.textSecondary),
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
