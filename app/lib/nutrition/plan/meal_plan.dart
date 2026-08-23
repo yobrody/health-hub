@@ -209,9 +209,10 @@ List<NeededIngredient> neededIngredients(
         } else if (requiredGrams[key] != null && ing.grams != null) {
           requiredGrams[key] = requiredGrams[key]! + ing.grams!;
         } else {
-          // Once any line is unquantified, the total is unknown.
-          requiredGrams[key] = requiredGrams[key] ?? ing.grams;
-          if (ing.grams == null) requiredGrams[key] = null;
+          // At least one line (this or a previous one) is unquantified → the
+          // total is unknown and STAYS null. A later quantified line must never
+          // resurrect it into a fabricated number (honesty).
+          requiredGrams[key] = null;
         }
       }
     }

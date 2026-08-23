@@ -115,6 +115,42 @@ void main() {
       expect(needed.single.coverage, IngredientCoverage.absent);
     });
 
+    test('once ANY line of an ingredient is unquantified, the summed total '
+        'stays null — a later quantified line must not resurrect it (honesty)',
+        () {
+      final plan = MealPlan(
+        id: 'p',
+        weekStart: DateTime(2026, 8, 24),
+        days: [
+          PlanDay(date: DateTime(2026, 8, 24), meals: [
+            _meal([const PlanIngredient(name: 'Salt')]), // grams null
+            _meal([const PlanIngredient(name: 'salt', grams: 200)]),
+          ]),
+        ],
+      );
+      final needed = neededIngredients(plan, const []);
+      expect(needed, hasLength(1));
+      expect(needed.single.name, 'Salt');
+      // The real total is unknown (one line had no amount) — never 200.
+      expect(needed.single.gramsNeeded, isNull);
+    });
+
+    test('order-independent: quantified line first, then unquantified → still '
+        'null', () {
+      final plan = MealPlan(
+        id: 'p',
+        weekStart: DateTime(2026, 8, 24),
+        days: [
+          PlanDay(date: DateTime(2026, 8, 24), meals: [
+            _meal([const PlanIngredient(name: 'Flour', grams: 100)]),
+            _meal([const PlanIngredient(name: 'flour')]), // grams null
+          ]),
+        ],
+      );
+      final needed = neededIngredients(plan, const []);
+      expect(needed.single.gramsNeeded, isNull);
+    });
+
     test('non-gram pantry units (e.g. "x") count as present, not a shortfall',
         () {
       final plan = _plan([

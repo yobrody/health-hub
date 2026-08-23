@@ -91,19 +91,24 @@ class MealPlanRepo {
   /// returns [WriteOutcome.queued] — an offline save is a success, never a
   /// failure.
   Future<WriteOutcome> save(MealPlan plan) async {
+    // Persist AND enqueue inside the same serialized block so two near-
+    // simultaneous saves can't interleave (store gets B while the queue keeps
+    // A). Chaining them keeps the local snapshot and the queued write in
+    // agreement — a later save cleanly supersedes an earlier one.
     await _synchronized(() async {
-      await _store.save(plan.toJson());
+      final json = plan.toJson();
+      await _store.save(json);
+      await _outbox.enqueue(
+        PendingMutation(
+          id: 'meal-plan-${DateTime.now().microsecondsSinceEpoch}',
+          dedupeKey: _dedupeKey,
+          method: 'PUT',
+          path: _path,
+          body: json,
+          createdAt: DateTime.now().millisecondsSinceEpoch,
+        ),
+      );
     });
-    await _outbox.enqueue(
-      PendingMutation(
-        id: 'meal-plan-${DateTime.now().microsecondsSinceEpoch}',
-        dedupeKey: _dedupeKey,
-        method: 'PUT',
-        path: _path,
-        body: plan.toJson(),
-        createdAt: DateTime.now().millisecondsSinceEpoch,
-      ),
-    );
     return WriteOutcome.queued;
   }
 }
