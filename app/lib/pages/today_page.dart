@@ -28,6 +28,7 @@ import '../settings/settings_page.dart';
 import '../widgets/log_weight_sheet.dart';
 import '../widgets/nutrition_goals_editor.dart';
 import 'nutrition_page.dart';
+import 'weight_page.dart';
 
 /// The daily dashboard — the flagship luxury home screen.
 ///
@@ -152,6 +153,20 @@ class _TodayPageState extends ConsumerState<TodayPage> {
   Future<void> _logWeight() async {
     final saved = await showLogWeightSheet(context, repo: _weighIns);
     if (saved == true) await _reload();
+  }
+
+  /// Open the weight detail page (chart + history). Refreshes on return so the
+  /// Home weight card reflects any weigh-ins logged while in the detail page.
+  Future<void> _openWeightPage() async {
+    await Navigator.of(context).push<void>(
+      _appRoute(
+        (_) => WeightPage(
+          weighInRepo: _weighIns,
+          profileRepo: _repo,
+        ),
+      ),
+    );
+    await _reload();
   }
 
   /// A fade + gentle horizontal slide route for all modal pushes from Home.
@@ -302,7 +317,11 @@ class _TodayPageState extends ConsumerState<TodayPage> {
             child: const Text('Log weight'),
           ),
         ),
-        _WeightCard(profile: _profile, trend: _weightTrend),
+        _WeightCard(
+          profile: _profile,
+          trend: _weightTrend,
+          onTap: _openWeightPage,
+        ),
         AppSpacing.gapV8,
 
         SectionHeader(
@@ -514,10 +533,19 @@ class _SetupProfileCard extends StatelessWidget {
 /// (≥2 real weigh-ins) — with one reading we show current and no arrow, never an
 /// invented trend.
 class _WeightCard extends StatelessWidget {
-  const _WeightCard({required this.profile, required this.trend});
+  const _WeightCard({
+    required this.profile,
+    required this.trend,
+    this.onTap,
+  });
 
   final Profile profile;
   final WeightTrend trend;
+
+  /// Optional tap handler — makes the whole card navigate to the weight detail
+  /// page (chart + history). When null (e.g. in isolated tests) the card still
+  /// renders but tapping is a no-op.
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -530,6 +558,8 @@ class _WeightCard extends StatelessWidget {
     final weightStr = hasWeight ? formatKg(currentKg) : '—';
 
     return StatCard(
+      key: const Key('today-weight-card'),
+      onTap: onTap,
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [
