@@ -89,6 +89,19 @@ Widget _buildPage(
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
+/// Scroll the page's list until [key] is on-screen, then tap it. The Log/Guess
+/// buttons live deep in the (lazy) ListView — with the "Plan my week" entry now
+/// at the top, they can start below the build range, so a bare tap wouldn't find
+/// them.
+Future<void> _scrollAndTap(WidgetTester tester, Key key) async {
+  await tester.scrollUntilVisible(
+    find.byKey(key),
+    200,
+    scrollable: find.byType(Scrollable).first,
+  );
+  await tester.tap(find.byKey(key));
+}
+
 void main() {
   group('NutritionPage', () {
     // 1. Page renders with the required Key.
@@ -116,7 +129,7 @@ void main() {
           find.byKey(const Key('nutrition-protein')), '18');
 
       // Tap Log
-      await tester.tap(find.byKey(const Key('nutrition-log-btn')));
+      await _scrollAndTap(tester, const Key('nutrition-log-btn'));
       await tester.pump();
 
       final items = store.items;
@@ -142,7 +155,7 @@ void main() {
       await tester.enterText(find.byKey(const Key('nutrition-grams')), '200');
 
       // Tap Guess (no macros filled → estimate)
-      await tester.tap(find.byKey(const Key('nutrition-guess-btn')));
+      await _scrollAndTap(tester, const Key('nutrition-guess-btn'));
       await tester.pump();
 
       final items = store.items;
@@ -173,7 +186,7 @@ void main() {
       await tester.enterText(
           find.byKey(const Key('nutrition-spend')), '14.50');
 
-      await tester.tap(find.byKey(const Key('nutrition-log-btn')));
+      await _scrollAndTap(tester, const Key('nutrition-log-btn'));
       await tester.pump();
 
       final items = store.items;
@@ -221,7 +234,7 @@ void main() {
       );
 
       // Tap Log to submit
-      await tester.tap(find.byKey(const Key('nutrition-log-btn')));
+      await _scrollAndTap(tester, const Key('nutrition-log-btn'));
       await tester.pump();
 
       final items = store.items;

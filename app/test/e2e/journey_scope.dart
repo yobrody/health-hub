@@ -27,6 +27,9 @@ import 'package:health_hub/metrics/weigh_in_repo.dart';
 import 'package:health_hub/nutrition/food_log_entry.dart';
 import 'package:health_hub/nutrition/nutrition_goals_repo.dart';
 import 'package:health_hub/nutrition/nutrition_repo.dart';
+import 'package:health_hub/nutrition/plan/meal_plan.dart';
+import 'package:health_hub/nutrition/plan/meal_plan_client.dart';
+import 'package:health_hub/nutrition/plan/meal_plan_repo.dart';
 import 'package:health_hub/offline/outbox.dart';
 import 'package:health_hub/offline/outbox_store.dart';
 import 'package:health_hub/offline/pending_mutation.dart';
@@ -117,6 +120,18 @@ class _MemGroceryStore implements GroceryListStore {
   Future<void> save(List<GroceryItem> items) async => _i = List.of(items);
 }
 
+class _MemMealPlanStore implements MealPlanStore {
+  _MemMealPlanStore([this._saved]);
+  Map<String, dynamic>? _saved;
+  @override
+  Future<Map<String, dynamic>?> load() async => _saved;
+  @override
+  Future<void> save(Map<String, dynamic> json) async =>
+      _saved = Map<String, dynamic>.from(json);
+  @override
+  Future<void> clear() async => _saved = null;
+}
+
 class _MemKitchenLayoutStore implements KitchenLayoutStore {
   KitchenLayout _layout = KitchenLayout.initial;
   @override
@@ -155,6 +170,8 @@ class JourneyHarness {
     List<PantryItem>? pantry,
     List<WorkoutSession>? workouts,
     List<WeighIn>? weighIns,
+    MealPlan? mealPlan,
+    MealPlan? planResult,
     bool noProfile = false,
   }) {
     profileRepo = ProfileRepo(
@@ -195,6 +212,11 @@ class JourneyHarness {
     );
     groceryRepo =
         GroceryListRepo(outbox: Outbox(_MemOutboxStore()), store: _MemGroceryStore());
+    mealPlanRepo = MealPlanRepo(
+      outbox: Outbox(_MemOutboxStore()),
+      store: _MemMealPlanStore(mealPlan?.toJson()),
+    );
+    planClient = FakeMealPlanClient(result: planResult);
     kitchenLayoutRepo = KitchenLayoutRepo(store: _MemKitchenLayoutStore());
     purchaseHistoryRepo =
         PurchaseHistoryRepo(store: _MemPurchaseHistoryStore());
@@ -212,6 +234,8 @@ class JourneyHarness {
   late final WorkoutRepo workoutRepo;
   late final WeighInRepo weighInRepo;
   late final GroceryListRepo groceryRepo;
+  late final MealPlanRepo mealPlanRepo;
+  late final FakeMealPlanClient planClient;
   late final KitchenLayoutRepo kitchenLayoutRepo;
   late final PurchaseHistoryRepo purchaseHistoryRepo;
 
@@ -230,6 +254,8 @@ class JourneyHarness {
         workoutRepoProvider.overrideWithValue(workoutRepo),
         weighInRepoProvider.overrideWithValue(weighInRepo),
         groceryListRepoProvider.overrideWithValue(groceryRepo),
+        mealPlanRepoProvider.overrideWithValue(mealPlanRepo),
+        mealPlanClientProvider.overrideWithValue(planClient),
         kitchenLayoutRepoProvider.overrideWithValue(kitchenLayoutRepo),
         // The honest reorder-cadence learner: its acquisitionServiceProvider
         // reads the pantryRepo override above + this shared in-memory history

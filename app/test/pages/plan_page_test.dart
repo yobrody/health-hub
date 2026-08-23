@@ -1,0 +1,155 @@
+// Widget tests for PlanPage — the agentic "plan my week" flow, driven by the
+// JourneyHarness fakes (in-memory repos + FakeMealPlanClient). No network.
+
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:health_hub/nutrition/food_log_entry.dart' show AccuracyTier;
+import 'package:health_hub/nutrition/plan/meal_plan.dart';
+import 'package:health_hub/pages/plan_page.dart';
+import 'package:health_hub/pantry/pantry_item.dart';
+
+import '../e2e/journey_scope.dart';
+
+MealPlan _cannedPlan() => MealPlan(
+      id: 'plan-canned',
+      weekStart: DateTime(2026, 8, 24),
+      days: [
+        PlanDay(date: DateTime(2026, 8, 24), meals: [
+          PlanMeal(
+            name: 'Oats & yogurt',
+            slot: MealSlot.breakfast,
+            tier: AccuracyTier.estimate,
+            kcal: 420,
+            ingredients: const [
+              PlanIngredient(name: 'Oats', grams: 60), // in pantry (covered)
+              PlanIngredient(name: 'Blueberries', grams: 80), // absent → gap
+            ],
+          ),
+        ]),
+      ],
+    );
+
+Widget _host(JourneyHarness h, {DateTime? now}) => ProviderScope(
+      overrides: h.overrides,
+      child: MaterialApp(
+        home: PlanPage(
+          planRepo: h.mealPlanRepo,
+          planClient: h.planClient,
+          goalsRepo: h.goalsRepo,
+          pantryRepo: h.pantryRepo,
+          groceryRepo: h.groceryRepo,
+          now: now ?? DateTime(2026, 8, 24),
+        ),
+      ),
+    );
+
+void main() {
+  testWidgets('no goal → honest "set your goal first", no generate button',
+      (tester) async {
+    final h = JourneyHarness(); // no goals seeded
+    await tester.pumpWidget(_host(h));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('plan-needs-goal')), findsOneWidget);
+    expect(find.byKey(const Key('plan-generate-btn')), findsNothing);
+  });
+
+  testWidgets('has goal, no plan → generate builds + shows the plan + gaps',
+      (tester) async {
+    final h = JourneyHarness(
+      goals: {'caloriesKcal': 2600.0},
+      pantry: [
+        const PantryItem(
+            id: 'p1',
+            name: 'Oats',
+            zone: PantryZone.pantry,
+            qty: 500,
+            unit: 'g',
+            source: 'manual'),
+      ],
+      planResult: _cannedPlan(),
+    );
+    await tester.pumpWidget(_host(h));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('plan-generate-btn')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('plan-generate-btn')));
+    await tester.pumpAndSettle();
+
+    // The plan renders (day card + the meal — shown as "Breakfast · <name>"),
+    // and the shopping card shows only the gap (Blueberries), NOT Oats (covered
+    // by the 500g pantry).
+    expect(find.textContaining('Oats & yogurt'), findsWidgets);
+    expect(find.byKey(const Key('plan-shopping-card')), findsOneWidget);
+    expect(find.text('Blueberries'), findsOneWidget); // the gap row.
+
+    // The plan persisted.
+    expect(await h.mealPlanRepo.load(), isNotNull);
+    // The client received the real goal + pantry.
+    expect(h.planClient.lastGoals!.caloriesKcal, 2600);
+    expect(h.planClient.lastPantry!.single.name, 'Oats');
+  });
+
+  testWidgets('add gaps to cart → only the gap lands in the grocery list',
+      (tester) async {
+    final h = JourneyHarness(
+      goals: {'caloriesKcal': 2600.0},
+      pantry: [
+        const PantryItem(
+            id: 'p1',
+            name: 'Oats',
+            zone: PantryZone.pantry,
+            qty: 500,
+            unit: 'g',
+            source: 'manual'),
+      ],
+      mealPlan: _cannedPlan(), // start with a plan already generated
+    );
+    await tester.pumpWidget(_host(h));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('plan-add-to-cart-btn')));
+    await tester.pumpAndSettle();
+
+    final cart = await h.groceryRepo.all();
+    expect(cart.map((i) => i.name), ['Blueberries']); // the gap only.
+    expect(find.text('Added to cart ✓'), findsOneWidget);
+  });
+
+  testWidgets('planner returns null → honest "couldn\'t plan", no fabrication',
+      (tester) async {
+    final h = JourneyHarness(
+      goals: {'caloriesKcal': 2600.0},
+      // planResult null → the fake client returns null.
+    );
+    await tester.pumpWidget(_host(h));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('plan-generate-btn')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('plan-error')), findsOneWidget);
+    // Still no plan — nothing fabricated.
+    expect(await h.mealPlanRepo.load(), isNull);
+  });
+
+  testWidgets('a plan the pantry fully covers → "you have everything", no cart '
+      'button', (tester) async {
+    final h = JourneyHarness(
+      goals: {'caloriesKcal': 2600.0},
+      pantry: [
+        const PantryItem(
+            id: 'p1', name: 'Oats', zone: PantryZone.pantry, qty: 500, unit: 'g', source: 'manual'),
+        const PantryItem(
+            id: 'p2', name: 'Blueberries', zone: PantryZone.fridge, qty: 300, unit: 'g', source: 'manual'),
+      ],
+      mealPlan: _cannedPlan(),
+    );
+    await tester.pumpWidget(_host(h));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('plan-no-gaps')), findsOneWidget);
+    expect(find.byKey(const Key('plan-add-to-cart-btn')), findsNothing);
+  });
+}
