@@ -34,8 +34,10 @@ import 'package:health_hub/metrics/weigh_in.dart';
 import 'package:health_hub/nav/root_scaffold.dart';
 import 'package:health_hub/nutrition/food_log_entry.dart';
 import 'package:health_hub/onboarding/onboarding_flow.dart';
+import 'package:health_hub/nutrition/plan/meal_plan.dart';
 import 'package:health_hub/pages/gym_page.dart';
 import 'package:health_hub/pages/nutrition_page.dart';
+import 'package:health_hub/pages/plan_page.dart';
 import 'package:health_hub/pages/transformation_page.dart';
 import 'package:health_hub/pages/weight_page.dart';
 import 'package:health_hub/pantry/pantry_item.dart';
@@ -232,6 +234,52 @@ const _groceryNames = [
 ];
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+// A representative generated week for the Plan page golden (populated state).
+MealPlan _planForGolden() => MealPlan(
+      id: 'plan-golden',
+      weekStart: DateTime(2026, 8, 24),
+      days: [
+        PlanDay(date: DateTime(2026, 8, 24), meals: [
+          PlanMeal(
+            name: 'Greek yogurt & oats',
+            slot: MealSlot.breakfast,
+            tier: AccuracyTier.estimate,
+            kcal: 420,
+            proteinG: 30,
+            ingredients: const [
+              PlanIngredient(name: 'Greek yogurt', grams: 200), // in pantry
+              PlanIngredient(name: 'Rolled oats', grams: 60), // in pantry
+              PlanIngredient(name: 'Blueberries', grams: 80), // gap
+            ],
+          ),
+          PlanMeal(
+            name: 'Chicken & rice',
+            slot: MealSlot.lunch,
+            tier: AccuracyTier.estimate,
+            kcal: 650,
+            proteinG: 48,
+            ingredients: const [
+              PlanIngredient(name: 'Chicken breast', grams: 200), // in pantry
+              PlanIngredient(name: 'Brown rice', grams: 120), // in pantry
+            ],
+          ),
+        ]),
+        PlanDay(date: DateTime(2026, 8, 25), meals: [
+          PlanMeal(
+            name: 'Salmon & veg',
+            slot: MealSlot.dinner,
+            tier: AccuracyTier.estimate,
+            kcal: 700,
+            proteinG: 45,
+            ingredients: const [
+              PlanIngredient(name: 'Salmon fillet', grams: 180), // gap
+              PlanIngredient(name: 'Frozen broccoli', grams: 200), // in pantry
+            ],
+          ),
+        ]),
+      ],
+    );
 
 /// Build a [JourneyHarness] with representative data seeded.
 JourneyHarness _harness() => JourneyHarness(
@@ -537,6 +585,53 @@ void main() {
           h.overrides,
           theme,
           'transformation_$themeName',
+        );
+      });
+
+      // ── Plan my week — populated (generated plan + shopping gaps) ──────────
+
+      testWidgets('plan_populated', (tester) async {
+        addTearDown(tester.view.resetPhysicalSize);
+        final h = JourneyHarness(
+          profile: _profile,
+          goals: _goals,
+          pantry: _pantry,
+          mealPlan: _planForGolden(),
+        );
+        await _capture(
+          tester,
+          PlanPage(
+            planRepo: h.mealPlanRepo,
+            planClient: h.planClient,
+            goalsRepo: h.goalsRepo,
+            pantryRepo: h.pantryRepo,
+            groceryRepo: h.groceryRepo,
+            now: DateTime(2026, 8, 24),
+          ),
+          h.overrides,
+          theme,
+          'plan_populated_$themeName',
+        );
+      });
+
+      // ── Plan my week — empty (has goal, no plan yet) ──────────────────────
+
+      testWidgets('plan_empty', (tester) async {
+        addTearDown(tester.view.resetPhysicalSize);
+        final h = JourneyHarness(profile: _profile, goals: _goals, pantry: _pantry);
+        await _capture(
+          tester,
+          PlanPage(
+            planRepo: h.mealPlanRepo,
+            planClient: h.planClient,
+            goalsRepo: h.goalsRepo,
+            pantryRepo: h.pantryRepo,
+            groceryRepo: h.groceryRepo,
+            now: DateTime(2026, 8, 24),
+          ),
+          h.overrides,
+          theme,
+          'plan_empty_$themeName',
         );
       });
 

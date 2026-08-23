@@ -45,8 +45,10 @@ import '../nutrition/food_log_entry.dart';
 import '../nutrition/nutrition_repo.dart';
 import '../nutrition/off_client.dart';
 import '../nutrition/packaged_food_model.dart';
+import '../nutrition/plan/meal_plan_client.dart';
 import '../pantry/pantry_item.dart';
 import '../pantry/pantry_repo.dart';
+import 'plan_page.dart';
 import '../profile/profile_model.dart'; // showOrDash
 import '../widgets/nutrition_goals_editor.dart';
 
@@ -595,6 +597,15 @@ class NutritionPageState extends ConsumerState<NutritionPage> {
           'Log Food',
           style: text.titleLarge?.copyWith(color: colors.textPrimary),
         ),
+        actions: [
+          IconButton(
+            key: const Key('nutrition-plan-entry'),
+            icon: const Icon(Icons.auto_awesome),
+            color: colors.primaryStrong,
+            tooltip: 'Plan my week',
+            onPressed: _openPlan,
+          ),
+        ],
       ),
       body: _loading
           ? const Center(child: SizedBox.shrink())
@@ -626,6 +637,24 @@ class NutritionPageState extends ConsumerState<NutritionPage> {
                 _buildTodayLog(),
               ],
             ),
+    );
+  }
+
+  // ── Plan-my-week entry ──────────────────────────────────────────────────────
+
+  /// Open the agentic "Plan my week" screen, wired to the same repos + planner
+  /// client the composition root provides.
+  void _openPlan() {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => PlanPage(
+          planRepo: ref.read(mealPlanRepoProvider),
+          planClient: ref.read(mealPlanClientProvider),
+          goalsRepo: ref.read(nutritionGoalsRepoProvider),
+          pantryRepo: ref.read(pantryRepoProvider),
+          groceryRepo: ref.read(groceryListRepoProvider),
+        ),
+      ),
     );
   }
 
