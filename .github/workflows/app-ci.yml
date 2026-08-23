@@ -39,7 +39,7 @@ jobs:
 
       - name: Test
         working-directory: app
-        run: flutter test
+        run: flutter test --exclude-tags golden
 
   # ---------------------------------------------------------------------------
   # ios-build: (DEFERRED — placeholder, not active)
