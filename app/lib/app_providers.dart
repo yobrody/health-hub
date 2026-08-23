@@ -17,6 +17,7 @@ import 'meals/eat_in_service.dart';
 import 'metrics/weigh_in_repo.dart';
 import 'nutrition/nutrition_goals_repo.dart';
 import 'nutrition/nutrition_repo.dart';
+import 'nutrition/plan/meal_plan_repo.dart';
 import 'nutrition/off_client.dart';
 import 'offline/failed_store.dart';
 import 'offline/outbox.dart';
@@ -228,6 +229,23 @@ final nutritionGoalsRepoProvider = Provider<NutritionGoalsRepo>((ref) {
   );
 });
 
+/// Local meal-plan persistence — the current weekly plan (a singleton, survives
+/// restart).
+final mealPlanStoreProvider = Provider<MealPlanStore>((ref) {
+  return const SharedPrefsMealPlanStore();
+});
+
+/// The meal-plan repository — the "plan my week" data layer (singleton per user).
+/// Wired to the SAME shared [Outbox] every other repo uses, so a saved plan is
+/// replayed by [syncServiceProvider] into the `meal_plans` table. Absent plan →
+/// null (honest "no plan yet"). Overridable in tests.
+final mealPlanRepoProvider = Provider<MealPlanRepo>((ref) {
+  return MealPlanRepo(
+    outbox: ref.watch(outboxProvider),
+    store: ref.watch(mealPlanStoreProvider),
+  );
+});
+
 /// Local weigh-in history persistence (survives restart).
 final weighInStoreProvider = Provider<WeighInStore>((ref) {
   return const SharedPrefsWeighInStore();
@@ -349,6 +367,7 @@ final supabaseHydratorProvider = Provider<SupabaseHydrator?>((ref) {
     goalsStore: ref.watch(nutritionGoalsStoreProvider),
     weighInStore: ref.watch(weighInStoreProvider),
     groceryStore: ref.watch(groceryListStoreProvider),
+    mealPlanStore: ref.watch(mealPlanStoreProvider),
   );
 });
 

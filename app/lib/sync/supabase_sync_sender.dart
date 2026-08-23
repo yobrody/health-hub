@@ -184,6 +184,13 @@ class SupabaseSyncSender implements MutationSender {
       if (table.name == 'nutrition_goals') {
         row['id'] = 'goals-$userId';
       }
+      // `meal_plans` is the same shape: a text PK `id` with no default, keyed
+      // (unique) on user_id. Mint a STABLE per-user id so an Outbox replay
+      // upserts idempotently (insert supplies id, conflict on user_id updates)
+      // and never collides across users. The plan's own richer id lives in data.
+      if (table.name == 'meal_plans') {
+        row['id'] = 'plan-$userId';
+      }
       _liftSingletonColumns(table, body, row);
       return row;
     }
@@ -297,6 +304,12 @@ class SupabaseSyncSender implements MutationSender {
         _put(row, 'protein_g', body['proteinG'] ?? body['protein_g']);
         _put(row, 'carbs_g', body['carbsG'] ?? body['carbs_g']);
         _put(row, 'fat_g', body['fatG'] ?? body['fat_g']);
+        break;
+      case 'meal_plans':
+        // MealPlan.toJson(): weekStart (ISO). Lift it for querying/ordering; the
+        // full plan lives in `data`. An absent weekStart stays NULL (never
+        // fabricated), though the model always emits it.
+        _put(row, 'week_start', body['weekStart'] ?? body['week_start']);
         break;
     }
   }

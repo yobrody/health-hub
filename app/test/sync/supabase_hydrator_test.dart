@@ -22,6 +22,8 @@ import 'package:health_hub/nutrition/food_log_entry.dart';
 import 'package:health_hub/nutrition/nutrition_goals_repo.dart'
     show NutritionGoalsStore;
 import 'package:health_hub/nutrition/nutrition_repo.dart' show NutritionStore;
+import 'package:health_hub/nutrition/plan/meal_plan_repo.dart'
+    show MealPlanStore;
 import 'package:health_hub/pantry/pantry_item.dart';
 import 'package:health_hub/pantry/pantry_repo.dart' show PantryStore;
 import 'package:health_hub/profile/profile_repo.dart' show ProfileStore;
@@ -117,6 +119,18 @@ class FakeGroceryStore implements GroceryListStore {
   Future<void> save(List<GroceryItem> next) async => items = List.of(next);
 }
 
+class FakeMealPlanStore implements MealPlanStore {
+  Map<String, dynamic>? saved;
+  FakeMealPlanStore([this.saved]);
+  @override
+  Future<Map<String, dynamic>?> load() async => saved;
+  @override
+  Future<void> save(Map<String, dynamic> json) async =>
+      saved = Map<String, dynamic>.from(json);
+  @override
+  Future<void> clear() async => saved = null;
+}
+
 ({
   SupabaseHydrator hydrator,
   FakeProfileStore profile,
@@ -126,6 +140,7 @@ class FakeGroceryStore implements GroceryListStore {
   FakeGoalsStore goals,
   FakeWeighInStore weighIns,
   FakeGroceryStore grocery,
+  FakeMealPlanStore mealPlan,
 }) _build(
   FakeSupabaseWriter writer, {
   FakeProfileStore? profile,
@@ -135,6 +150,7 @@ class FakeGroceryStore implements GroceryListStore {
   FakeGoalsStore? goals,
   FakeWeighInStore? weighIns,
   FakeGroceryStore? grocery,
+  FakeMealPlanStore? mealPlan,
 }) {
   final p = profile ?? FakeProfileStore();
   final pa = pantry ?? FakePantryStore();
@@ -143,6 +159,7 @@ class FakeGroceryStore implements GroceryListStore {
   final g = goals ?? FakeGoalsStore();
   final wi = weighIns ?? FakeWeighInStore();
   final gr = grocery ?? FakeGroceryStore();
+  final mp = mealPlan ?? FakeMealPlanStore();
   return (
     hydrator: SupabaseHydrator(
       writer: writer,
@@ -153,6 +170,7 @@ class FakeGroceryStore implements GroceryListStore {
       goalsStore: g,
       weighInStore: wi,
       groceryStore: gr,
+      mealPlanStore: mp,
     ),
     profile: p,
     pantry: pa,
@@ -161,6 +179,7 @@ class FakeGroceryStore implements GroceryListStore {
     goals: g,
     weighIns: wi,
     grocery: gr,
+    mealPlan: mp,
   );
 }
 
@@ -377,5 +396,50 @@ void main() {
 
     // The grocery pull threw → local list untouched, NOT cleared.
     expect(env.grocery.items.single.id, 'local-g1');
+  });
+
+  test('meal-plan singleton rebuilt from its data jsonb', () async {
+    final writer = FakeSupabaseWriter()
+      ..seed('meal_plans', [
+        {
+          'user_id': 'u1',
+          'week_start': '2026-08-24T00:00:00.000',
+          'data': {
+            'id': 'plan-u1-2026W35',
+            'weekStart': '2026-08-24T00:00:00.000',
+            'days': [
+              {
+                'date': '2026-08-24T00:00:00.000',
+                'meals': [
+                  {
+                    'name': 'Oats & yogurt',
+                    'slot': 'breakfast',
+                    'tier': 'estimate',
+                    'ingredients': [
+                      {'name': 'Oats', 'grams': 60},
+                    ],
+                    'kcal': 420,
+                  },
+                ],
+              },
+            ],
+          },
+        }
+      ]);
+    final env = _build(writer);
+    await env.hydrator.hydrate('u1');
+
+    expect(env.mealPlan.saved, isNotNull);
+    expect(env.mealPlan.saved!['id'], 'plan-u1-2026W35');
+    final days = env.mealPlan.saved!['days'] as List;
+    expect((days.single as Map)['meals'], hasLength(1));
+  });
+
+  test('an EMPTY meal-plan pull leaves the local plan intact', () async {
+    final writer = FakeSupabaseWriter(); // nothing seeded.
+    final existing = FakeMealPlanStore({'id': 'local-plan'});
+    final env = _build(writer, mealPlan: existing);
+    await env.hydrator.hydrate('u1');
+    expect(env.mealPlan.saved, {'id': 'local-plan'}); // untouched.
   });
 }

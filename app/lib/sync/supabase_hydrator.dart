@@ -10,6 +10,8 @@ import '../nutrition/food_log_entry.dart';
 import '../nutrition/nutrition_goals.dart';
 import '../nutrition/nutrition_goals_repo.dart' show NutritionGoalsStore;
 import '../nutrition/nutrition_repo.dart' show NutritionStore;
+import '../nutrition/plan/meal_plan.dart';
+import '../nutrition/plan/meal_plan_repo.dart' show MealPlanStore;
 import '../pantry/pantry_item.dart';
 import '../pantry/pantry_repo.dart' show PantryStore;
 import '../profile/profile_model.dart';
@@ -43,6 +45,7 @@ class SupabaseHydrator {
     required NutritionGoalsStore goalsStore,
     required WeighInStore weighInStore,
     required GroceryListStore groceryStore,
+    required MealPlanStore mealPlanStore,
   })  : _writer = writer,
         _profileStore = profileStore,
         _pantryStore = pantryStore,
@@ -50,7 +53,8 @@ class SupabaseHydrator {
         _workoutStore = workoutStore,
         _goalsStore = goalsStore,
         _weighInStore = weighInStore,
-        _groceryStore = groceryStore;
+        _groceryStore = groceryStore,
+        _mealPlanStore = mealPlanStore;
 
   final SupabaseWriter _writer;
   final ProfileStore _profileStore;
@@ -60,6 +64,7 @@ class SupabaseHydrator {
   final NutritionGoalsStore _goalsStore;
   final WeighInStore _weighInStore;
   final GroceryListStore _groceryStore;
+  final MealPlanStore _mealPlanStore;
 
   /// Hydrate every synced store for [userId]. RLS already restricts each
   /// `select` to the caller's own rows; [userId] is accepted for clarity and so
@@ -76,6 +81,7 @@ class SupabaseHydrator {
       _hydrateGoals(),
       _hydrateWeighIns(),
       _hydrateGrocery(),
+      _hydrateMealPlan(),
     ]);
   }
 
@@ -160,6 +166,21 @@ class SupabaseHydrator {
       await _groceryStore.save(items);
     } catch (_) {
       // Leave local intact.
+    }
+  }
+
+  Future<void> _hydrateMealPlan() async {
+    try {
+      final rows = await _writer.selectAll('meal_plans');
+      if (rows.isEmpty) return; // nothing to hydrate — leave local intact.
+      // Singleton: one row per user. Its `data` jsonb holds the full
+      // MealPlan.toJson(), the source of truth.
+      final data = rows.first['data'];
+      if (data is! Map) return; // no snapshot → don't fabricate.
+      final plan = MealPlan.fromJson(Map<String, dynamic>.from(data));
+      await _mealPlanStore.save(plan.toJson());
+    } catch (_) {
+      // Failed pull / parse → leave the local plan untouched (no wipe).
     }
   }
 
