@@ -261,13 +261,19 @@ class _TransformationPageState extends State<TransformationPage> {
                   ),
                 ),
                 AppSpacing.gapH3,
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 4),
-                  child: Text(
-                    '~${roadmap.weeksToGoal} weeks · '
-                    '${formatKg(roadmap.remainingKg)} kg to go',
-                    style:
-                        text.bodySmall?.copyWith(color: colors.textSecondary),
+                // Flexible so the sub-label wraps below the (wide, 28px serif)
+                // ETA month instead of overflowing the row at narrow widths —
+                // e.g. "March 2027" + "~30 weeks · 9.7 kg to go" doesn't fit on
+                // one line at iPhone-13 width.
+                Flexible(
+                  child: Padding(
+                    padding: const EdgeInsets.only(bottom: 4),
+                    child: Text(
+                      '~${roadmap.weeksToGoal} weeks · '
+                      '${formatKg(roadmap.remainingKg)} kg to go',
+                      style:
+                          text.bodySmall?.copyWith(color: colors.textSecondary),
+                    ),
                   ),
                 ),
               ],

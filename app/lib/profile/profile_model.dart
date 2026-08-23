@@ -166,5 +166,12 @@ String showOrDash(Object? v) {
 /// number reads as `60` not `60.0`. The single shared formatter used wherever a
 /// weight is rendered (set rows, progression reasons, the next-weight
 /// suggestion) — do not re-inline the `% 1 == 0` dance.
-String formatKg(double kg) =>
-    kg == kg.roundToDouble() ? kg.round().toString() : kg.toString();
+String formatKg(double kg) {
+  // Round to 2 dp first so IEEE-754 subtraction noise (e.g. 62.3 - 61.0 =
+  // 1.2999999999999972) never leaks into the UI, while genuine micro-plate
+  // precision (1.25 kg) is preserved.
+  final rounded = (kg * 100).round() / 100;
+  return rounded == rounded.roundToDouble()
+      ? rounded.round().toString()
+      : rounded.toString();
+}

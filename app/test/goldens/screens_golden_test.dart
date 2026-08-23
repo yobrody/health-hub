@@ -10,15 +10,18 @@
 // These are excluded from CI (tagged 'golden') so platform font diffs never
 // break the build. Run locally to inspect design; commit the images for review.
 //
-// The test does NOT make network calls — GoogleFonts.config.allowRuntimeFetching
-// is disabled in setUpAll; if the font cache is cold on a fresh machine, text
-// will render in a sans-serif fallback (still legible). Pre-warm the cache by
-// running the app once on the device, or by having the pub-cache fonts present.
+// The test does NOT make network calls. Real Fraunces + Inter TTFs are checked
+// in under test/goldens/fonts/ and registered via FontLoader in setUpAll under
+// the family names google_fonts resolves to, so the goldens render true glyphs
+// on any machine (no pub-cache warming needed).
 
 @Tags(['golden'])
 library;
 
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -49,16 +52,19 @@ const _kDpr = 3.0;
 // ── Representative seed data ──────────────────────────────────────────────────
 
 // Profile JSON: 26 y/o male, 62 kg current, 72 kg goal (lean bulk).
-// Keys must match how _MemProfileStore.load() returns them — this map is
-// handed directly to ProfileRepo → Profile.fromJson.
+// Keys are the snake_case names Profile.fromJson reads (target_weight_kg,
+// goal_direction, primary_gym) — camelCase here would silently parse as null,
+// which is what made the Transformation golden render its honest "set your
+// goal" empty state instead of the populated roadmap.
 const _profile = {
   'weight_kg': 62.0,
   'height_cm': 178.0,
   'age_years': 26,
   'sex': 'male',
-  'goalDirection': 'gain',
-  'targetWeightKg': 72.0,
-  'primaryGym': 'The Gym Group',
+  'goal_direction': 'gain',
+  'target_weight_kg': 72.0,
+  'body_fat_percent': 16.0,
+  'primary_gym': 'The Gym Group',
 };
 
 // Nutrition goals — camelCase to match NutritionGoals.fromJson.
@@ -261,6 +267,24 @@ Future<T> _suppressOverflows<T>(Future<T> Function() action) async {
   }
 }
 
+/// Render soft shadows for the duration of [action], then restore the default.
+///
+/// flutter_test forces [debugDisableShadows] on, which rasterizes every
+/// elevation as a HARD BLACK shape (a thick black ring around FABs, a black
+/// hairline under cards) — misleading for a design review. We flip it off
+/// across the whole capture (pump AND golden rasterization) so shadows render
+/// soft like a device, then restore it to `true` before the test body returns —
+/// the framework asserts the flag is back to its automated-mode default between
+/// tests, and that invariant check runs *before* any tearDown.
+Future<T> _withSoftShadows<T>(Future<T> Function() action) async {
+  debugDisableShadows = false;
+  try {
+    return await action();
+  } finally {
+    debugDisableShadows = true;
+  }
+}
+
 /// Pump a widget in a [ProviderScope] + [MaterialApp] at the iPhone-13 size,
 /// settle animations, and capture a golden PNG.
 Future<void> _capture(
@@ -270,24 +294,26 @@ Future<void> _capture(
   ThemeData theme,
   String goldenName,
 ) async {
-  _setIphoneSize(tester);
-  await _suppressOverflows(() async {
-    await tester.pumpWidget(
-      ProviderScope(
-        overrides: overrides,
-        child: MaterialApp(
-          theme: theme,
-          debugShowCheckedModeBanner: false,
-          home: widget,
+  await _withSoftShadows(() async {
+    _setIphoneSize(tester);
+    await _suppressOverflows(() async {
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: overrides,
+          child: MaterialApp(
+            theme: theme,
+            debugShowCheckedModeBanner: false,
+            home: widget,
+          ),
         ),
-      ),
+      );
+      await _settle(tester);
+    });
+    await expectLater(
+      find.byType(MaterialApp),
+      matchesGoldenFile('images/$goldenName.png'),
     );
-    await _settle(tester);
   });
-  await expectLater(
-    find.byType(MaterialApp),
-    matchesGoldenFile('images/$goldenName.png'),
-  );
 }
 
 /// Pump + settle with a short timeout; if animations never end, pump a few
@@ -312,43 +338,84 @@ Future<void> _captureShell(
   int tabIndex,
   String goldenName,
 ) async {
-  _setIphoneSize(tester);
-  await _suppressOverflows(() async {
-    await tester.pumpWidget(
-      ProviderScope(
-        overrides: h.overrides,
-        child: MaterialApp(
-          theme: theme,
-          debugShowCheckedModeBanner: false,
-          home: const RootScaffold(),
+  await _withSoftShadows(() async {
+    _setIphoneSize(tester);
+    await _suppressOverflows(() async {
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: h.overrides,
+          child: MaterialApp(
+            theme: theme,
+            debugShowCheckedModeBanner: false,
+            home: const RootScaffold(),
+          ),
         ),
-      ),
-    );
-    await _settle(tester);
+      );
+      await _settle(tester);
 
-    if (tabIndex != 0) {
-      final navDests = find.byType(NavigationDestination);
-      if (navDests.evaluate().length > tabIndex) {
-        await tester.tap(navDests.at(tabIndex));
-        await _settle(tester);
+      if (tabIndex != 0) {
+        final navDests = find.byType(NavigationDestination);
+        if (navDests.evaluate().length > tabIndex) {
+          await tester.tap(navDests.at(tabIndex));
+          await _settle(tester);
+        }
       }
-    }
-  });
+    });
 
-  await expectLater(
-    find.byType(MaterialApp),
-    matchesGoldenFile('images/$goldenName.png'),
-  );
+    await expectLater(
+      find.byType(MaterialApp),
+      matchesGoldenFile('images/$goldenName.png'),
+    );
+  });
 }
 
 // ── Test suite ────────────────────────────────────────────────────────────────
 
 void main() {
-  setUpAll(() {
-    // Disable network font fetching in tests — text will use whatever fonts are
-    // cached locally. Real fonts (Fraunces/Inter) appear when the pub cache is
-    // warm; a cold cache uses a system fallback (still legible).
+  setUpAll(() async {
+    // Never fetch fonts over the network in tests.
     GoogleFonts.config.allowRuntimeFetching = false;
+
+    // Register the real Fraunces + Inter TTFs (checked in under
+    // test/goldens/fonts/) under the exact family names google_fonts resolves
+    // to. With runtime fetching off and no cached copy, GoogleFonts falls back
+    // to a font family literally named 'Fraunces' / 'Inter' — which these
+    // loaders now provide — so the goldens render true glyphs (not the
+    // box-glyph test fallback). Variable fonts; the default instance is used.
+    // At render time google_fonts sets each TextStyle's fontFamily to
+    // '${family}_$variant', where $variant is the numeric weight (e.g. 600) or
+    // the literal 'regular' for w400 — see GoogleFontsFamilyWithVariant.toString
+    // in google_fonts 8.2.1. So register the variable TTF under every one of
+    // those exact names. The variable font carries all weights; the default
+    // instance renders (real glyphs, correct proportions) — enough for a visual
+    // design review even if the on-screen weight isn't axis-varied.
+    const variants = [
+      'regular',
+      '100', '200', '300', '500', '600', '700', '800', '900',
+    ];
+    Future<void> loadFont(String base, String path) async {
+      final bytes = await File(path).readAsBytes();
+      for (final v in variants) {
+        final loader = FontLoader('${base}_$v')
+          ..addFont(Future.value(ByteData.view(bytes.buffer)));
+        await loader.load();
+      }
+    }
+
+    await loadFont('Fraunces', 'test/goldens/fonts/Fraunces.ttf');
+    await loadFont('Inter', 'test/goldens/fonts/Inter.ttf');
+
+    // Icon fonts (single family name each) so Material/Cupertino glyphs render
+    // instead of the box fallback — the nav bar, chips and inline icons.
+    Future<void> loadIconFont(String family, String path) async {
+      final bytes = await File(path).readAsBytes();
+      final loader = FontLoader(family)
+        ..addFont(Future.value(ByteData.view(bytes.buffer)));
+      await loader.load();
+    }
+
+    await loadIconFont('MaterialIcons', 'test/goldens/fonts/MaterialIcons.otf');
+    await loadIconFont('CupertinoIcons', 'test/goldens/fonts/CupertinoIcons.ttf');
   });
 
   for (final themeName in ['light', 'dark']) {
@@ -400,12 +467,14 @@ void main() {
         // Tap the "Start workout" button if present.
         final startBtn = find.byKey(const Key('gym-start-btn'));
         if (startBtn.evaluate().isNotEmpty) {
-          await tester.tap(startBtn);
-          await _settle(tester);
-          await expectLater(
-            find.byType(MaterialApp),
-            matchesGoldenFile('images/gym_mid_session_$themeName.png'),
-          );
+          await _withSoftShadows(() async {
+            await tester.tap(startBtn);
+            await _settle(tester);
+            await expectLater(
+              find.byType(MaterialApp),
+              matchesGoldenFile('images/gym_mid_session_$themeName.png'),
+            );
+          });
         }
       });
 
@@ -490,21 +559,23 @@ void main() {
 
       testWidgets('auth_screen', (tester) async {
         addTearDown(tester.view.resetPhysicalSize);
-        _setIphoneSize(tester);
-        await _suppressOverflows(() async {
-          await tester.pumpWidget(
-            MaterialApp(
-              theme: theme,
-              debugShowCheckedModeBanner: false,
-              home: AuthScreen(service: FakeAuthService()),
-            ),
+        await _withSoftShadows(() async {
+          _setIphoneSize(tester);
+          await _suppressOverflows(() async {
+            await tester.pumpWidget(
+              MaterialApp(
+                theme: theme,
+                debugShowCheckedModeBanner: false,
+                home: AuthScreen(service: FakeAuthService()),
+              ),
+            );
+            await _settle(tester);
+          });
+          await expectLater(
+            find.byType(MaterialApp),
+            matchesGoldenFile('images/auth_screen_$themeName.png'),
           );
-          await _settle(tester);
         });
-        await expectLater(
-          find.byType(MaterialApp),
-          matchesGoldenFile('images/auth_screen_$themeName.png'),
-        );
       });
 
       // ── Onboarding (step 0 — height input) ───────────────────────────────
@@ -514,27 +585,29 @@ void main() {
       testWidgets('onboarding', (tester) async {
         addTearDown(tester.view.resetPhysicalSize);
         final h = JourneyHarness(noProfile: true);
-        _setIphoneSize(tester);
-        await _suppressOverflows(() async {
-          await tester.pumpWidget(
-            ProviderScope(
-              overrides: h.overrides,
-              child: MaterialApp(
-                theme: theme,
-                debugShowCheckedModeBanner: false,
-                home: OnboardingFlow(
-                  repo: h.profileRepo,
-                  onDone: () {},
+        await _withSoftShadows(() async {
+          _setIphoneSize(tester);
+          await _suppressOverflows(() async {
+            await tester.pumpWidget(
+              ProviderScope(
+                overrides: h.overrides,
+                child: MaterialApp(
+                  theme: theme,
+                  debugShowCheckedModeBanner: false,
+                  home: OnboardingFlow(
+                    repo: h.profileRepo,
+                    onDone: () {},
+                  ),
                 ),
               ),
-            ),
+            );
+            await _settle(tester);
+          });
+          await expectLater(
+            find.byType(MaterialApp),
+            matchesGoldenFile('images/onboarding_$themeName.png'),
           );
-          await _settle(tester);
         });
-        await expectLater(
-          find.byType(MaterialApp),
-          matchesGoldenFile('images/onboarding_$themeName.png'),
-        );
       });
     });
   }
