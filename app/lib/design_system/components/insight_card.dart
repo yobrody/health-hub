@@ -5,6 +5,7 @@ import '../colors.dart';
 import '../motion.dart';
 import '../shape.dart';
 import '../spacing.dart';
+import 'app_button.dart';
 import 'stat_card.dart';
 
 /// The Brain's shared "connected card" — the one component every screen uses to
@@ -147,6 +148,9 @@ class _InsightCardState extends State<InsightCard> {
           ],
 
           // ── Action ──────────────────────────────────────────────────────────
+          // A *secondary* (tonal) action, not a solid-orange fill: the Brain
+          // surfaces several of these cards per screen, so keeping them calm
+          // reserves the one solid-orange primary for each screen's hero action.
           if (hasAction) ...[
             AppSpacing.gapV4,
             SizedBox(
@@ -156,13 +160,10 @@ class _InsightCardState extends State<InsightCard> {
                 onPressed: widget.onAction == null
                     ? null
                     : () => widget.onAction!(action),
-                style: FilledButton.styleFrom(
-                  backgroundColor: colors.primary,
-                  foregroundColor: colors.textPrimary,
-                  shape: AppShape.buttonBorder,
-                  padding:
-                      const EdgeInsets.symmetric(vertical: AppSpacing.space3),
-                  textStyle: text.labelLarge,
+                style: AppButtons.secondaryTonal(
+                  colors,
+                  text,
+                  onDark: Theme.of(context).brightness == Brightness.dark,
                 ),
                 child: Text(action.label),
               ),
