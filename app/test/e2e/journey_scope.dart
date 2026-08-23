@@ -146,6 +146,7 @@ class JourneyHarness {
     List<PantryItem>? pantry,
     List<WorkoutSession>? workouts,
     List<WeighIn>? weighIns,
+    bool noProfile = false,
   }) {
     profileRepo = ProfileRepo(
       api: _MemProfileApi(),
@@ -156,7 +157,12 @@ class JourneyHarness {
       // visible number from it. If a test needs a real weight-derived value, seed
       // a `WeighIn` via `JourneyHarness(weighIns: [...])` instead, so the number
       // the Brain shows traces to genuinely-entered data.
-      store: _MemProfileStore(profile ?? {'weight_kg': 70.0}),
+      //
+      // Pass `noProfile: true` for a genuinely first-run device: the store holds
+      // null, so `hasProfile()` is false and the gate lands on ONBOARDING. A
+      // profile saved during onboarding then persists to this same repo, so the
+      // gate flips into the app on `hasProfileProvider` invalidation.
+      store: _MemProfileStore(noProfile ? null : (profile ?? {'weight_kg': 70.0})),
     );
     goalsRepo = NutritionGoalsRepo(
       outbox: Outbox(_MemOutboxStore()),
