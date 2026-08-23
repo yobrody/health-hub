@@ -137,6 +137,30 @@ void main() {
       expect(w.upserts.map((u) => u.table), ['nutrition_goals', 'weigh_ins']);
     });
 
+    test('/meal-plan → meal_plans singleton: minted plan-<uid> id, user_id, '
+        'lifted week_start, full plan in data', () async {
+      final w = FakeSupabaseWriter();
+      final s = _sender(w);
+      final body = {
+        'id': 'plan-user-123-2026W35',
+        'weekStart': '2026-08-24T00:00:00.000',
+        'days': [
+          {'date': '2026-08-24T00:00:00.000', 'meals': []},
+        ],
+      };
+      final r = await s.sendMutation(_mut(path: '/meal-plan', body: body));
+      expect(r, ProbeStatus.online);
+      final u = w.upserts.single;
+      expect(u.table, 'meal_plans');
+      expect(u.onConflict, 'user_id'); // singleton keyed on user_id
+      expect(u.row['user_id'], 'user-123');
+      // Stable per-user PK minted so the NOT-NULL text id is satisfied + replays
+      // idempotently (the plan's own richer id lives inside `data`).
+      expect(u.row['id'], 'plan-user-123');
+      expect(u.row['week_start'], '2026-08-24T00:00:00.000');
+      expect(u.row['data'], body); // full snapshot preserved.
+    });
+
     test('/goals lifts the four targets + user_id + data (singleton)', () async {
       final w = FakeSupabaseWriter();
       final s = _sender(w);
