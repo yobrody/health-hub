@@ -54,7 +54,7 @@ Errors (honest, and **never** a fabricated item list):
 | `401`  | `{"error":"unauthorized"}`               | missing `Authorization`              |
 | `405`  | `{"error":"method_not_allowed"}`         | non-POST                             |
 | `502`  | `{"error":"upstream_error", ...}`        | Gemini failed / unreachable / bad JSON |
-| `503`  | `{"error":"recognizer_not_configured"}`  | `GEMINI_API_KEY` not set             |
+| `503`  | `{"error":"recognizer_not_configured"}`  | `OPENROUTER_API_KEY` not set             |
 
 The Flutter `SupabaseRecognitionClient` maps any non-2xx / non-JSON to a
 `RecognitionFailure`, which the Food gate surfaces truthfully and falls back to
@@ -72,7 +72,7 @@ Project ref: the Health Hub Supabase project (see `env.local.json` /
 supabase functions deploy recognize-pantry --project-ref <PROJECT_REF>
 
 # set the Gemini key as a function secret
-supabase secrets set GEMINI_API_KEY=<the key> --project-ref <PROJECT_REF>
+supabase secrets set OPENROUTER_API_KEY=<the key> --project-ref <PROJECT_REF>
 ```
 
 JWT verification is ON by default (this is a per-user action) — do **not** pass
@@ -94,13 +94,13 @@ curl -X POST \
   "https://api.supabase.com/v1/projects/<PROJECT_REF>/secrets" \
   -H "Authorization: Bearer <SUPABASE_ACCESS_TOKEN>" \
   -H "Content-Type: application/json" \
-  -d '[{"name":"GEMINI_API_KEY","value":"<the key>"}]'
+  -d '[{"name":"OPENROUTER_API_KEY","value":"<the key>"}]'
 ```
 
 ## Notes
 
 - Model: `gemini-2.5-flash` (vision) via the Generative Language API. Change
-  `GEMINI_MODEL` in `index.ts` if you standardise on a different flash-vision
+  `OPENROUTER_MODEL` in `index.ts` if you standardise on a different flash-vision
   model.
 - The prompt pins `responseMimeType: application/json` and a low temperature for
   stable, honest extraction, and the function still defensively strips a code

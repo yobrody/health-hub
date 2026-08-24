@@ -1,8 +1,9 @@
 // estimate-nutrition — Supabase Edge Function (Deno).
 //
 // AI nutrition estimate (P1 capture). Accepts EITHER a base64 photo of a meal
-// OR a short text description, asks Gemini to ESTIMATE the meal's macros, and
-// returns a single honest estimate with a confidence.
+// OR a short text description, asks the LLM (via OpenRouter, model via
+// OPENROUTER_MODEL, default google/gemini-2.5-flash) to ESTIMATE the meal's
+// macros, and returns a single honest estimate with a confidence.
 //
 // HONESTY (load-bearing — mirrors the app's spine):
 //  • The result is always an ESTIMATE, never a measured value. The prompt says
@@ -20,14 +21,12 @@
 // `--no-verify-jwt` (the default). We additionally assert an Authorization
 // header as a defensive check.
 //
-// NOT DEPLOYED YET. See README.md for how to deploy (GEMINI_API_KEY is already
+// NOT DEPLOYED YET. See README.md for how to deploy (OPENROUTER_API_KEY must be
 // set as a function secret on the Health Hub project).
 
 // deno-lint-ignore-file no-explicit-any
 
-const GEMINI_MODEL = "gemini-2.5-flash";
-const GEMINI_ENDPOINT =
-  `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
+import { callLLM, hasKey, type LLMMessage, type ContentPart } from "../_shared/llm.ts";
 
 const CORS_HEADERS: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
@@ -105,18 +104,10 @@ function normalizeEstimate(raw: any): NutritionEstimate {
   };
 }
 
-/** Extract the model's text and parse the JSON object it was asked to emit. */
-function parseGeminiJson(payload: any): NutritionEstimate | null {
-  const parts = payload?.candidates?.[0]?.content?.parts;
-  if (!Array.isArray(parts)) return null;
-  const text = parts
-    .map((p: any) => (typeof p?.text === "string" ? p.text : ""))
-    .join("")
-    .trim();
-  if (!text) return null;
-
+/** Parse the LLM's JSON content string into a NutritionEstimate. */
+function parseLLMContent(content: string): NutritionEstimate | null {
   // Strip a possible ```json fence, then parse the first {...} object.
-  const cleaned = text.replace(/^```(?:json)?/i, "").replace(/```$/i, "").trim();
+  const cleaned = content.replace(/^```(?:json)?/i, "").replace(/```$/i, "").trim();
   const start = cleaned.indexOf("{");
   const end = cleaned.lastIndexOf("}");
   if (start < 0 || end <= start) return null;
@@ -144,8 +135,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     return jsonResponse({ error: "unauthorized" }, 401);
   }
 
-  const apiKey = Deno.env.get("GEMINI_API_KEY");
-  if (!apiKey) {
+  if (!hasKey()) {
     // Honest config error — NOT an empty success, and definitely no fake macros.
     return jsonResponse({ error: "estimator_not_configured" }, 503);
   }
@@ -169,48 +159,42 @@ Deno.serve(async (req: Request): Promise<Response> => {
     return jsonResponse({ error: "no_input" }, 400);
   }
 
-  // Build the Gemini request: the prompt + the image OR the description text.
-  const parts: any[] = [{ text: PROMPT }];
+  // Build OpenAI-style messages.
+  // Vision path: user content is a content-part array (text prompt + image_url).
+  // Text path: user content is a plain string appended after the system prompt.
+  let messages: LLMMessage[];
   if (image) {
-    parts.push({ inlineData: { mimeType: "image/jpeg", data: image } });
-  }
-  if (textInput) {
-    parts.push({ text: `Meal description: ${textInput}` });
-  }
-
-  let geminiRes: Response;
-  try {
-    geminiRes = await fetch(`${GEMINI_ENDPOINT}?key=${apiKey}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ role: "user", parts }],
-        generationConfig: {
-          temperature: 0.1,
-          responseMimeType: "application/json",
-        },
-      }),
-    });
-  } catch (e) {
-    return jsonResponse(
-      { error: "upstream_unreachable", detail: String(e) },
-      502,
-    );
+    // Vision: system prompt + multipart user message containing image.
+    const userContent: ContentPart[] = [
+      { type: "text", text: textInput ? `Meal description: ${textInput}` : "Estimate the nutrition of the meal shown in this photo." },
+      { type: "image_url", image_url: { url: `data:image/jpeg;base64,${image}` } },
+    ];
+    messages = [
+      { role: "system", content: PROMPT },
+      { role: "user", content: userContent },
+    ];
+  } else {
+    // Text-only path: simple system + user string.
+    messages = [
+      { role: "system", content: PROMPT },
+      { role: "user", content: `Meal description: ${textInput}` },
+    ];
   }
 
-  if (!geminiRes.ok) {
+  const result = await callLLM(messages, { temperature: 0.1, maxTokens: 400 });
+
+  if (!result.ok) {
+    if (result.error === "missing_key") {
+      return jsonResponse({ error: "estimator_not_configured" }, 503);
+    }
+    if (result.error.startsWith("network_error")) {
+      return jsonResponse({ error: "upstream_unreachable", detail: result.error }, 502);
+    }
     // Honest upstream failure — no fabricated estimate.
-    return jsonResponse({ error: "upstream_error", status: geminiRes.status }, 502);
+    return jsonResponse({ error: "upstream_error", status: result.status }, 502);
   }
 
-  let payload: any;
-  try {
-    payload = await geminiRes.json();
-  } catch {
-    return jsonResponse({ error: "upstream_bad_json" }, 502);
-  }
-
-  const estimate = parseGeminiJson(payload);
+  const estimate = parseLLMContent(result.content);
   if (!estimate) {
     // Couldn't read an estimate out of the model — honest failure, not a
     // fabricated blank. The app falls back to manual.

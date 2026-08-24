@@ -1,10 +1,11 @@
 // plan-week — Supabase Edge Function (Deno).
 //
 // The agentic "plan my week" brain. Given the user's real nutrition goals + what
-// is actually in their pantry, Gemini returns a 7-day meal plan whose meals
-// prefer ingredients the user already has and whose daily totals aim at the
-// goals. The app then diffs the plan's ingredients against the pantry
-// (neededIngredients) to build the grocery cart.
+// is actually in their pantry, the LLM (via OpenRouter, model via OPENROUTER_MODEL,
+// default google/gemini-2.5-flash) returns a 7-day meal plan whose meals prefer
+// ingredients the user already has and whose daily totals aim at the goals. The app
+// then diffs the plan's ingredients against the pantry (neededIngredients) to build
+// the grocery cart.
 //
 // HONESTY (load-bearing — the app's spine):
 //  • Meals are ESTIMATES. Any macro the model can't estimate is null — NEVER a
@@ -17,14 +18,12 @@
 // Auth: per-user action → the caller's JWT is required (Edge runtime enforces it
 // when deployed with JWT verification on; asserted defensively here).
 //
-// Deploy (GEMINI_API_KEY is already a function secret on the Health Hub project):
+// Deploy (OPENROUTER_API_KEY must be set as a function secret on the Health Hub project):
 //   npx supabase functions deploy plan-week --project-ref eazwtlqieizvsqvbbknj
 
 // deno-lint-ignore-file no-explicit-any
 
-const GEMINI_MODEL = "gemini-2.5-flash";
-const GEMINI_ENDPOINT =
-  `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
+import { callLLM, hasKey, type LLMMessage } from "../_shared/llm.ts";
 
 const CORS_HEADERS: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
@@ -149,15 +148,9 @@ function normalizePlan(raw: any): WeekPlan | null {
   return { days, confidence: clampConfidence(rec.confidence), note: nonEmptyString(rec.note) };
 }
 
-function parseGeminiJson(payload: any): WeekPlan | null {
-  const parts = payload?.candidates?.[0]?.content?.parts;
-  if (!Array.isArray(parts)) return null;
-  const text = parts
-    .map((p: any) => (typeof p?.text === "string" ? p.text : ""))
-    .join("")
-    .trim();
-  if (!text) return null;
-  const cleaned = text.replace(/^```(?:json)?/i, "").replace(/```$/i, "").trim();
+/** Parse the LLM's JSON content string into a WeekPlan. */
+function parseLLMContent(content: string): WeekPlan | null {
+  const cleaned = content.replace(/^```(?:json)?/i, "").replace(/```$/i, "").trim();
   const start = cleaned.indexOf("{");
   const end = cleaned.lastIndexOf("}");
   if (start < 0 || end <= start) return null;
@@ -207,8 +200,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     return jsonResponse({ error: "unauthorized" }, 401);
   }
 
-  const apiKey = Deno.env.get("GEMINI_API_KEY");
-  if (!apiKey) {
+  if (!hasKey()) {
     return jsonResponse({ error: "planner_not_configured" }, 503);
   }
 
@@ -235,35 +227,25 @@ Deno.serve(async (req: Request): Promise<Response> => {
     prefs ? `Preferences/dislikes: ${prefs}.` : "",
   ].filter(Boolean).join("\n");
 
-  let geminiRes: Response;
-  try {
-    geminiRes = await fetch(`${GEMINI_ENDPOINT}?key=${apiKey}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ role: "user", parts: [{ text: PROMPT }, { text: userText }] }],
-        generationConfig: {
-          temperature: 0.3,
-          responseMimeType: "application/json",
-        },
-      }),
-    });
-  } catch (e) {
-    return jsonResponse({ error: "upstream_unreachable", detail: String(e) }, 502);
+  const messages: LLMMessage[] = [
+    { role: "system", content: PROMPT },
+    { role: "user", content: userText },
+  ];
+
+  const result = await callLLM(messages, { temperature: 0.3, maxTokens: 4096 });
+
+  if (!result.ok) {
+    // Map the helper's failure class to the same honest statuses as before.
+    if (result.error === "missing_key") {
+      return jsonResponse({ error: "planner_not_configured" }, 503);
+    }
+    if (result.error.startsWith("network_error")) {
+      return jsonResponse({ error: "upstream_unreachable", detail: result.error }, 502);
+    }
+    return jsonResponse({ error: "upstream_error", status: result.status }, 502);
   }
 
-  if (!geminiRes.ok) {
-    return jsonResponse({ error: "upstream_error", status: geminiRes.status }, 502);
-  }
-
-  let payload: any;
-  try {
-    payload = await geminiRes.json();
-  } catch {
-    return jsonResponse({ error: "upstream_bad_json" }, 502);
-  }
-
-  const plan = parseGeminiJson(payload);
+  const plan = parseLLMContent(result.content);
   if (!plan) {
     return jsonResponse({ error: "no_plan" }, 502);
   }
