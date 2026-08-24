@@ -135,6 +135,7 @@ class _PantryRecognitionPageState
     setState(() => _saving = true);
 
     var seq = 0;
+    var saved = 0;
     for (final r in _rows) {
       final name = r.nameCtrl.text.trim();
       if (name.isEmpty) continue; // never save a nameless row
@@ -152,12 +153,14 @@ class _PantryRecognitionPageState
         source: 'scan',
       );
       await _repo.add(item);
+      saved++;
     }
 
-    // Analytics: count of items saved (no item names — names are food data).
-    _analytics.capture(kEvtPantryRecognized, props: {kPropCount: _rows.length});
-
     if (!mounted) return;
+    // Analytics: count of items ACTUALLY saved (blank rows are skipped; no item
+    // names — names are food data).
+    _analytics.capture(kEvtPantryRecognized, props: {kPropCount: saved});
+
     Navigator.of(context).pop(true);
   }
 
