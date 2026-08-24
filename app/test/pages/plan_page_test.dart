@@ -196,6 +196,20 @@ void main() {
     expect(await h.mealPlanRepo.load(), isNull);
   });
 
+  testWidgets('empty pantry → honest "buy to cook this week" copy, not "the '
+      'rest is in your kitchen"', (tester) async {
+    final h = JourneyHarness(
+      goals: {'caloriesKcal': 2600.0},
+      // no pantry → everything is a gap; there is no "rest" in the kitchen.
+      mealPlan: _cannedPlan(),
+    );
+    await tester.pumpWidget(_host(h));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('to cook this week'), findsOneWidget);
+    expect(find.textContaining('the rest is in your kitchen'), findsNothing);
+  });
+
   testWidgets('a plan the pantry fully covers → "you have everything", no cart '
       'button', (tester) async {
     final h = JourneyHarness(

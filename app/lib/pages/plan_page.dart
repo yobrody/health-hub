@@ -358,9 +358,15 @@ class _PlanPageState extends State<PlanPage> {
                 style: text.bodyMedium?.copyWith(color: colors.textSecondary))
           else ...[
             Text(
-              gaps.length == 1
-                  ? '1 thing to buy — the rest is in your kitchen.'
-                  : '${gaps.length} things to buy — the rest is in your kitchen.',
+              // Only claim "the rest is in your kitchen" when there IS a kitchen
+              // to draw from — a first-run user with an empty pantry buys it all.
+              _pantry.isEmpty
+                  ? (gaps.length == 1
+                      ? '1 thing to buy to cook this week.'
+                      : '${gaps.length} things to buy to cook this week.')
+                  : (gaps.length == 1
+                      ? '1 thing to buy — the rest is in your kitchen.'
+                      : '${gaps.length} things to buy — the rest is in your kitchen.'),
               style: text.bodyMedium?.copyWith(color: colors.textSecondary),
             ),
             AppSpacing.gapV3,
