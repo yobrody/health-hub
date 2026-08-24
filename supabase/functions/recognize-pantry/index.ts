@@ -1,7 +1,8 @@
 // recognize-pantry — Supabase Edge Function (Deno).
 //
 // AI photo → pantry (R-2). Accepts base64 photos of a user's fridge / freezer /
-// pantry / spices, asks Gemini vision to identify the DISTINCT items actually
+// pantry / spices, asks the LLM (via OpenRouter, model via OPENROUTER_MODEL,
+// default google/gemini-2.5-flash) to identify the DISTINCT items actually
 // visible, and returns them as honest suggestions with a per-item confidence.
 //
 // HONESTY (load-bearing — mirrors the app's spine):
@@ -18,13 +19,11 @@
 // deployed WITHOUT `--no-verify-jwt` (the default). We additionally assert an
 // Authorization header is present as a defensive check.
 //
-// NOT DEPLOYED YET. See README.md for how to deploy + set GEMINI_API_KEY.
+// NOT DEPLOYED YET. See README.md for how to deploy + set OPENROUTER_API_KEY.
 
 // deno-lint-ignore-file no-explicit-any
 
-const GEMINI_MODEL = "gemini-2.5-flash";
-const GEMINI_ENDPOINT =
-  `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
+import { callLLM, hasKey, type LLMMessage, type ContentPart } from "../_shared/llm.ts";
 
 const CORS_HEADERS: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
@@ -115,18 +114,10 @@ function normalizeItems(raw: unknown): RecognizedItem[] {
   return out;
 }
 
-/** Extract the model's text and parse the JSON it was asked to emit. */
-function parseGeminiJson(payload: any): RecognizedItem[] {
-  const parts = payload?.candidates?.[0]?.content?.parts;
-  if (!Array.isArray(parts)) return [];
-  const text = parts
-    .map((p: any) => (typeof p?.text === "string" ? p.text : ""))
-    .join("")
-    .trim();
-  if (!text) return [];
-
+/** Parse the LLM's JSON content string into a RecognizedItem list. */
+function parseLLMContent(content: string): RecognizedItem[] {
   // Strip a possible ```json fence, then parse the first {...} object.
-  const cleaned = text.replace(/^```(?:json)?/i, "").replace(/```$/i, "").trim();
+  const cleaned = content.replace(/^```(?:json)?/i, "").replace(/```$/i, "").trim();
   const start = cleaned.indexOf("{");
   const end = cleaned.lastIndexOf("}");
   if (start < 0 || end <= start) return [];
@@ -154,8 +145,7 @@ Deno.serve(async (req: Request): Promise<Response> => {
     return jsonResponse({ error: "unauthorized" }, 401);
   }
 
-  const apiKey = Deno.env.get("GEMINI_API_KEY");
-  if (!apiKey) {
+  if (!hasKey()) {
     // Honest config error — NOT an empty success, and definitely no fake items.
     return jsonResponse({ error: "recognizer_not_configured" }, 503);
   }
@@ -172,47 +162,37 @@ Deno.serve(async (req: Request): Promise<Response> => {
     return jsonResponse({ error: "no_images" }, 400);
   }
 
-  // Build the Gemini multimodal request: the prompt + each image inline.
-  const parts: any[] = [{ text: PROMPT }];
+  // Build OpenAI-style messages with a multipart user content array.
+  // Each image becomes an image_url content part; the text prompt is first.
+  const userContent: ContentPart[] = [
+    { type: "text", text: "Identify all food/drink items visible in the following photo(s)." },
+  ];
   for (const b64 of images) {
-    parts.push({
-      inlineData: { mimeType: "image/jpeg", data: b64 },
+    userContent.push({
+      type: "image_url",
+      image_url: { url: `data:image/jpeg;base64,${b64}` },
     });
   }
 
-  let geminiRes: Response;
-  try {
-    geminiRes = await fetch(`${GEMINI_ENDPOINT}?key=${apiKey}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ role: "user", parts }],
-        generationConfig: {
-          temperature: 0.1,
-          responseMimeType: "application/json",
-        },
-      }),
-    });
-  } catch (e) {
-    return jsonResponse(
-      { error: "upstream_unreachable", detail: String(e) },
-      502,
-    );
-  }
+  const messages: LLMMessage[] = [
+    { role: "system", content: PROMPT },
+    { role: "user", content: userContent },
+  ];
 
-  if (!geminiRes.ok) {
+  const result = await callLLM(messages, { temperature: 0.1, maxTokens: 800 });
+
+  if (!result.ok) {
+    if (result.error === "missing_key") {
+      return jsonResponse({ error: "recognizer_not_configured" }, 503);
+    }
+    if (result.error.startsWith("network_error")) {
+      return jsonResponse({ error: "upstream_unreachable", detail: result.error }, 502);
+    }
     // Honest upstream failure — no fabricated items.
-    return jsonResponse({ error: "upstream_error", status: geminiRes.status }, 502);
-  }
-
-  let payload: any;
-  try {
-    payload = await geminiRes.json();
-  } catch {
-    return jsonResponse({ error: "upstream_bad_json" }, 502);
+    return jsonResponse({ error: "upstream_error", status: result.status }, 502);
   }
 
   // An empty items array is an HONEST "nothing recognized", not an error.
-  const items = parseGeminiJson(payload);
+  const items = parseLLMContent(result.content);
   return jsonResponse({ items }, 200);
 });

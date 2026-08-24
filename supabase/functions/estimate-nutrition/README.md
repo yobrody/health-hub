@@ -9,7 +9,7 @@ anything is logged.
 > ⚠️ **NOT DEPLOYED YET.** The Flutter app already calls this function by name
 > (`estimate-nutrition`) via `SupabaseNutritionEstimateClient`, behind a
 > test-overridable provider, so nothing hits the network in tests. The
-> `GEMINI_API_KEY` function secret is **already set** on the Health Hub project.
+> `OPENROUTER_API_KEY` function secret is **already set** on the Health Hub project.
 
 ## Request / response contract
 
@@ -61,12 +61,12 @@ Errors (honest, and **never** a fabricated estimate):
 | `401`  | `{"error":"unauthorized"}`                 | missing `Authorization`                |
 | `405`  | `{"error":"method_not_allowed"}`           | non-POST                               |
 | `502`  | `{"error":"upstream_error", ...}` / `"no_estimate"` | Gemini failed / unreachable / unparseable |
-| `503`  | `{"error":"estimator_not_configured"}`     | `GEMINI_API_KEY` not set               |
+| `503`  | `{"error":"estimator_not_configured"}`     | `OPENROUTER_API_KEY` not set               |
 
 The Flutter `SupabaseNutritionEstimateClient` maps any non-2xx / non-JSON / empty
 result to `null`, and the capture screen falls back to the manual form.
 
-## Deploy (GEMINI_API_KEY already set)
+## Deploy (OPENROUTER_API_KEY already set)
 
 Project ref: the Health Hub Supabase project (see `env.local.json` /
 `supabase/migrations/README.md`).
@@ -79,14 +79,14 @@ supabase functions deploy estimate-nutrition --project-ref <PROJECT_REF>
 ```
 
 JWT verification is ON by default (this is a per-user action) — do **not** pass
-`--no-verify-jwt`. The `GEMINI_API_KEY` secret is already set on the project, so
+`--no-verify-jwt`. The `OPENROUTER_API_KEY` secret is already set on the project, so
 no `supabase secrets set` step is needed. (If ever rotating it:
-`supabase secrets set GEMINI_API_KEY=<the key> --project-ref <PROJECT_REF>`.)
+`supabase secrets set OPENROUTER_API_KEY=<the key> --project-ref <PROJECT_REF>`.)
 
 ## Notes
 
 - Model: `gemini-2.5-flash` via the Generative Language API. Change
-  `GEMINI_MODEL` in `index.ts` to standardise on a different flash model.
+  `OPENROUTER_MODEL` in `index.ts` to standardise on a different flash model.
 - The prompt pins `responseMimeType: application/json` and a low temperature for
   stable, honest estimation, forbids precise guessing when unsure (→ `null`),
   and the function defensively strips a code fence + parses the first JSON
