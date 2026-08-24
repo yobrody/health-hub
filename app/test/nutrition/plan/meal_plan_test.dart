@@ -115,6 +115,28 @@ void main() {
       expect(needed.single.coverage, IngredientCoverage.absent);
     });
 
+    test('real AI name variance is matched to the pantry — parenthetical '
+        'qualifiers and plurals do NOT create false gaps (honesty)', () {
+      // Observed live from the plan-week fn: Gemini writes "Brown rice (cooked)"
+      // / "Banana" while the pantry says "Brown rice" / "Bananas". Exact matching
+      // told the user to buy rice + bananas they already had.
+      final plan = _plan([
+        _meal([
+          const PlanIngredient(name: 'Brown rice (cooked)', grams: 220),
+          const PlanIngredient(name: 'Banana', grams: 100),
+          const PlanIngredient(name: 'Milk (2%)', grams: 200), // genuinely absent
+        ]),
+      ]);
+      final pantry = [
+        _pantry('Brown rice', qty: 1200, unit: 'g'),
+        _pantry('Bananas', qty: 4, unit: 'x'),
+      ];
+      final needed = neededIngredients(plan, pantry);
+      // Rice + bananas are matched to the pantry (not false gaps); only the
+      // genuinely-absent milk remains on the shopping list.
+      expect(needed.map((n) => n.name), ['Milk (2%)']);
+    });
+
     test('once ANY line of an ingredient is unquantified, the summed total '
         'stays null — a later quantified line must not resurrect it (honesty)',
         () {

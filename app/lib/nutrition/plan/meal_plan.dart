@@ -166,7 +166,22 @@ class NeededIngredient {
   final double? gramsOnHand;
 }
 
-String _norm(String s) => s.trim().toLowerCase();
+/// Normalize an ingredient/pantry name for matching. Real AI plans and hand-typed
+/// pantry entries vary in ways that are the SAME ingredient — so we fold them:
+///  * lowercase + trim + collapse whitespace,
+///  * drop parenthetical qualifiers — "Brown rice (cooked)" ≡ "Brown rice",
+///    "Milk (2%)" ≡ "Milk", "Tuna (in water, drained)" ≡ "Tuna",
+///  * plural-insensitive — "Banana" ≡ "Bananas", "Egg" ≡ "Eggs".
+/// Without this, exact matching produced FALSE gaps (telling you to buy rice /
+/// bananas you already had — observed live from the plan-week function).
+String _norm(String s) {
+  var t = s.toLowerCase().replaceAll(RegExp(r'\(.*?\)'), ' ');
+  t = t.replaceAll(RegExp(r'\s+'), ' ').trim();
+  // Fold a simple trailing plural (keep short words intact: "oats"→"oat" is fine
+  // as long as BOTH sides fold the same way).
+  if (t.length > 3 && t.endsWith('s')) t = t.substring(0, t.length - 1);
+  return t;
+}
 
 /// Grams-equivalent of a pantry item, or null if we can't quantify it in grams
 /// (unknown qty, or a non-mass unit like "x"/"pcs"). g and ml are treated 1:1,
