@@ -151,7 +151,11 @@ class _TodayPageState extends ConsumerState<TodayPage> {
   /// Open the quick log-weight sheet, then refresh so the weight card + trend
   /// update immediately.
   Future<void> _logWeight() async {
-    final saved = await showLogWeightSheet(context, repo: _weighIns);
+    final saved = await showLogWeightSheet(
+      context,
+      repo: _weighIns,
+      analytics: ref.read(analyticsProvider),
+    );
     if (saved == true) await _reload();
   }
 
@@ -163,6 +167,7 @@ class _TodayPageState extends ConsumerState<TodayPage> {
         (_) => WeightPage(
           weighInRepo: _weighIns,
           profileRepo: _repo,
+          analytics: ref.read(analyticsProvider),
         ),
       ),
     );

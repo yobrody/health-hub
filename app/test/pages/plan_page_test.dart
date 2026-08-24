@@ -4,12 +4,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:health_hub/analytics/analytics.dart';
 import 'package:health_hub/meals/eat_in_service.dart';
 import 'package:health_hub/nutrition/food_log_entry.dart' show AccuracyTier;
 import 'package:health_hub/nutrition/plan/meal_plan.dart';
 import 'package:health_hub/pages/plan_page.dart';
 import 'package:health_hub/pantry/pantry_item.dart';
 
+import '../analytics/fake_analytics.dart';
 import '../e2e/journey_scope.dart';
 
 MealPlan _cannedPlan() => MealPlan(
@@ -31,7 +33,8 @@ MealPlan _cannedPlan() => MealPlan(
       ],
     );
 
-Widget _host(JourneyHarness h, {DateTime? now}) => ProviderScope(
+Widget _host(JourneyHarness h, {DateTime? now, FakeAnalytics? analytics}) =>
+    ProviderScope(
       overrides: h.overrides,
       child: MaterialApp(
         home: PlanPage(
@@ -43,6 +46,7 @@ Widget _host(JourneyHarness h, {DateTime? now}) => ProviderScope(
           nutritionRepo: h.nutritionRepo,
           eatInService: EatInService(h.pantryRepo),
           now: now ?? DateTime(2026, 8, 24),
+          analytics: analytics ?? const NoopAnalytics(),
         ),
       ),
     );
@@ -227,5 +231,110 @@ void main() {
 
     expect(find.byKey(const Key('plan-no-gaps')), findsOneWidget);
     expect(find.byKey(const Key('plan-add-to-cart-btn')), findsNothing);
+  });
+
+  // ── Analytics ──────────────────────────────────────────────────────────────
+
+  group('analytics events', () {
+    testWidgets('plan_generated fires with correct days + gaps props',
+        (tester) async {
+      final fake = FakeAnalytics();
+      final h = JourneyHarness(
+        goals: {'caloriesKcal': 2600.0},
+        pantry: [
+          const PantryItem(
+              id: 'p1',
+              name: 'Oats',
+              zone: PantryZone.pantry,
+              qty: 500,
+              unit: 'g',
+              source: 'manual'),
+        ],
+        planResult: _cannedPlan(),
+      );
+      await tester.pumpWidget(_host(h, analytics: fake));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('plan-generate-btn')));
+      await tester.pumpAndSettle();
+
+      // plan_generated fired with days=1 (plan has 1 day) and gaps=1
+      // (Blueberries is the only gap — Oats is covered by the 500g pantry).
+      expect(fake.eventNames, contains(kEvtPlanGenerated));
+      final props = fake.propsFor(kEvtPlanGenerated);
+      expect(props?[kPropDays], 1);
+      expect(props?[kPropGaps], 1);
+
+      // Verify NO PII in props: no food names, no kcal values.
+      for (final key in (props ?? {}).keys) {
+        expect(
+          const ['days', 'gaps'].contains(key),
+          isTrue,
+          reason: 'Unexpected prop key "$key" — may be PII',
+        );
+      }
+    });
+
+    testWidgets('gaps_added_to_cart fires with count prop', (tester) async {
+      final fake = FakeAnalytics();
+      final h = JourneyHarness(
+        goals: {'caloriesKcal': 2600.0},
+        pantry: [
+          const PantryItem(
+              id: 'p1',
+              name: 'Oats',
+              zone: PantryZone.pantry,
+              qty: 500,
+              unit: 'g',
+              source: 'manual'),
+        ],
+        mealPlan: _cannedPlan(),
+      );
+      await tester.pumpWidget(_host(h, analytics: fake));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('plan-add-to-cart-btn')));
+      await tester.pumpAndSettle();
+
+      expect(fake.eventNames, contains(kEvtGapsAddedToCart));
+      final props = fake.propsFor(kEvtGapsAddedToCart);
+      expect(props?[kPropCount], 1); // one gap: Blueberries
+    });
+
+    testWidgets('plan_meal_logged fires with deducted prop', (tester) async {
+      final fake = FakeAnalytics();
+      final h = JourneyHarness(
+        goals: {'caloriesKcal': 2600.0},
+        pantry: [
+          const PantryItem(
+              id: 'p1',
+              name: 'Oats',
+              zone: PantryZone.pantry,
+              qty: 500,
+              unit: 'g',
+              source: 'manual'),
+        ],
+        mealPlan: _cannedPlan(),
+      );
+      await tester.pumpWidget(_host(h, analytics: fake));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('plan-log-meal-0:0')));
+      await tester.pumpAndSettle();
+
+      expect(fake.eventNames, contains(kEvtPlanMealLogged));
+      final props = fake.propsFor(kEvtPlanMealLogged);
+      // Oats was in the pantry and deducted without shortfall → deducted: true.
+      expect(props?[kPropDeducted], isA<bool>());
+
+      // Verify NO PII: no food name, no kcal, no macro values.
+      for (final key in (props ?? {}).keys) {
+        expect(
+          const ['deducted'].contains(key),
+          isTrue,
+          reason: 'Unexpected prop key "$key" in plan_meal_logged — may be PII',
+        );
+      }
+    });
   });
 }

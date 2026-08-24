@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../analytics/analytics.dart';
 import '../design_system/colors.dart';
 import '../design_system/spacing.dart';
 import '../metrics/weigh_in.dart';
@@ -14,9 +15,16 @@ import '../metrics/weigh_in_repo.dart';
 /// Returns `true` via [showLogWeightSheet] when a weigh-in was logged (so the
 /// caller can refresh its trend), else `false`/`null`.
 class LogWeightSheet extends StatefulWidget {
-  const LogWeightSheet({super.key, required this.repo});
+  const LogWeightSheet({
+    super.key,
+    required this.repo,
+    this.analytics = const NoopAnalytics(),
+  });
 
   final WeighInRepo repo;
+
+  /// Analytics seam — [NoopAnalytics] by default so tests are unaffected.
+  final Analytics analytics;
 
   @override
   State<LogWeightSheet> createState() => _LogWeightSheetState();
@@ -44,6 +52,8 @@ class _LogWeightSheetState extends State<LogWeightSheet> {
     if (w == null) return; // never log a fabricated weight.
     setState(() => _saving = true);
     await widget.repo.add(WeighIn.now(weightKg: w));
+    // Analytics: event name only — the weight value is never sent.
+    widget.analytics.capture(kEvtWeighInLogged);
     if (!mounted) return;
     Navigator.of(context).pop(true);
   }
@@ -112,13 +122,17 @@ class _LogWeightSheetState extends State<LogWeightSheet> {
 
 /// Present [LogWeightSheet] as a modal bottom sheet. Resolves to `true` when a
 /// weigh-in was logged (so the caller can refresh), else `false`/`null`.
+///
+/// Pass [analytics] from [analyticsProvider] to instrument the weigh_in_logged
+/// event; omit it (defaults to [NoopAnalytics]) in tests.
 Future<bool?> showLogWeightSheet(
   BuildContext context, {
   required WeighInRepo repo,
+  Analytics analytics = const NoopAnalytics(),
 }) {
   return showModalBottomSheet<bool>(
     context: context,
     isScrollControlled: true,
-    builder: (_) => LogWeightSheet(repo: repo),
+    builder: (_) => LogWeightSheet(repo: repo, analytics: analytics),
   );
 }

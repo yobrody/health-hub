@@ -15,6 +15,7 @@ library;
 
 import 'package:flutter/material.dart';
 
+import '../analytics/analytics.dart';
 import '../design_system/colors.dart';
 import '../design_system/components/section_header.dart';
 import '../design_system/components/stat_card.dart';
@@ -35,10 +36,14 @@ class WeightPage extends StatefulWidget {
     super.key,
     required this.weighInRepo,
     required this.profileRepo,
+    this.analytics = const NoopAnalytics(),
   });
 
   final WeighInRepo weighInRepo;
   final ProfileRepo profileRepo;
+
+  /// Analytics seam — [NoopAnalytics] by default so tests are unaffected.
+  final Analytics analytics;
 
   @override
   State<WeightPage> createState() => _WeightPageState();
@@ -69,7 +74,11 @@ class _WeightPageState extends State<WeightPage> {
   }
 
   Future<void> _logWeight() async {
-    final saved = await showLogWeightSheet(context, repo: widget.weighInRepo);
+    final saved = await showLogWeightSheet(
+      context,
+      repo: widget.weighInRepo,
+      analytics: widget.analytics,
+    );
     if (saved == true) await _reload();
   }
 

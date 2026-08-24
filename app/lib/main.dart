@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:posthog_flutter/posthog_flutter.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'app.dart';
@@ -20,6 +21,22 @@ Future<void> main() async {
       // A publishable (client) key — the current API; safe to ship in a build.
       publishableKey: Config.supabasePublishableKey,
     );
+  }
+
+  // Initialise PostHog ONLY when a key is compiled in via
+  // `--dart-define=POSTHOG_KEY=phc_...`. No key → no init, no events, no error.
+  // The key is a client-safe public ingestion key (not a secret).
+  const posthogKey = String.fromEnvironment('POSTHOG_KEY');
+  if (posthogKey.isNotEmpty) {
+    const posthogHost = String.fromEnvironment(
+      'POSTHOG_HOST',
+      defaultValue: 'https://eu.i.posthog.com',
+    );
+    final config = PostHogConfig(posthogKey);
+    config.host = posthogHost;
+    // Session replay is intentionally OFF — it would capture health UI.
+    config.sessionReplay = false;
+    await Posthog().setup(config);
   }
 
   runApp(const ProviderScope(child: HealthHubApp()));

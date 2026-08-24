@@ -2,6 +2,7 @@ import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' hide AuthUser;
 
+import 'analytics/analytics.dart';
 import 'api/client.dart';
 import 'auth/auth_service.dart';
 import 'auth/fake_auth_service.dart';
@@ -402,4 +403,21 @@ final authServiceProvider = Provider<AuthService>((ref) {
 /// deterministically (the fake replays its current value on listen).
 final authStateProvider = StreamProvider<AuthUser?>((ref) {
   return ref.watch(authServiceProvider).authState();
+});
+
+/// Product-analytics seam. Returns [PostHogAnalytics] when a `POSTHOG_KEY`
+/// dart-define is compiled in, else [NoopAnalytics] (tests, CI, and
+/// privacy-conscious builds are completely unaffected — no init, no events).
+///
+/// The key is a client-safe public PostHog ingestion key, NOT a secret. It is
+/// supplied per build via:
+///   --dart-define=POSTHOG_KEY=phc_...
+///   --dart-define=POSTHOG_HOST=https://eu.i.posthog.com   (optional override)
+///
+/// Override in tests with a [FakeAnalytics] (or [NoopAnalytics]) via
+/// `ProviderScope(overrides: [analyticsProvider.overrideWithValue(...)])`.
+final analyticsProvider = Provider<Analytics>((ref) {
+  const key = String.fromEnvironment('POSTHOG_KEY');
+  if (key.isEmpty) return const NoopAnalytics();
+  return const PostHogAnalytics();
 });

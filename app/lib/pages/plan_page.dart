@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../analytics/analytics.dart';
 import '../cart/grocery_list_repo.dart';
 import '../design_system/colors.dart';
 import '../design_system/components/app_button.dart';
@@ -42,6 +43,7 @@ class PlanPage extends StatefulWidget {
     required this.nutritionRepo,
     required this.eatInService,
     this.now,
+    this.analytics = const NoopAnalytics(),
   });
 
   final MealPlanRepo planRepo;
@@ -54,6 +56,10 @@ class PlanPage extends StatefulWidget {
 
   /// Injectable clock so goldens/tests are deterministic.
   final DateTime? now;
+
+  /// Analytics seam — [NoopAnalytics] by default so tests are unaffected.
+  /// Production wires in the real [PostHogAnalytics] via the [analyticsProvider].
+  final Analytics analytics;
 
   @override
   State<PlanPage> createState() => _PlanPageState();
@@ -141,6 +147,14 @@ class _PlanPageState extends State<PlanPage> {
       await widget.planRepo.save(plan);
       if (!mounted) return;
       setState(() => _plan = plan);
+
+      // Analytics: fire-and-forget, no PII (counts only).
+      final totalDays = plan.days.length;
+      final gaps = neededIngredients(plan, _pantry).length;
+      widget.analytics.capture(
+        kEvtPlanGenerated,
+        props: {kPropDays: totalDays, kPropGaps: gaps},
+      );
     } catch (_) {
       // A persist/read failure must not fabricate a plan — surface it honestly.
       if (mounted) setState(() => _error = _planFailed);
@@ -156,6 +170,13 @@ class _PlanPageState extends State<PlanPage> {
     }
     if (!mounted) return;
     setState(() => _addedToCart = true);
+
+    // Analytics: count only, no ingredient names (names are food data).
+    widget.analytics.capture(
+      kEvtGapsAddedToCart,
+      props: {kPropCount: gaps.length},
+    );
+
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(gaps.length == 1
@@ -215,6 +236,14 @@ class _PlanPageState extends State<PlanPage> {
     await widget.nutritionRepo.add(entry);
     if (!mounted) return;
     setState(() => _loggedMeals.add(key));
+
+    // Analytics: deducted=true when a pantry deduction happened with no shortfall.
+    // No PII: food names, kcal, macros — none sent.
+    final wasDeducted = outcome != null && !outcome.hadShortfall;
+    widget.analytics.capture(
+      kEvtPlanMealLogged,
+      props: {kPropDeducted: wasDeducted},
+    );
 
     // Re-read the pantry so the shopping list reflects what we just consumed.
     final pantry = await widget.pantryRepo.all();
