@@ -10,6 +10,9 @@ regexes = [
   '''sb_publishable_[A-Za-z0-9_-]+''',
   # VAPID PUBLIC key (web-push) — public by definition.
   '''BBOWVHT[A-Za-z0-9_-]+''',
+  # PostHog PROJECT API key (phc_...) — the client-side ingestion key, public by
+  # design (write-only; meant to ship in the web bundle, like an analytics tag).
+  '''phc_[A-Za-z0-9]+''',
 ]
 paths = [
   # Test fixtures / goldens never carry real secrets.
