@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import 'analytics/analytics.dart';
 import 'app_providers.dart';
 import 'auth/auth_screen.dart';
 import 'auth/auth_service.dart';
@@ -59,10 +60,19 @@ class _AuthGateState extends ConsumerState<_AuthGate> {
     if (user == null) {
       // Signed out — reset so the next sign-in (even the same user) re-hydrates.
       _hydratedUserId = null;
+      // Reset analytics distinct-id on sign-out (fire-and-forget).
+      ref.read(analyticsProvider).reset();
       return;
     }
     if (user.id == _hydratedUserId) return; // already hydrated this user.
     _hydratedUserId = user.id;
+
+    // Analytics: identify + fire signed_in (fire-and-forget, never block UI).
+    // We send ONLY the stable Supabase user-id — never email or any health value.
+    final analytics = ref.read(analyticsProvider);
+    analytics.identify(user.id);
+    analytics.capture(kEvtSignedIn);
+
     final hydrator = ref.read(supabaseHydratorProvider);
     // Null when Supabase isn't configured (degraded local mode) — nothing to
     // pull. Fire-and-forget; the app reads local regardless of the outcome.

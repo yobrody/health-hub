@@ -26,6 +26,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
+import '../analytics/analytics.dart';
 import '../app_providers.dart';
 import '../brain/brain_providers.dart';
 import '../brain/brain_section.dart';
@@ -114,6 +115,7 @@ class NutritionPageState extends ConsumerState<NutritionPage> {
   EatInService get _eatIn => ref.read(eatInServiceProvider);
   NutritionEstimateClient get _estimateClient =>
       ref.read(nutritionEstimateClientProvider);
+  Analytics get _analytics => ref.read(analyticsProvider);
 
   // ── Lifecycle ──────────────────────────────────────────────────────────────
 
@@ -493,6 +495,16 @@ class NutritionPageState extends ConsumerState<NutritionPage> {
     }
 
     await _repo.add(entry);
+
+    // Analytics: tier (string) + ate_out (bool) only — no food name, no kcal.
+    _analytics.capture(
+      kEvtMealLogged,
+      props: {
+        kPropTier: entry.tier == AccuracyTier.exact ? 'exact' : 'estimate',
+        kPropAteOut: _ateOut,
+      },
+    );
+
     _resetForm();
     await _reloadLog();
     if (outcome != null) _surfaceEatInOutcome(outcome);
@@ -655,6 +667,7 @@ class NutritionPageState extends ConsumerState<NutritionPage> {
           groceryRepo: ref.read(groceryListRepoProvider),
           nutritionRepo: ref.read(nutritionRepoProvider),
           eatInService: ref.read(eatInServiceProvider),
+          analytics: ref.read(analyticsProvider),
         ),
       ),
     );

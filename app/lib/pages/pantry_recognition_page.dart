@@ -16,6 +16,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../analytics/analytics.dart';
 import '../app_providers.dart';
 import '../design_system/colors.dart';
 import '../design_system/components/section_header.dart';
@@ -119,6 +120,7 @@ class _PantryRecognitionPageState
   }
 
   PantryRepo get _repo => ref.read(pantryRepoProvider);
+  Analytics get _analytics => ref.read(analyticsProvider);
 
   void _remove(int index) {
     setState(() {
@@ -133,6 +135,7 @@ class _PantryRecognitionPageState
     setState(() => _saving = true);
 
     var seq = 0;
+    var saved = 0;
     for (final r in _rows) {
       final name = r.nameCtrl.text.trim();
       if (name.isEmpty) continue; // never save a nameless row
@@ -150,9 +153,14 @@ class _PantryRecognitionPageState
         source: 'scan',
       );
       await _repo.add(item);
+      saved++;
     }
 
     if (!mounted) return;
+    // Analytics: count of items ACTUALLY saved (blank rows are skipped; no item
+    // names — names are food data).
+    _analytics.capture(kEvtPantryRecognized, props: {kPropCount: saved});
+
     Navigator.of(context).pop(true);
   }
 

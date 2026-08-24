@@ -48,7 +48,9 @@ jobs:
           flutter build web --release \
             --base-href /health-hub/ \
             --dart-define=SUPABASE_URL=https://eazwtlqieizvsqvbbknj.supabase.co \
-            --dart-define=SUPABASE_PUBLISHABLE_KEY=sb_publishable_zuKTonIi1rrL7R1KSxujhA_m1Wc1lQP
+            --dart-define=SUPABASE_PUBLISHABLE_KEY=sb_publishable_zuKTonIi1rrL7R1KSxujhA_m1Wc1lQP \
+            --dart-define=POSTHOG_KEY=phc_nQubrCHs6xpBuoKSUTeexSY5PXjKE4QrZiAz7zzXHYSz \
+            --dart-define=POSTHOG_HOST=https://eu.i.posthog.com
 
       - uses: actions/configure-pages@v5
 
