@@ -1,0 +1,17 @@
+# gitleaks config — extend the defaults, then allowlist values that are
+# PUBLIC-SAFE by design so CI doesn't fail on them.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Client-safe public values (safe to commit; protected by RLS)."
+regexes = [
+  # Supabase PUBLISHABLE / anon key — the client key, RLS-protected, meant to ship.
+  '''sb_publishable_[A-Za-z0-9_-]+''',
+  # VAPID PUBLIC key (web-push) — public by definition.
+  '''BBOWVHT[A-Za-z0-9_-]+''',
+]
+paths = [
+  # Test fixtures / goldens never carry real secrets.
+  '''app/test/.*''',
+]
