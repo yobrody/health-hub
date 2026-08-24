@@ -73,6 +73,11 @@ class _PlanPageState extends State<PlanPage> {
   /// double-log or double-deduct.
   final Set<String> _loggedMeals = {};
 
+  /// Meals whose log is currently in flight — guards against a rapid double-tap
+  /// launching two concurrent logs (double entry + double deduction) before the
+  /// button rebuilds disabled.
+  final Set<String> _inFlight = {};
+
   /// Captured ONCE (not recomputed per generate) so the week's start can't shift
   /// under the app across a midnight boundary mid-session.
   late final DateTime _weekStart;
@@ -166,6 +171,16 @@ class _PlanPageState extends State<PlanPage> {
   /// shortfall is surfaced, never hidden). After deducting we re-read the pantry
   /// so the shopping list stays truthful.
   Future<void> _logMeal(String key, PlanMeal meal) async {
+    // Guard against a double-tap before the button rebuilds disabled.
+    if (_loggedMeals.contains(key) || !_inFlight.add(key)) return;
+    try {
+      await _doLogMeal(key, meal);
+    } finally {
+      _inFlight.remove(key);
+    }
+  }
+
+  Future<void> _doLogMeal(String key, PlanMeal meal) async {
     final at = widget.now ?? DateTime.now();
     final entry = FoodLogEntry(
       id: 'food-${DateTime.now().microsecondsSinceEpoch}',

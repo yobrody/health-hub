@@ -296,17 +296,22 @@ List<ResolvedDeduction> resolveDeductions(
   PlanMeal meal,
   List<PantryItem> pantry,
 ) {
-  final byName = <String, String>{};
+  // When several pantry entries share a name (e.g. two "Brown rice" from
+  // separate shops), deduct from the largest so a single-source deduction is
+  // least likely to report a false shortfall. eatMeal deducts from one item id.
+  final best = <String, PantryItem>{};
   for (final item in pantry) {
-    byName.putIfAbsent(_norm(item.name), () => item.id);
+    final k = _norm(item.name);
+    final cur = best[k];
+    if (cur == null || (item.qty ?? 0) > (cur.qty ?? 0)) best[k] = item;
   }
   final out = <ResolvedDeduction>[];
   for (final ing in meal.ingredients) {
     final grams = ing.grams;
     if (grams == null) continue;
-    final id = byName[_norm(ing.name)];
-    if (id == null) continue;
-    out.add(ResolvedDeduction(pantryItemId: id, grams: grams));
+    final item = best[_norm(ing.name)];
+    if (item == null) continue;
+    out.add(ResolvedDeduction(pantryItemId: item.id, grams: grams));
   }
   return out;
 }
