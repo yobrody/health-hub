@@ -34,6 +34,7 @@ import 'package:health_hub/metrics/weigh_in.dart';
 import 'package:health_hub/nav/root_scaffold.dart';
 import 'package:health_hub/nutrition/food_log_entry.dart';
 import 'package:health_hub/onboarding/onboarding_flow.dart';
+import 'package:health_hub/meals/eat_in_service.dart';
 import 'package:health_hub/nutrition/plan/meal_plan.dart';
 import 'package:health_hub/pages/gym_page.dart';
 import 'package:health_hub/pages/nutrition_page.dart';
@@ -606,6 +607,8 @@ void main() {
             goalsRepo: h.goalsRepo,
             pantryRepo: h.pantryRepo,
             groceryRepo: h.groceryRepo,
+            nutritionRepo: h.nutritionRepo,
+            eatInService: EatInService(h.pantryRepo),
             now: DateTime(2026, 8, 24),
           ),
           h.overrides,
@@ -627,6 +630,8 @@ void main() {
             goalsRepo: h.goalsRepo,
             pantryRepo: h.pantryRepo,
             groceryRepo: h.groceryRepo,
+            nutritionRepo: h.nutritionRepo,
+            eatInService: EatInService(h.pantryRepo),
             now: DateTime(2026, 8, 24),
           ),
           h.overrides,

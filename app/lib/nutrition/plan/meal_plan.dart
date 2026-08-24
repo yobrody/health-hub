@@ -275,3 +275,43 @@ List<NeededIngredient> neededIngredients(
   }
   return result;
 }
+
+// ── Deduction resolution (log a planned meal → deduct the pantry) ────────────
+
+/// A planned-meal ingredient resolved to a real pantry item + grams to deduct.
+class ResolvedDeduction {
+  const ResolvedDeduction({required this.pantryItemId, required this.grams});
+  final String pantryItemId;
+  final double grams;
+}
+
+/// Resolve [meal]'s ingredients to the user's real pantry items for deduction,
+/// matching names the SAME way [neededIngredients] does (so "Brown rice
+/// (cooked)" deducts from "Brown rice", "Banana" from "Bananas").
+///
+/// Skips ingredients that have no gram amount (can't deduct an unknown quantity)
+/// or no pantry match (can't deduct what you don't have) — honest, never
+/// fabricated. First pantry match per normalized name wins.
+List<ResolvedDeduction> resolveDeductions(
+  PlanMeal meal,
+  List<PantryItem> pantry,
+) {
+  // When several pantry entries share a name (e.g. two "Brown rice" from
+  // separate shops), deduct from the largest so a single-source deduction is
+  // least likely to report a false shortfall. eatMeal deducts from one item id.
+  final best = <String, PantryItem>{};
+  for (final item in pantry) {
+    final k = _norm(item.name);
+    final cur = best[k];
+    if (cur == null || (item.qty ?? 0) > (cur.qty ?? 0)) best[k] = item;
+  }
+  final out = <ResolvedDeduction>[];
+  for (final ing in meal.ingredients) {
+    final grams = ing.grams;
+    if (grams == null) continue;
+    final item = best[_norm(ing.name)];
+    if (item == null) continue;
+    out.add(ResolvedDeduction(pantryItemId: item.id, grams: grams));
+  }
+  return out;
+}

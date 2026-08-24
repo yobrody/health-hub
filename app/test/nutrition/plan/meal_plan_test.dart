@@ -184,6 +184,43 @@ void main() {
     });
   });
 
+  group('resolveDeductions', () {
+    test('resolves plan ingredients to pantry ids (robust name match), skips '
+        'unmatched + unquantified', () {
+      final meal = _meal([
+        const PlanIngredient(name: 'Brown rice (cooked)', grams: 220), // → id r
+        const PlanIngredient(name: 'Bananas', grams: 100), // → id b (plural)
+        const PlanIngredient(name: 'Salt'), // no grams → skipped
+        const PlanIngredient(name: 'Saffron', grams: 1), // not in pantry → skip
+      ]);
+      final pantry = [
+        const PantryItem(
+            id: 'r',
+            name: 'Brown rice',
+            zone: PantryZone.pantry,
+            qty: 1200,
+            unit: 'g',
+            source: 'manual'),
+        const PantryItem(
+            id: 'b',
+            name: 'Banana',
+            zone: PantryZone.fridge,
+            qty: 400,
+            unit: 'g',
+            source: 'manual'),
+      ];
+      final ded = resolveDeductions(meal, pantry);
+      expect(ded.map((d) => d.pantryItemId), ['r', 'b']);
+      expect(ded.firstWhere((d) => d.pantryItemId == 'r').grams, 220);
+      expect(ded.firstWhere((d) => d.pantryItemId == 'b').grams, 100);
+    });
+
+    test('nothing deductible → empty list (never fabricated)', () {
+      final meal = _meal([const PlanIngredient(name: 'Truffle', grams: 5)]);
+      expect(resolveDeductions(meal, const []), isEmpty);
+    });
+  });
+
   group('MealPlan JSON round-trip', () {
     test('toJson/fromJson preserves the plan', () {
       final plan = MealPlan(

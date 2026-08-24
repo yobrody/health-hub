@@ -4,6 +4,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:health_hub/meals/eat_in_service.dart';
 import 'package:health_hub/nutrition/food_log_entry.dart' show AccuracyTier;
 import 'package:health_hub/nutrition/plan/meal_plan.dart';
 import 'package:health_hub/pages/plan_page.dart';
@@ -39,6 +40,8 @@ Widget _host(JourneyHarness h, {DateTime? now}) => ProviderScope(
           goalsRepo: h.goalsRepo,
           pantryRepo: h.pantryRepo,
           groceryRepo: h.groceryRepo,
+          nutritionRepo: h.nutritionRepo,
+          eatInService: EatInService(h.pantryRepo),
           now: now ?? DateTime(2026, 8, 24),
         ),
       ),
@@ -115,6 +118,65 @@ void main() {
     final cart = await h.groceryRepo.all();
     expect(cart.map((i) => i.name), ['Blueberries']); // the gap only.
     expect(find.text('Added to cart ✓'), findsOneWidget);
+  });
+
+  testWidgets('log a planned meal → macros logged AND pantry deducted',
+      (tester) async {
+    final h = JourneyHarness(
+      goals: {'caloriesKcal': 2600.0},
+      pantry: [
+        const PantryItem(
+            id: 'p1',
+            name: 'Oats',
+            zone: PantryZone.pantry,
+            qty: 500,
+            unit: 'g',
+            source: 'manual'),
+      ],
+      mealPlan: _cannedPlan(), // breakfast: Oats 60g (have) + Blueberries 80g
+    );
+    await tester.pumpWidget(_host(h));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('plan-log-meal-0:0')));
+    await tester.pumpAndSettle();
+
+    // Macros landed in the food log.
+    final log = await h.nutritionRepo.all();
+    expect(log.map((e) => e.name), contains('Oats & yogurt'));
+    expect(log.single.kcal, 420);
+    expect(log.single.tier, AccuracyTier.estimate);
+
+    // Pantry Oats deducted 60g (500 → 440); Blueberries weren't in the pantry.
+    final oats = (await h.pantryRepo.all()).firstWhere((i) => i.id == 'p1');
+    expect(oats.qty, 440);
+
+    // The button flips to a logged state.
+    expect(find.text('Logged ✓'), findsOneWidget);
+  });
+
+  testWidgets('rapid double-tap on "Log this meal" logs + deducts ONCE',
+      (tester) async {
+    final h = JourneyHarness(
+      goals: {'caloriesKcal': 2600.0},
+      pantry: [
+        const PantryItem(
+            id: 'p1', name: 'Oats', zone: PantryZone.pantry, qty: 500, unit: 'g', source: 'manual'),
+      ],
+      mealPlan: _cannedPlan(),
+    );
+    await tester.pumpWidget(_host(h));
+    await tester.pumpAndSettle();
+
+    // Two taps before any rebuild — the in-flight guard must collapse them.
+    final btn = find.byKey(const Key('plan-log-meal-0:0'));
+    await tester.tap(btn, warnIfMissed: false);
+    await tester.tap(btn, warnIfMissed: false);
+    await tester.pumpAndSettle();
+
+    expect((await h.nutritionRepo.all()).length, 1); // one entry, not two.
+    final oats = (await h.pantryRepo.all()).firstWhere((i) => i.id == 'p1');
+    expect(oats.qty, 440); // deducted 60g once, not 120g.
   });
 
   testWidgets('planner returns null → honest "couldn\'t plan", no fabrication',

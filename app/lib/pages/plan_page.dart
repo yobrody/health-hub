@@ -6,9 +6,12 @@ import '../design_system/components/app_button.dart';
 import '../design_system/components/section_header.dart';
 import '../design_system/components/stat_card.dart';
 import '../design_system/spacing.dart';
-import '../nutrition/food_log_entry.dart' show AccuracyTier;
+import '../meals/eat_in_service.dart';
+import '../meals/meal_composition.dart';
+import '../nutrition/food_log_entry.dart';
 import '../nutrition/nutrition_goals.dart';
 import '../nutrition/nutrition_goals_repo.dart';
+import '../nutrition/nutrition_repo.dart';
 import '../nutrition/plan/meal_plan.dart';
 import '../nutrition/plan/meal_plan_client.dart';
 import '../nutrition/plan/meal_plan_repo.dart';
@@ -36,6 +39,8 @@ class PlanPage extends StatefulWidget {
     required this.goalsRepo,
     required this.pantryRepo,
     required this.groceryRepo,
+    required this.nutritionRepo,
+    required this.eatInService,
     this.now,
   });
 
@@ -44,6 +49,8 @@ class PlanPage extends StatefulWidget {
   final NutritionGoalsRepo goalsRepo;
   final PantryRepo pantryRepo;
   final GroceryListRepo groceryRepo;
+  final NutritionRepo nutritionRepo;
+  final EatInService eatInService;
 
   /// Injectable clock so goldens/tests are deterministic.
   final DateTime? now;
@@ -61,6 +68,15 @@ class _PlanPageState extends State<PlanPage> {
   NutritionGoals _goals = const NutritionGoals();
   List<PantryItem> _pantry = const [];
   MealPlan? _plan;
+
+  /// Meals already logged this session (key `dayIndex:mealIndex`) so we don't
+  /// double-log or double-deduct.
+  final Set<String> _loggedMeals = {};
+
+  /// Meals whose log is currently in flight — guards against a rapid double-tap
+  /// launching two concurrent logs (double entry + double deduction) before the
+  /// button rebuilds disabled.
+  final Set<String> _inFlight = {};
 
   /// Captured ONCE (not recomputed per generate) so the week's start can't shift
   /// under the app across a midnight boundary mid-session.
@@ -147,6 +163,72 @@ class _PlanPageState extends State<PlanPage> {
             : 'Added ${gaps.length} items to your cart'),
       ),
     );
+  }
+
+  /// Log a planned meal: record its macros to the food log (counts toward Today)
+  /// AND deduct its ingredients from the pantry — the loop's "deduct as you eat"
+  /// arrow. The food log always lands; the deduction is best-effort + honest (a
+  /// shortfall is surfaced, never hidden). After deducting we re-read the pantry
+  /// so the shopping list stays truthful.
+  Future<void> _logMeal(String key, PlanMeal meal) async {
+    // Guard against a double-tap before the button rebuilds disabled.
+    if (_loggedMeals.contains(key) || !_inFlight.add(key)) return;
+    try {
+      await _doLogMeal(key, meal);
+    } finally {
+      _inFlight.remove(key);
+    }
+  }
+
+  Future<void> _doLogMeal(String key, PlanMeal meal) async {
+    final at = widget.now ?? DateTime.now();
+    final entry = FoodLogEntry(
+      id: 'food-${DateTime.now().microsecondsSinceEpoch}',
+      name: meal.name,
+      at: at,
+      kcal: meal.kcal,
+      proteinG: meal.proteinG,
+      carbsG: meal.carbsG,
+      fatG: meal.fatG,
+      tier: AccuracyTier.estimate, // a planned meal is an estimate until logged.
+      source: 'plan',
+    );
+
+    EatInOutcome? outcome;
+    final deductions = resolveDeductions(meal, _pantry);
+    if (deductions.isNotEmpty) {
+      final comp = MealComposition(
+        id: 'meal-${DateTime.now().microsecondsSinceEpoch}',
+        name: meal.name,
+        ingredients: [
+          for (final d in deductions)
+            Ingredient(pantryItemId: d.pantryItemId, grams: d.grams),
+        ],
+      );
+      // The food log must land regardless; the deduction is best-effort.
+      try {
+        outcome = await widget.eatInService.eatMeal(comp);
+      } catch (_) {
+        outcome = null;
+      }
+    }
+    await widget.nutritionRepo.add(entry);
+    if (!mounted) return;
+    setState(() => _loggedMeals.add(key));
+
+    // Re-read the pantry so the shopping list reflects what we just consumed.
+    final pantry = await widget.pantryRepo.all();
+    if (!mounted) return;
+    setState(() => _pantry = pantry);
+
+    final short = outcome?.shortfallByItemId.length ?? 0;
+    final msg = outcome != null && outcome.hadShortfall
+        ? 'Logged — short on $short ingredient${short == 1 ? '' : 's'}'
+        : (deductions.isEmpty
+            ? 'Logged to today'
+            : 'Logged + deducted from your kitchen');
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(msg)));
   }
 
   @override
@@ -327,49 +409,98 @@ class _PlanPageState extends State<PlanPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(_dayLabel(day.date, index),
-              style: text.labelMedium?.copyWith(
-                color: colors.primaryStrong,
-                fontWeight: FontWeight.w700,
-                letterSpacing: 0.4,
-              )),
+          Row(
+            children: [
+              Expanded(
+                child: Text(_dayLabel(day.date, index),
+                    style: text.labelMedium?.copyWith(
+                      color: colors.primaryStrong,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 0.4,
+                    )),
+              ),
+              _dayTotalLabel(colors, text, day),
+            ],
+          ),
           AppSpacing.gapV3,
           for (var i = 0; i < day.meals.length; i++) ...[
             if (i > 0) AppSpacing.gapV3,
-            _mealRow(colors, text, day.meals[i]),
+            _mealRow(colors, text, day.meals[i], '$index:$i'),
           ],
         ],
       ),
     );
   }
 
-  Widget _mealRow(AppColors colors, TextTheme text, PlanMeal meal) {
+  /// The day's total kcal vs the goal — the honest "does this day hit my target"
+  /// glance. Sums only meals with a known kcal; if any is missing it prefixes
+  /// `≥` (the real total is at least this). Omitted when nothing sums.
+  Widget _dayTotalLabel(AppColors colors, TextTheme text, PlanDay day) {
+    final known = day.meals.map((m) => m.kcal).whereType<double>();
+    if (known.isEmpty) return const SizedBox.shrink();
+    final sum = known.fold<double>(0, (a, b) => a + b).round();
+    final anyMissing = day.meals.any((m) => m.kcal == null);
+    final goal = _goals.caloriesKcal;
+    final label = goal != null
+        ? '${anyMissing ? '≥' : ''}$sum / ${goal.round()} kcal'
+        : '${anyMissing ? '≥' : ''}$sum kcal';
+    return Text(label,
+        style: text.labelMedium?.copyWith(color: colors.textSecondary));
+  }
+
+  Widget _mealRow(
+      AppColors colors, TextTheme text, PlanMeal meal, String key) {
     final kcal = meal.kcal;
     // `~` marks an estimate; a missing kcal shows `—`, never a fabricated 0.
     final kcalLabel = kcal == null
         ? '—'
         : '${meal.tier == AccuracyTier.estimate ? '~' : ''}${kcal.round()} kcal';
-    return Row(
+    final logged = _loggedMeals.contains(key);
+    return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('${_slotLabel(meal.slot)} · ${meal.name}',
-                  style:
-                      text.bodyMedium?.copyWith(color: colors.textPrimary)),
-              if (meal.ingredients.isNotEmpty)
-                Text(
-                  meal.ingredients.map((i) => i.name).join(', '),
-                  style: text.bodySmall?.copyWith(color: colors.textSecondary),
-                ),
-            ],
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('${_slotLabel(meal.slot)} · ${meal.name}',
+                      style: text.bodyMedium
+                          ?.copyWith(color: colors.textPrimary)),
+                  if (meal.ingredients.isNotEmpty)
+                    Text(
+                      meal.ingredients.map((i) => i.name).join(', '),
+                      style: text.bodySmall
+                          ?.copyWith(color: colors.textSecondary),
+                    ),
+                ],
+              ),
+            ),
+            AppSpacing.gapH3,
+            Text(kcalLabel,
+                style: text.bodySmall?.copyWith(color: colors.textSecondary)),
+          ],
+        ),
+        // A quiet per-meal action — "Log" eats the meal (deducts pantry + logs
+        // macros). The one solid-orange primary stays "Add gaps to cart".
+        Align(
+          alignment: Alignment.centerLeft,
+          child: TextButton(
+            key: Key('plan-log-meal-$key'),
+            onPressed: logged ? null : () => _logMeal(key, meal),
+            style: TextButton.styleFrom(
+              padding: const EdgeInsets.symmetric(
+                  horizontal: AppSpacing.space1, vertical: 0),
+              minimumSize: Size.zero,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              foregroundColor: colors.primaryStrong,
+            ),
+            child: Text(logged ? 'Logged ✓' : 'Log this meal',
+                style: text.labelMedium?.copyWith(color: colors.primaryStrong)),
           ),
         ),
-        AppSpacing.gapH3,
-        Text(kcalLabel,
-            style: text.bodySmall?.copyWith(color: colors.textSecondary)),
       ],
     );
   }

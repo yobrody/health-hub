@@ -653,6 +653,8 @@ class NutritionPageState extends ConsumerState<NutritionPage> {
           goalsRepo: ref.read(nutritionGoalsRepoProvider),
           pantryRepo: ref.read(pantryRepoProvider),
           groceryRepo: ref.read(groceryListRepoProvider),
+          nutritionRepo: ref.read(nutritionRepoProvider),
+          eatInService: ref.read(eatInServiceProvider),
         ),
       ),
     );
