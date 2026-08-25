@@ -66,12 +66,12 @@ function buildEnvelope(
 ): string {
   const eventId = crypto.randomUUID().replace(/-/g, "");
 
-  // Extract a safe error message — strip anything that looks like a URL or
-  // path with user data, keeping only the error type and its base message.
-  const message = error instanceof Error
-    ? error.message.slice(0, 500)
-    : String(error).slice(0, 500);
+  // PRIVACY (health app): send ONLY the error TYPE — never `error.message`.
+  // A message could carry user/health data if an upstream throw stringified a
+  // goal/macro/food value into it, so we omit it entirely. The type + stack are
+  // enough to locate the bug; they never contain user data.
   const type = error instanceof Error ? error.constructor.name : "Error";
+  const message = type;
 
   // Stack trace: only include when available (never fabricate).
   const frames = error instanceof Error && error.stack
