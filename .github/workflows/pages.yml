@@ -50,7 +50,8 @@ jobs:
             --dart-define=SUPABASE_URL=https://eazwtlqieizvsqvbbknj.supabase.co \
             --dart-define=SUPABASE_PUBLISHABLE_KEY=sb_publishable_zuKTonIi1rrL7R1KSxujhA_m1Wc1lQP \
             --dart-define=POSTHOG_KEY=phc_nQubrCHs6xpBuoKSUTeexSY5PXjKE4QrZiAz7zzXHYSz \
-            --dart-define=POSTHOG_HOST=https://eu.i.posthog.com
+            --dart-define=POSTHOG_HOST=https://eu.i.posthog.com \
+            --dart-define=SENTRY_DSN=https://f775e4b18f079774e940eac1ef3c3467@o4511412046921728.ingest.de.sentry.io/4511412054196304
 
       - uses: actions/configure-pages@v5
 
