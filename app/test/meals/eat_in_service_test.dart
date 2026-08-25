@@ -273,4 +273,44 @@ void main() {
       expect(outcome.writeOutcomes, isEmpty);
     });
   });
+
+  group('EatInService.eatMeal — onPantryChanged refresh hook', () {
+    test('fires once after a real deduction persists a changed item', () async {
+      final repo = buildRepo();
+      await repo.add(_chicken);
+      repo.updated.clear();
+      var refreshes = 0;
+      final service = EatInService(repo, onPantryChanged: () => refreshes++);
+
+      const meal = MealComposition(
+        id: 'chicken-meal',
+        name: 'Chicken',
+        ingredients: [Ingredient(pantryItemId: 'chicken', grams: 100)],
+      );
+      await service.eatMeal(meal);
+
+      // Stock changed → watchers (the reactive pantryItemsProvider) must refresh.
+      expect(refreshes, 1);
+    });
+
+    test('does NOT fire when nothing was deducted (no phantom refresh)',
+        () async {
+      final repo = buildRepo();
+      await repo.add(_rice);
+      repo.updated.clear();
+      var refreshes = 0;
+      final service = EatInService(repo, onPantryChanged: () => refreshes++);
+
+      // Ingredient not in stock → shortfall, nothing persisted.
+      const meal = MealComposition(
+        id: 'ghost',
+        name: 'Ghost',
+        ingredients: [Ingredient(pantryItemId: 'chicken', grams: 100)],
+      );
+      final outcome = await service.eatMeal(meal);
+
+      expect(outcome.hadShortfall, isTrue);
+      expect(refreshes, 0); // nothing changed → no needless refresh
+    });
+  });
 }

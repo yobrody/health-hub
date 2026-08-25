@@ -147,14 +147,19 @@ class FoodPage extends ConsumerStatefulWidget {
 }
 
 class FoodPageState extends ConsumerState<FoodPage> {
-  List<PantryItem> _items = [];
+  // Pantry items are NO LONGER cached here — they come from the reactive
+  // [pantryItemsProvider] (watched in [build]), so a mutation from ANOTHER tab
+  // (e.g. an eat-in deduction on Nutrition under the nav's IndexedStack) is
+  // reflected here without a stale one-shot `initState` load. Only the kitchen
+  // [_layout] (a cosmetic single/double display preference) is loaded
+  // imperatively, since it isn't reactive shared data.
   KitchenLayout _layout = KitchenLayout.initial;
-  bool _loading = true;
+  bool _layoutLoaded = false;
 
   @override
   void initState() {
     super.initState();
-    _reload();
+    _loadLayout();
   }
 
   PantryRepo get _repo => ref.read(pantryRepoProvider);
@@ -162,15 +167,20 @@ class FoodPageState extends ConsumerState<FoodPage> {
   AcquisitionService get _acquisitions =>
       ref.read(acquisitionServiceProvider);
 
-  Future<void> _reload() async {
-    final items = await _repo.all();
+  Future<void> _loadLayout() async {
     final layout = await _layoutRepo.load();
     if (!mounted) return;
     setState(() {
-      _items = items;
       _layout = layout;
-      _loading = false;
+      _layoutLoaded = true;
     });
+  }
+
+  /// Refresh everything that derives from the pantry after a mutation made from
+  /// THIS page: the reactive pantry list (counts/freshness) and the Brain's BUY
+  /// insights. Watchers on other tabs re-render off the same invalidation.
+  void _refreshPantry() {
+    ref.invalidate(pantryItemsProvider);
     // Pantry changes (add/edit/delete) alter the Brain's BUY insights → refresh.
     ref.invalidate(brainInputsProvider);
   }
@@ -212,7 +222,9 @@ class FoodPageState extends ConsumerState<FoodPage> {
       ),
     );
     if (!mounted) return;
-    await _reload();
+    // Edits/deletes inside the zone view already refreshed the reactive pantry;
+    // invalidating again on return is cheap and keeps the scene current.
+    _refreshPantry();
   }
 
   // ── CRUD ───────────────────────────────────────────────────────────────────
@@ -229,7 +241,7 @@ class FoodPageState extends ConsumerState<FoodPage> {
       // learned cadence + lastBought and surface "reorder-due" organically. An
       // EDIT (via _openEditForm) is deliberately NOT recorded — it isn't a re-buy.
       await _acquisitions.recordAcquisition(result.name, DateTime.now());
-      await _reload();
+      _refreshPantry();
     }
   }
 
@@ -240,13 +252,13 @@ class FoodPageState extends ConsumerState<FoodPage> {
     );
     if (result != null) {
       await _repo.update(result);
-      await _reload();
+      _refreshPantry();
     }
   }
 
   Future<void> _delete(String id) async {
     await _repo.delete(id);
-    await _reload();
+    _refreshPantry();
   }
 
   bool _recognizing = false;
@@ -355,7 +367,9 @@ class FoodPageState extends ConsumerState<FoodPage> {
       ),
     );
     if (saved == true) {
-      await _reload();
+      // Recognition wrote confirmed items to the pantry → refresh the reactive
+      // list so the kitchen scene shows them.
+      _refreshPantry();
     }
   }
 
@@ -376,6 +390,11 @@ class FoodPageState extends ConsumerState<FoodPage> {
   Widget build(BuildContext context) {
     final colors = context.appColors;
 
+    // The REACTIVE pantry — re-renders when stock changes on ANY tab (mirrors
+    // how the Cart badge watches groceryListProvider). Loading/error/data are
+    // handled explicitly so we never show a fabricated empty pantry.
+    final itemsAsync = ref.watch(pantryItemsProvider);
+
     return Scaffold(
       key: const Key('food-page'),
       backgroundColor: colors.canvas,
@@ -391,17 +410,19 @@ class FoodPageState extends ConsumerState<FoodPage> {
         tooltip: 'Add item',
         child: const Icon(Icons.add),
       ),
-      body: _loading
+      body: (!_layoutLoaded || itemsAsync.isLoading)
           ? const SizedBox.shrink()
-          : _buildList(),
+          // On error, fall back to an empty list rather than crashing — the
+          // provider re-fetches on the next invalidate.
+          : _buildList(itemsAsync.valueOrNull ?? const []),
     );
   }
 
-  Widget _buildList() {
+  Widget _buildList(List<PantryItem> items) {
     final colors = context.appColors;
     final text = Theme.of(context).textTheme;
 
-    if (_items.isEmpty) {
+    if (items.isEmpty) {
       // First-run gate (R-1) — NON-BLOCKING: the hero invites uploading fridge/
       // freezer/pantry/spice photos (a STUB in R-1 — the real AI recognition is
       // R-2, so it never pretends to recognize anything), but an "Add manually"
@@ -506,7 +527,7 @@ class FoodPageState extends ConsumerState<FoodPage> {
         for (final zone in _zoneOrder) ...[
           _AppliancePanel(
             zone: zone,
-            items: _items.where((i) => i.zone == zone).toList(),
+            items: items.where((i) => i.zone == zone).toList(),
             now: now,
             size: _toggleableFor[zone] == null
                 ? ApplianceSize.single

@@ -202,10 +202,16 @@ class NutritionPageState extends ConsumerState<NutritionPage> {
         return;
       }
 
-      // Determine serving grams: use the product's own serving if available,
-      // else fall back to per-100g (100 g) so the user can adjust.
-      final servingGrams = food.servingGrams ?? 100.0;
-      final nutrition = food.toServing(servingGrams);
+      // Use the product's REAL serving size only. When OFF supplies no honest
+      // serving (servingGrams == null) we do NOT fabricate 100 g — silently
+      // logging a 500 g pack at 1/5 the real amount is exactly the honesty bug
+      // we must avoid. Instead: leave the grams field BLANK, prefill no macros
+      // (they'd be wrong at an unknown weight), and tell the user to enter the
+      // grams themselves. We only scale when a genuine serving size exists.
+      final servingGrams = food.servingGrams;
+      final Map<String, double?>? nutrition =
+          servingGrams != null ? food.toServing(servingGrams) : null;
+      final servingUnknown = servingGrams == null;
 
       setState(() {
         _scannedBarcode = code;
@@ -218,22 +224,39 @@ class NutritionPageState extends ConsumerState<NutritionPage> {
         if (food.name != null) {
           _nameCtrl.text = food.name!;
         }
-        // Pre-fill grams with the serving size.
-        _gramsCtrl.text = servingGrams.toStringAsFixed(0);
 
-        // Pre-fill macro fields only when the scaled value is non-null.
-        final kcal = nutrition['kcal'];
-        if (kcal != null) _kcalCtrl.text = kcal.toStringAsFixed(0);
+        if (servingGrams != null) {
+          // Pre-fill grams with the REAL serving size.
+          _gramsCtrl.text = servingGrams.toStringAsFixed(0);
 
-        final protein = nutrition['proteinG'];
-        if (protein != null) _proteinCtrl.text = protein.toStringAsFixed(1);
+          // Pre-fill macro fields only when the scaled value is non-null.
+          final kcal = nutrition!['kcal'];
+          if (kcal != null) _kcalCtrl.text = kcal.toStringAsFixed(0);
 
-        final carbs = nutrition['carbsG'];
-        if (carbs != null) _carbsCtrl.text = carbs.toStringAsFixed(1);
+          final protein = nutrition['proteinG'];
+          if (protein != null) _proteinCtrl.text = protein.toStringAsFixed(1);
 
-        final fat = nutrition['fatG'];
-        if (fat != null) _fatCtrl.text = fat.toStringAsFixed(1);
+          final carbs = nutrition['carbsG'];
+          if (carbs != null) _carbsCtrl.text = carbs.toStringAsFixed(1);
+
+          final fat = nutrition['fatG'];
+          if (fat != null) _fatCtrl.text = fat.toStringAsFixed(1);
+        } else {
+          // Unknown serving size — leave grams (and macros) blank so nothing is
+          // logged at a fabricated weight.
+          _gramsCtrl.clear();
+        }
       });
+
+      // Tell the user, honestly, that they must supply the amount themselves.
+      if (servingUnknown) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            key: Key('nutrition-serving-unknown-snackbar'),
+            content: Text('Serving size unknown — enter the grams yourself.'),
+          ),
+        );
+      }
     } catch (_) {
       if (!mounted) return;
       setState(() => _loading = false);
@@ -507,6 +530,9 @@ class NutritionPageState extends ConsumerState<NutritionPage> {
 
     _resetForm();
     await _reloadLog();
+    // _surfaceEatInOutcome touches context (ScaffoldMessenger / showModalBottom
+    // Sheet); guard against the widget being unmounted during the await above.
+    if (!mounted) return;
     if (outcome != null) _surfaceEatInOutcome(outcome);
   }
 

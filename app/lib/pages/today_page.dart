@@ -557,7 +557,10 @@ class _WeightCard extends StatelessWidget {
     final colors = context.appColors;
     final text = Theme.of(context).textTheme;
 
-    // Prefer the latest real weigh-in; fall back to the profile scalar.
+    // Prefer the latest real weigh-in; fall back to the profile scalar. Track
+    // WHICH source so we can label it honestly — a profile scalar can be stale
+    // (last edited weeks ago) and must not read as a fresh weigh-in.
+    final fromWeighIn = trend.currentKg != null;
     final currentKg = trend.currentKg ?? profile.weightKg;
     final hasWeight = currentKg != null;
     final weightStr = hasWeight ? formatKg(currentKg) : '—';
@@ -608,7 +611,7 @@ class _WeightCard extends StatelessWidget {
                 ),
                 AppSpacing.gapV1,
                 Text(
-                  _subtitle(),
+                  _subtitle(fromWeighIn),
                   style: text.bodyMedium?.copyWith(color: colors.textSecondary),
                 ),
               ],
@@ -623,22 +626,26 @@ class _WeightCard extends StatelessWidget {
     );
   }
 
-  /// A quiet supporting line under the hero number.
-  String _subtitle() {
+  /// A quiet supporting line under the hero number. [fromWeighIn] is false when
+  /// the displayed number is the profile scalar (not a real weigh-in); we
+  /// disclose that with a "· from profile" qualifier so a possibly-stale profile
+  /// value never reads as a fresh weigh-in.
+  String _subtitle(bool fromWeighIn) {
     final hasWeight = trend.currentKg != null || profile.weightKg != null;
     if (!hasWeight) return 'Log your weight to begin';
+    final String base;
     final dir = profile.goalDirection;
-    if (dir == null) return 'Current weight';
     switch (dir) {
       case 'gain':
-        return 'Building — gaining weight';
+        base = 'Building — gaining weight';
       case 'cut':
-        return 'Cutting — losing weight';
+        base = 'Cutting — losing weight';
       case 'maintain':
-        return 'Holding steady';
+        base = 'Holding steady';
       default:
-        return 'Current weight';
+        base = 'Current weight';
     }
+    return fromWeighIn ? base : '$base · from profile';
   }
 }
 
@@ -928,7 +935,10 @@ class _RestockSoonCard extends StatelessWidget {
 
 /// Today's summed intake. Each total is `null` when NO logged entry contributed
 /// a real value for that macro (so the UI shows `—`, never a fabricated `0`).
-/// Planned meal-plan lines are excluded — an intended meal is not eaten intake.
+/// This sums the REAL food log ([FoodLogEntry]s from [NutritionRepo]): a meal
+/// the user logged from a plan is a genuine logged entry and IS counted here —
+/// only an un-logged planned line (which never becomes a [FoodLogEntry]) is
+/// absent, because it was never eaten.
 class _DayNutrition {
   const _DayNutrition({
     this.kcal,

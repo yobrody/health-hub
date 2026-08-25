@@ -25,6 +25,7 @@ import 'offline/failed_store.dart';
 import 'offline/outbox.dart';
 import 'offline/outbox_store.dart';
 import 'pantry/acquisition_service.dart';
+import 'pantry/pantry_item.dart';
 import 'pantry/pantry_repo.dart';
 import 'pantry/purchase_history.dart';
 import 'profile/profile_repo.dart';
@@ -139,6 +140,21 @@ final pantryRepoProvider = Provider<PantryRepo>((ref) {
   );
 });
 
+/// The live pantry inventory — the reactive source of truth for the Food page's
+/// kitchen scene (counts + freshness) AND anything else that reads stock. A
+/// [FutureProvider] over [PantryRepo.all] so any widget can `watch` it and
+/// re-render when the pantry changes; after EVERY pantry mutation (add / edit /
+/// delete on the Food page, a recognition write, an acquisition stamp, or an
+/// [EatInService] deduction on the Nutrition tab) callers `ref.invalidate` it to
+/// refresh everyone (mirrors [groceryListProvider] + the Brain's
+/// `brainInputsProvider`). This is what keeps the pantry honest across
+/// tab-switches under the nav's `IndexedStack`: the Food page no longer caches
+/// items in a one-shot `initState` load that goes stale when stock is mutated
+/// from another screen (e.g. a meal logged on Nutrition deducting ingredients).
+final pantryItemsProvider = FutureProvider<List<PantryItem>>((ref) {
+  return ref.watch(pantryRepoProvider).all();
+});
+
 /// Local purchase-history persistence — the append-only real repeat-buy log that
 /// the honest reorder-cadence learner reads. Device-local, survives restart.
 final purchaseHistoryStoreProvider = Provider<PurchaseHistoryStore>((ref) {
@@ -161,6 +177,9 @@ final acquisitionServiceProvider = Provider<AcquisitionService>((ref) {
   return AcquisitionService(
     historyRepo: ref.watch(purchaseHistoryRepoProvider),
     pantryRepo: ref.watch(pantryRepoProvider),
+    // A learned-cadence stamp mutates a pantry item → refresh the reactive
+    // pantry so no consumer is left showing a stale count/freshness.
+    onPantryChanged: () => ref.invalidate(pantryItemsProvider),
   );
 });
 
@@ -307,7 +326,12 @@ final offClientProvider = Provider<OffClient>((ref) {
 /// tests via `ProviderScope(overrides: [...])`. (No UI wires this yet — a later
 /// phase calls it from the nutrition/meal-log flow.)
 final eatInServiceProvider = Provider<EatInService>((ref) {
-  return EatInService(ref.watch(pantryRepoProvider));
+  return EatInService(
+    ref.watch(pantryRepoProvider),
+    // A meal deduction mutates the pantry → refresh the reactive pantry so the
+    // Food page kitchen scene (and any watcher) never shows stale stock.
+    onPantryChanged: () => ref.invalidate(pantryItemsProvider),
+  );
 });
 
 /// Device connectivity, wrapped behind a testable interface.
