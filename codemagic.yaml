@@ -35,11 +35,9 @@ workflows:
     max_build_duration: 60
     environment:
       flutter: 3.47.0
-      # vars:
-      #   BUNDLE_ID: "com.brodyvankeuren.healthhub"  # set your real bundle id
       # ios_signing:                                  # add in Codemagic UI first
       #   distribution_type: app_store
-      #   bundle_identifier: $BUNDLE_ID
+      #   bundle_identifier: uk.co.healthhub.healthHub   # matches ios/Runner.xcodeproj
       # integrations:
       #   app_store_connect: HealthHub_ASC_Key        # the ASC API key you add
     scripts:
@@ -49,19 +47,28 @@ workflows:
       - name: Analyze & test (gate the build)
         working_directory: app
         script: flutter analyze && flutter test
+      # Client-safe public keys (same values baked into the web build in
+      # .github/workflows/pages.yml; all gitleaks-allowlisted). Hardcoded so the
+      # build is zero-config — no Codemagic env vars to set for these.
       - name: Build iOS (no codesign until signing is configured)
         working_directory: app
         script: |
           flutter build ios --release --no-codesign \
-            --dart-define=SUPABASE_URL=$SUPABASE_URL \
-            --dart-define=SUPABASE_PUBLISHABLE_KEY=$SUPABASE_PUBLISHABLE_KEY
+            --dart-define=SUPABASE_URL=https://eazwtlqieizvsqvbbknj.supabase.co \
+            --dart-define=SUPABASE_PUBLISHABLE_KEY=sb_publishable_zuKTonIi1rrL7R1KSxujhA_m1Wc1lQP \
+            --dart-define=POSTHOG_KEY=phc_nQubrCHs6xpBuoKSUTeexSY5PXjKE4QrZiAz7zzXHYSz \
+            --dart-define=POSTHOG_HOST=https://eu.i.posthog.com \
+            --dart-define=SENTRY_DSN=https://f775e4b18f079774e940eac1ef3c3467@o4511412046921728.ingest.de.sentry.io/4511412054196304
       # - name: Build signed IPA (uncomment once ios_signing is set)
       #   working_directory: app
       #   script: |
       #     flutter build ipa --release \
       #       --export-options-plist=/Users/builder/export_options.plist \
-      #       --dart-define=SUPABASE_URL=$SUPABASE_URL \
-      #       --dart-define=SUPABASE_PUBLISHABLE_KEY=$SUPABASE_PUBLISHABLE_KEY
+      #       --dart-define=SUPABASE_URL=https://eazwtlqieizvsqvbbknj.supabase.co \
+      #       --dart-define=SUPABASE_PUBLISHABLE_KEY=sb_publishable_zuKTonIi1rrL7R1KSxujhA_m1Wc1lQP \
+      #       --dart-define=POSTHOG_KEY=phc_nQubrCHs6xpBuoKSUTeexSY5PXjKE4QrZiAz7zzXHYSz \
+      #       --dart-define=POSTHOG_HOST=https://eu.i.posthog.com \
+      #       --dart-define=SENTRY_DSN=https://f775e4b18f079774e940eac1ef3c3467@o4511412046921728.ingest.de.sentry.io/4511412054196304
     # artifacts:
     #   - build/ios/ipa/*.ipa
     # publishing:

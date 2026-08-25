@@ -88,12 +88,28 @@ delivered to a sharp segment first.
 Ranked by fit for a solo founder pre-PMF. **Organic-first — YC distrusts consumer
 apps that only grow by buying users.**
 
-### Phase 0 — the first ~50 (this week, for retention data)
-- **Personal network + warm intros** — the launch email (drafted) + DMs.
+### Phase −1 — READINESS (do this BEFORE any outreach; the part it's easy to skip)
+"Get users" is a downstream *gate*, never the next action. Nothing goes in front of
+a stranger until this ladder is climbed, in order:
+1. **Founder is user #1.** Dogfood it against your own real food life for a week
+   (snap your actual fridge → plan → cart the gaps → log as you eat). If the founder
+   isn't using it daily, it is not ready for anyone. This is always the real next
+   move; it produces the punch-list. (Runs now via the web app / TestFlight — see
+   `2026-08-25-data-architecture-and-scaling.md` and the "how to use it now" note.)
+2. **Fix what dogfooding surfaces.** Real usage exposes what tests can't.
+3. **Provisional name + icon + minimal brand** — enough to be presentable, and
+   required for the App Store listing anyway (naming framework doc has the process).
+4. **Private beta** — a small trusted cohort via TestFlight (the same binary that
+   ships to the store).
+5. **App Store launch = THE launch** (founder's decision): the full public push
+   happens when it's live on the App Store, not before.
+
+### Phase 0 — the first cohort (AT App Store launch, for retention data)
+- **Personal network + warm intros** — the launch email + DMs, timed to the store launch.
 - **Where the wedge already gathers:** r/fitness, r/nutrition, r/loseit,
   r/gainit, r/mealprep; fitness Discords; X fitness/AI communities. Post the
-  *honest* value + a direct link; ask for brutal feedback, not praise.
-- Goal: 50 real users, one usage cycle, **D-7/D-28 in PostHog**. This is the gate.
+  *honest* value + a direct App Store link; ask for brutal feedback, not praise.
+- Goal: ~50 real users, one usage cycle, **D-7/D-28 in PostHog**. This is the gate.
 
 ### Phase 1 — the organic growth loop (the engine)
 - **Shareable honest artifacts:** the weekly recap + the transformation roadmap
@@ -122,9 +138,14 @@ the wedge converts; launching everywhere at once (dilutes the feedback signal).
 
 ---
 
-## The single sequence
-1. **This week:** ship the app to ~50 wedge users → measure D-7/D-28 (infra ready).
-2. **On signal:** build the "share my week" growth loop + start SEO content.
-3. **Then:** creators + App Store + (only then) paid.
-Moat deepens automatically as usage + integrations + trust accrue — our job is to
-get the usage started and make the data/trust visible.
+## The single sequence (readiness-gated — do NOT jump to step 4)
+1. **Now:** founder dogfoods the app on their own phone for a week → punch-list.
+2. **Fix** the punch-list; land a provisional name + icon + minimal brand.
+3. **Private TestFlight beta** to a small trusted cohort (same store binary).
+4. **App Store launch = the full public push** → drive the first ~50 wedge users →
+   measure **D-7/D-28 in PostHog**. This is the retention gate.
+5. **On retention signal:** build the "share my week" growth loop + start SEO content.
+6. **Then:** creators + (only against a known LTV) paid.
+Moat deepens automatically as usage + integrations + trust accrue — but the job
+right now is step 1, not step 4. Presenting a downstream gate ("get 50 users") as
+the immediate move is the sequencing error this doc exists to prevent.
