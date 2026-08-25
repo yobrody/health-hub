@@ -13,6 +13,9 @@ regexes = [
   # PostHog PROJECT API key (phc_...) — the client-side ingestion key, public by
   # design (write-only; meant to ship in the web bundle, like an analytics tag).
   '''phc_[A-Za-z0-9]+''',
+  # Sentry DSN — public by design (embedded in every client; write-only ingest,
+  # cannot read errors). Ships in the web bundle like an analytics tag.
+  '''https://[a-f0-9]+@o[0-9]+\.ingest\.[a-z0-9.]+sentry\.io/[0-9]+''',
 ]
 paths = [
   # Test fixtures / goldens never carry real secrets.
