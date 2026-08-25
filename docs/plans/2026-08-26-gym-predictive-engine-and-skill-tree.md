@@ -111,8 +111,23 @@ RP/strength standards + physique milestones + Duolingo-style path gamification (
 - Extends the app's existing **Transformation** system (roadmap + physiqueMilestones
   + progression feedback), rather than replacing it.
 
-### Open design questions (to lock the best version — see chat)
-1. **Strength-led, physique-led, or unified?** (Recommend unified toward the goal physique.)
-2. **Linear path (Duolingo) or branching tree (RPG, per-lift/muscle branches)?**
-3. **Universal standards ladder vs fully personalized milestones?** (Recommend a
-   universal ladder + personalized ETA/next-step.)
+### Locked direction (2026-08-26, Brody)
+**Unified · richer-linear · fully personalized.**
+- **Unified toward the goal physique:** one journey interleaving strength PRs +
+  body-composition milestones, all pointing at the goal physique (the app's north star).
+- **A RICHER linear path** (not plain Duolingo-linear, not full RPG branching):
+  - A single clear **main spine** = the route to the goal physique — always shows
+    "you are here" + the next 1–3 nodes + your direction.
+  - **Segmented into chapters/phases** (mini-arcs, e.g. "Build a strength base" →
+    "Lean bulk to X kg" → "Cut to Y% BF") so it has structure + a sense of progress.
+  - **Side-nodes hang off the spine** — per-lift PRs, measurement milestones,
+    consistency streaks — richness/depth without parallel-tree complexity.
+  - **Living/animated:** nodes light on a *real* earned PR/measurement, ETA labels
+    update, and **skipping visibly bends the upcoming segment** (the "alive" fix).
+  - **Tap a node → the real data behind it** (honest, no fabricated milestones).
+- **Fully personalized milestones:** node placement + ETA are bespoke to the user's
+  body, goal, and trajectory (engine-driven) — NOT a rigid universal tier ladder.
+  *Honesty guard:* each personalized milestone is still grounded in a real,
+  recognized benchmark under the hood (so it's meaningful + earnable), just presented
+  as "your next milestone," not "universal tier 3." This keeps legitimacy without a
+  one-size ladder.
