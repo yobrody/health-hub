@@ -59,11 +59,17 @@ class AcquisitionService {
   const AcquisitionService({
     required PurchaseHistoryRepo historyRepo,
     required PantryRepo pantryRepo,
+    this.onPantryChanged,
   })  : _historyRepo = historyRepo,
         _pantryRepo = pantryRepo;
 
   final PurchaseHistoryRepo _historyRepo;
   final PantryRepo _pantryRepo;
+
+  /// Invoked AFTER a learned cadence + lastBought is stamped onto a pantry item,
+  /// so the reactive `pantryItemsProvider` refreshes. Wired in the composition
+  /// root to `ref.invalidate(pantryItemsProvider)`; `null` in pure/unit contexts.
+  final void Function()? onPantryChanged;
 
   /// Record a genuine acquisition of the item named [name] at [now].
   ///
@@ -124,6 +130,10 @@ class AcquisitionService {
       lastBought: lastBought,
     );
     final outcome = await _pantryRepo.update(updated);
+
+    // A real cadence stamp mutated the pantry item → refresh the reactive
+    // pantry so watchers (e.g. the Food page kitchen scene) reflect it.
+    onPantryChanged?.call();
 
     return AcquisitionOutcome(
       history: history,

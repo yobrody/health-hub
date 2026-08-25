@@ -62,9 +62,15 @@ class EatInOutcome {
 
 /// Orchestrates eating-in: deduct a meal's ingredients from the pantry.
 class EatInService {
-  const EatInService(this._repo);
+  const EatInService(this._repo, {this.onPantryChanged});
 
   final PantryRepo _repo;
+
+  /// Invoked AFTER a deduction persists at least one changed pantry item, so the
+  /// reactive `pantryItemsProvider` (and any UI watching it) refreshes. Wired in
+  /// the composition root to `ref.invalidate(pantryItemsProvider)`; `null` in
+  /// pure/unit contexts where there is no provider container to refresh.
+  final void Function()? onPantryChanged;
 
   /// Deduct [meal]'s ingredients from the current pantry stock.
   ///
@@ -95,6 +101,12 @@ class EatInService {
         writeOutcomes[item.id] = await _repo.update(item);
         updatedItems.add(item);
       }
+    }
+
+    // A genuine deduction changed inventory → refresh the reactive pantry so no
+    // other tab (or the Food page's kitchen scene) shows stale counts/freshness.
+    if (updatedItems.isNotEmpty) {
+      onPantryChanged?.call();
     }
 
     return EatInOutcome(
