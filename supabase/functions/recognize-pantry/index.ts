@@ -24,6 +24,7 @@
 // deno-lint-ignore-file no-explicit-any
 
 import { callLLM, hasKey, type LLMMessage, type ContentPart } from "../_shared/llm.ts";
+import { reportError } from "../_shared/sentry.ts";
 
 const CORS_HEADERS: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
@@ -131,68 +132,75 @@ function parseLLMContent(content: string): RecognizedItem[] {
 }
 
 Deno.serve(async (req: Request): Promise<Response> => {
-  if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: CORS_HEADERS });
-  }
-  if (req.method !== "POST") {
-    return jsonResponse({ error: "method_not_allowed" }, 405);
-  }
-
-  // Per-user action: require the caller's JWT. (The Edge runtime already
-  // enforces this when deployed with JWT verification on; assert defensively.)
-  const authHeader = req.headers.get("Authorization");
-  if (!authHeader) {
-    return jsonResponse({ error: "unauthorized" }, 401);
-  }
-
-  if (!hasKey()) {
-    // Honest config error — NOT an empty success, and definitely no fake items.
-    return jsonResponse({ error: "recognizer_not_configured" }, 503);
-  }
-
-  let images: string[];
   try {
-    const body = await req.json();
-    images = Array.isArray(body?.images) ? body.images : [];
-  } catch {
-    return jsonResponse({ error: "bad_request" }, 400);
-  }
-  images = images.filter((s) => typeof s === "string" && s.length > 0);
-  if (images.length === 0) {
-    return jsonResponse({ error: "no_images" }, 400);
-  }
+    if (req.method === "OPTIONS") {
+      return new Response("ok", { headers: CORS_HEADERS });
+    }
+    if (req.method !== "POST") {
+      return jsonResponse({ error: "method_not_allowed" }, 405);
+    }
 
-  // Build OpenAI-style messages with a multipart user content array.
-  // Each image becomes an image_url content part; the text prompt is first.
-  const userContent: ContentPart[] = [
-    { type: "text", text: "Identify all food/drink items visible in the following photo(s)." },
-  ];
-  for (const b64 of images) {
-    userContent.push({
-      type: "image_url",
-      image_url: { url: `data:image/jpeg;base64,${b64}` },
-    });
-  }
+    // Per-user action: require the caller's JWT. (The Edge runtime already
+    // enforces this when deployed with JWT verification on; assert defensively.)
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader) {
+      return jsonResponse({ error: "unauthorized" }, 401);
+    }
 
-  const messages: LLMMessage[] = [
-    { role: "system", content: PROMPT },
-    { role: "user", content: userContent },
-  ];
-
-  const result = await callLLM(messages, { temperature: 0.1, maxTokens: 800 });
-
-  if (!result.ok) {
-    if (result.error === "missing_key") {
+    if (!hasKey()) {
+      // Honest config error — NOT an empty success, and definitely no fake items.
       return jsonResponse({ error: "recognizer_not_configured" }, 503);
     }
-    if (result.error.startsWith("network_error")) {
-      return jsonResponse({ error: "upstream_unreachable", detail: result.error }, 502);
-    }
-    // Honest upstream failure — no fabricated items.
-    return jsonResponse({ error: "upstream_error", status: result.status }, 502);
-  }
 
-  // An empty items array is an HONEST "nothing recognized", not an error.
-  const items = parseLLMContent(result.content);
-  return jsonResponse({ items }, 200);
+    let images: string[];
+    try {
+      const body = await req.json();
+      images = Array.isArray(body?.images) ? body.images : [];
+    } catch {
+      return jsonResponse({ error: "bad_request" }, 400);
+    }
+    images = images.filter((s) => typeof s === "string" && s.length > 0);
+    if (images.length === 0) {
+      return jsonResponse({ error: "no_images" }, 400);
+    }
+
+    // Build OpenAI-style messages with a multipart user content array.
+    // Each image becomes an image_url content part; the text prompt is first.
+    const userContent: ContentPart[] = [
+      { type: "text", text: "Identify all food/drink items visible in the following photo(s)." },
+    ];
+    for (const b64 of images) {
+      userContent.push({
+        type: "image_url",
+        image_url: { url: `data:image/jpeg;base64,${b64}` },
+      });
+    }
+
+    const messages: LLMMessage[] = [
+      { role: "system", content: PROMPT },
+      { role: "user", content: userContent },
+    ];
+
+    const result = await callLLM(messages, { temperature: 0.1, maxTokens: 800 });
+
+    if (!result.ok) {
+      if (result.error === "missing_key") {
+        return jsonResponse({ error: "recognizer_not_configured" }, 503);
+      }
+      if (result.error.startsWith("network_error")) {
+        return jsonResponse({ error: "upstream_unreachable", detail: result.error }, 502);
+      }
+      // Honest upstream failure — no fabricated items.
+      return jsonResponse({ error: "upstream_error", status: result.status }, 502);
+    }
+
+    // An empty items array is an HONEST "nothing recognized", not an error.
+    const items = parseLLMContent(result.content);
+    return jsonResponse({ items }, 200);
+  } catch (err) {
+    // Unexpected throw — report to Sentry (no-op when DSN absent) and return an
+    // honest 500. Response shape and status are NOT changed for handled errors above.
+    await reportError(err, { function: "recognize-pantry" });
+    return jsonResponse({ error: "internal_error" }, 500);
+  }
 });

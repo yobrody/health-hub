@@ -24,6 +24,7 @@
 // deno-lint-ignore-file no-explicit-any
 
 import { callLLM, hasKey, type LLMMessage } from "../_shared/llm.ts";
+import { reportError } from "../_shared/sentry.ts";
 
 const CORS_HEADERS: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
@@ -188,67 +189,74 @@ function describePantry(p: any): string {
 }
 
 Deno.serve(async (req: Request): Promise<Response> => {
-  if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: CORS_HEADERS });
-  }
-  if (req.method !== "POST") {
-    return jsonResponse({ error: "method_not_allowed" }, 405);
-  }
-
-  const authHeader = req.headers.get("Authorization");
-  if (!authHeader) {
-    return jsonResponse({ error: "unauthorized" }, 401);
-  }
-
-  if (!hasKey()) {
-    return jsonResponse({ error: "planner_not_configured" }, 503);
-  }
-
-  let goals: any = null;
-  let pantry: any = null;
-  let days = MAX_DAYS;
-  let prefs: string | null = null;
   try {
-    const body = await req.json();
-    goals = body?.goals ?? null;
-    pantry = body?.pantry ?? null;
-    if (typeof body?.days === "number" && body.days >= 1 && body.days <= MAX_DAYS) {
-      days = Math.floor(body.days);
+    if (req.method === "OPTIONS") {
+      return new Response("ok", { headers: CORS_HEADERS });
     }
-    prefs = nonEmptyString(body?.prefs);
-  } catch {
-    return jsonResponse({ error: "bad_request" }, 400);
-  }
+    if (req.method !== "POST") {
+      return jsonResponse({ error: "method_not_allowed" }, 405);
+    }
 
-  const userText = [
-    `Plan ${days} day(s) of meals.`,
-    `Daily goals: ${describeGoals(goals)}.`,
-    `Pantry (prefer these): ${describePantry(pantry)}.`,
-    prefs ? `Preferences/dislikes: ${prefs}.` : "",
-  ].filter(Boolean).join("\n");
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader) {
+      return jsonResponse({ error: "unauthorized" }, 401);
+    }
 
-  const messages: LLMMessage[] = [
-    { role: "system", content: PROMPT },
-    { role: "user", content: userText },
-  ];
-
-  const result = await callLLM(messages, { temperature: 0.3, maxTokens: 4096 });
-
-  if (!result.ok) {
-    // Map the helper's failure class to the same honest statuses as before.
-    if (result.error === "missing_key") {
+    if (!hasKey()) {
       return jsonResponse({ error: "planner_not_configured" }, 503);
     }
-    if (result.error.startsWith("network_error")) {
-      return jsonResponse({ error: "upstream_unreachable", detail: result.error }, 502);
+
+    let goals: any = null;
+    let pantry: any = null;
+    let days = MAX_DAYS;
+    let prefs: string | null = null;
+    try {
+      const body = await req.json();
+      goals = body?.goals ?? null;
+      pantry = body?.pantry ?? null;
+      if (typeof body?.days === "number" && body.days >= 1 && body.days <= MAX_DAYS) {
+        days = Math.floor(body.days);
+      }
+      prefs = nonEmptyString(body?.prefs);
+    } catch {
+      return jsonResponse({ error: "bad_request" }, 400);
     }
-    return jsonResponse({ error: "upstream_error", status: result.status }, 502);
-  }
 
-  const plan = parseLLMContent(result.content);
-  if (!plan) {
-    return jsonResponse({ error: "no_plan" }, 502);
-  }
+    const userText = [
+      `Plan ${days} day(s) of meals.`,
+      `Daily goals: ${describeGoals(goals)}.`,
+      `Pantry (prefer these): ${describePantry(pantry)}.`,
+      prefs ? `Preferences/dislikes: ${prefs}.` : "",
+    ].filter(Boolean).join("\n");
 
-  return jsonResponse(plan, 200);
+    const messages: LLMMessage[] = [
+      { role: "system", content: PROMPT },
+      { role: "user", content: userText },
+    ];
+
+    const result = await callLLM(messages, { temperature: 0.3, maxTokens: 4096 });
+
+    if (!result.ok) {
+      // Map the helper's failure class to the same honest statuses as before.
+      if (result.error === "missing_key") {
+        return jsonResponse({ error: "planner_not_configured" }, 503);
+      }
+      if (result.error.startsWith("network_error")) {
+        return jsonResponse({ error: "upstream_unreachable", detail: result.error }, 502);
+      }
+      return jsonResponse({ error: "upstream_error", status: result.status }, 502);
+    }
+
+    const plan = parseLLMContent(result.content);
+    if (!plan) {
+      return jsonResponse({ error: "no_plan" }, 502);
+    }
+
+    return jsonResponse(plan, 200);
+  } catch (err) {
+    // Unexpected throw — report to Sentry (no-op when DSN absent) and return an
+    // honest 500. Response shape and status are NOT changed for handled errors above.
+    await reportError(err, { function: "plan-week" });
+    return jsonResponse({ error: "internal_error" }, 500);
+  }
 });
