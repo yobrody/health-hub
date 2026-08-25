@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart' hide AuthUser;
 
 import 'analytics/analytics.dart';
 import 'api/client.dart';
+import 'monitoring/error_reporter.dart';
 import 'auth/auth_service.dart';
 import 'auth/fake_auth_service.dart';
 import 'auth/supabase_auth_service.dart';
@@ -420,4 +421,23 @@ final analyticsProvider = Provider<Analytics>((ref) {
   const key = String.fromEnvironment('POSTHOG_KEY');
   if (key.isEmpty) return const NoopAnalytics();
   return const PostHogAnalytics();
+});
+
+/// Error-monitoring seam. Returns [SentryErrorReporter] when a `SENTRY_DSN`
+/// dart-define is compiled in, else [NoopErrorReporter] (tests, CI, and
+/// privacy-conscious builds are completely unaffected — no init, no events).
+///
+/// The DSN is supplied per build via:
+///   --dart-define=SENTRY_DSN=https://...@sentry.io/...
+///
+/// `SentryFlutter.init` in `main()` must have run before this reporter is
+/// used. The [SentryErrorReporter] is only constructed when the DSN is set,
+/// so the guard in `main()` and this provider always agree.
+///
+/// Override in tests with a [FakeErrorReporter] (or [NoopErrorReporter]) via
+/// `ProviderScope(overrides: [errorReporterProvider.overrideWithValue(...)])`.
+final errorReporterProvider = Provider<ErrorReporter>((ref) {
+  const dsn = String.fromEnvironment('SENTRY_DSN');
+  if (dsn.isEmpty) return const NoopErrorReporter();
+  return const SentryErrorReporter();
 });

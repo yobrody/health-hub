@@ -27,6 +27,7 @@
 // deno-lint-ignore-file no-explicit-any
 
 import { callLLM, hasKey, type LLMMessage, type ContentPart } from "../_shared/llm.ts";
+import { reportError } from "../_shared/sentry.ts";
 
 const CORS_HEADERS: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
@@ -121,85 +122,92 @@ function parseLLMContent(content: string): NutritionEstimate | null {
 }
 
 Deno.serve(async (req: Request): Promise<Response> => {
-  if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: CORS_HEADERS });
-  }
-  if (req.method !== "POST") {
-    return jsonResponse({ error: "method_not_allowed" }, 405);
-  }
-
-  // Per-user action: require the caller's JWT. (The Edge runtime already
-  // enforces this when deployed with JWT verification on; assert defensively.)
-  const authHeader = req.headers.get("Authorization");
-  if (!authHeader) {
-    return jsonResponse({ error: "unauthorized" }, 401);
-  }
-
-  if (!hasKey()) {
-    // Honest config error — NOT an empty success, and definitely no fake macros.
-    return jsonResponse({ error: "estimator_not_configured" }, 503);
-  }
-
-  let image: string | null = null;
-  let textInput: string | null = null;
   try {
-    const body = await req.json();
-    image = typeof body?.image === "string" && body.image.length > 0
-      ? body.image
-      : null;
-    textInput = typeof body?.text === "string" && body.text.trim()
-      ? body.text.trim()
-      : null;
-  } catch {
-    return jsonResponse({ error: "bad_request" }, 400);
-  }
+    if (req.method === "OPTIONS") {
+      return new Response("ok", { headers: CORS_HEADERS });
+    }
+    if (req.method !== "POST") {
+      return jsonResponse({ error: "method_not_allowed" }, 405);
+    }
 
-  if (!image && !textInput) {
-    // Exactly one of image/text is required.
-    return jsonResponse({ error: "no_input" }, 400);
-  }
+    // Per-user action: require the caller's JWT. (The Edge runtime already
+    // enforces this when deployed with JWT verification on; assert defensively.)
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader) {
+      return jsonResponse({ error: "unauthorized" }, 401);
+    }
 
-  // Build OpenAI-style messages.
-  // Vision path: user content is a content-part array (text prompt + image_url).
-  // Text path: user content is a plain string appended after the system prompt.
-  let messages: LLMMessage[];
-  if (image) {
-    // Vision: system prompt + multipart user message containing image.
-    const userContent: ContentPart[] = [
-      { type: "text", text: textInput ? `Meal description: ${textInput}` : "Estimate the nutrition of the meal shown in this photo." },
-      { type: "image_url", image_url: { url: `data:image/jpeg;base64,${image}` } },
-    ];
-    messages = [
-      { role: "system", content: PROMPT },
-      { role: "user", content: userContent },
-    ];
-  } else {
-    // Text-only path: simple system + user string.
-    messages = [
-      { role: "system", content: PROMPT },
-      { role: "user", content: `Meal description: ${textInput}` },
-    ];
-  }
-
-  const result = await callLLM(messages, { temperature: 0.1, maxTokens: 400 });
-
-  if (!result.ok) {
-    if (result.error === "missing_key") {
+    if (!hasKey()) {
+      // Honest config error — NOT an empty success, and definitely no fake macros.
       return jsonResponse({ error: "estimator_not_configured" }, 503);
     }
-    if (result.error.startsWith("network_error")) {
-      return jsonResponse({ error: "upstream_unreachable", detail: result.error }, 502);
+
+    let image: string | null = null;
+    let textInput: string | null = null;
+    try {
+      const body = await req.json();
+      image = typeof body?.image === "string" && body.image.length > 0
+        ? body.image
+        : null;
+      textInput = typeof body?.text === "string" && body.text.trim()
+        ? body.text.trim()
+        : null;
+    } catch {
+      return jsonResponse({ error: "bad_request" }, 400);
     }
-    // Honest upstream failure — no fabricated estimate.
-    return jsonResponse({ error: "upstream_error", status: result.status }, 502);
-  }
 
-  const estimate = parseLLMContent(result.content);
-  if (!estimate) {
-    // Couldn't read an estimate out of the model — honest failure, not a
-    // fabricated blank. The app falls back to manual.
-    return jsonResponse({ error: "no_estimate" }, 502);
-  }
+    if (!image && !textInput) {
+      // Exactly one of image/text is required.
+      return jsonResponse({ error: "no_input" }, 400);
+    }
 
-  return jsonResponse(estimate, 200);
+    // Build OpenAI-style messages.
+    // Vision path: user content is a content-part array (text prompt + image_url).
+    // Text path: user content is a plain string appended after the system prompt.
+    let messages: LLMMessage[];
+    if (image) {
+      // Vision: system prompt + multipart user message containing image.
+      const userContent: ContentPart[] = [
+        { type: "text", text: textInput ? `Meal description: ${textInput}` : "Estimate the nutrition of the meal shown in this photo." },
+        { type: "image_url", image_url: { url: `data:image/jpeg;base64,${image}` } },
+      ];
+      messages = [
+        { role: "system", content: PROMPT },
+        { role: "user", content: userContent },
+      ];
+    } else {
+      // Text-only path: simple system + user string.
+      messages = [
+        { role: "system", content: PROMPT },
+        { role: "user", content: `Meal description: ${textInput}` },
+      ];
+    }
+
+    const result = await callLLM(messages, { temperature: 0.1, maxTokens: 400 });
+
+    if (!result.ok) {
+      if (result.error === "missing_key") {
+        return jsonResponse({ error: "estimator_not_configured" }, 503);
+      }
+      if (result.error.startsWith("network_error")) {
+        return jsonResponse({ error: "upstream_unreachable", detail: result.error }, 502);
+      }
+      // Honest upstream failure — no fabricated estimate.
+      return jsonResponse({ error: "upstream_error", status: result.status }, 502);
+    }
+
+    const estimate = parseLLMContent(result.content);
+    if (!estimate) {
+      // Couldn't read an estimate out of the model — honest failure, not a
+      // fabricated blank. The app falls back to manual.
+      return jsonResponse({ error: "no_estimate" }, 502);
+    }
+
+    return jsonResponse(estimate, 200);
+  } catch (err) {
+    // Unexpected throw — report to Sentry (no-op when DSN absent) and return an
+    // honest 500. Response shape and status are NOT changed for handled errors above.
+    await reportError(err, { function: "estimate-nutrition" });
+    return jsonResponse({ error: "internal_error" }, 500);
+  }
 });

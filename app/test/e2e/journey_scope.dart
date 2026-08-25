@@ -17,6 +17,7 @@ import 'package:health_hub/api/probe_status.dart';
 import 'package:health_hub/app_providers.dart';
 
 import '../analytics/fake_analytics.dart';
+import '../monitoring/fake_error_reporter.dart';
 import 'package:health_hub/auth/auth_service.dart';
 import 'package:health_hub/auth/fake_auth_service.dart';
 import 'package:health_hub/cart/grocery_item.dart';
@@ -245,6 +246,10 @@ class JourneyHarness {
   /// use [analytics.propsFor] to check event props.
   final FakeAnalytics analytics = FakeAnalytics();
 
+  /// The fake error reporter. Tests can assert on [errorReporter.captured] to
+  /// check which exceptions were reported without touching Sentry.
+  final FakeErrorReporter errorReporter = FakeErrorReporter();
+
   /// The full override set: signed-in fake auth, a silent connectivity monitor,
   /// every data repo on a shared in-memory store, and a [FakeAnalytics] so
   /// journey tests can assert analytics events without a real PostHog key.
@@ -272,6 +277,9 @@ class JourneyHarness {
         // Analytics: always a FakeAnalytics in tests — no PostHog key needed,
         // no network, and the harness can assert which events fired.
         analyticsProvider.overrideWithValue(analytics),
+        // Error reporting: always a FakeErrorReporter in tests — no Sentry DSN
+        // needed, no network, and the harness can assert which errors fired.
+        errorReporterProvider.overrideWithValue(errorReporter),
       ];
 }
 

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:posthog_flutter/posthog_flutter.dart';
+import 'package:sentry_flutter/sentry_flutter.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'app.dart';
@@ -39,5 +40,35 @@ Future<void> main() async {
     await Posthog().setup(config);
   }
 
-  runApp(const ProviderScope(child: HealthHubApp()));
+  // Initialise Sentry ONLY when a DSN is compiled in via
+  // `--dart-define=SENTRY_DSN=https://...@sentry.io/...`. No DSN → boot
+  // exactly as without this block (no Sentry SDK, no network, no overhead).
+  //
+  // Privacy rules (health app — load-bearing):
+  //  • sendDefaultPii = false: no device IDs, no IP, no user email.
+  //  • tracesSampleRate = 0.0: ERRORS ONLY, no performance tracing. Perf tracing
+  //    auto-wraps the HTTP client, which could surface request URLs (Supabase
+  //    query params) in traces — a health app doesn't want that. Errors are
+  //    captured regardless of the trace sample rate.
+  //  • Session replay is not enabled (would capture health UI).
+  //  • FlutterError.onError and runZonedGuarded catch uncaught errors so they
+  //    are reported automatically without callers having to instrument them.
+  const sentryDsn = String.fromEnvironment('SENTRY_DSN');
+  if (sentryDsn.isNotEmpty) {
+    await SentryFlutter.init(
+      (options) {
+        options.dsn = sentryDsn;
+        options.sendDefaultPii = false;
+        options.tracesSampleRate = 0.0;
+        // Add the release so events are bucketed by version in Sentry.
+        options.release = 'health_hub@1.0.0';
+        // Only these tags are allowed — no health values, no PII.
+        options.environment =
+            const String.fromEnvironment('APP_ENV', defaultValue: 'production');
+      },
+      appRunner: () => runApp(const ProviderScope(child: HealthHubApp())),
+    );
+  } else {
+    runApp(const ProviderScope(child: HealthHubApp()));
+  }
 }
