@@ -1,0 +1,23 @@
+# Dependency vulnerability + update scanning (free). Dependabot opens PRs when a
+# dependency has a known CVE or a safe update. Covers every ecosystem in the repo.
+version: 2
+updates:
+  - package-ecosystem: "pub"          # Flutter app
+    directory: "/app"
+    schedule: { interval: "weekly" }
+    open-pull-requests-limit: 5
+    labels: ["dependencies", "security"]
+  - package-ecosystem: "pip"          # FastAPI backend
+    directory: "/api"
+    schedule: { interval: "weekly" }
+    open-pull-requests-limit: 5
+    labels: ["dependencies", "security"]
+  - package-ecosystem: "npm"          # legacy React (retired, but still scanned)
+    directory: "/"
+    schedule: { interval: "weekly" }
+    open-pull-requests-limit: 3
+    labels: ["dependencies", "security"]
+  - package-ecosystem: "github-actions"  # CI workflow actions
+    directory: "/"
+    schedule: { interval: "weekly" }
+    labels: ["dependencies", "security"]
