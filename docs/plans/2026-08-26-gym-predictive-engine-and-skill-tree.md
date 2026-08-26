@@ -89,6 +89,33 @@ important as the math. This spec is grounded in how the best systems actually wo
 
 ---
 
+## Why this is the ABSOLUTE best (beyond Fitbod / RP / Whoop)
+The leaders each see only PART of the picture — and that gap is our edge:
+- **Completeness of data (the biggest accuracy lever, and we own it).** Fitbod has
+  your lifts + recovery but **no nutrition**; RP has volume/RIR but **no steps/sleep/
+  bodyweight**; Whoop/Oura have recovery but **no lifts**. **We have all of it** —
+  lifts, calories/protein, steps/cardio, sleep/readiness, bodyweight/BF — so we're
+  the only engine that predicts **strength AND physique jointly from the complete
+  signal.**
+- **Individualized, not generic.** The sport-science literature explicitly warns
+  against general fitness–fatigue constants (they ignore individual differences).
+  The best engine **fits each user's OWN parameters** (their gain/loss rate, recovery
+  rate, fitness/fatigue k/τ) from real logs and **updates them Bayesianly** as data
+  accrues — predictions **start honest-wide and tighten** with use. Most consumer
+  apps hard-code constants; we personalize the model itself.
+- **Explainable + honestly uncertain = the moat, not a weakness.** The absolute best
+  isn't the flashiest black box — it's the one you can trust: every prediction shows
+  its working, a confidence band, and "if you hold this trend," and **refuses to
+  predict what it can't** (no injury claims — the ACWR lesson). In a category full of
+  confident-but-wrong AI, honest prediction *is* the differentiation.
+- **Causal-ish adherence what-if.** Holding every input lets us honestly show *skip 2
+  workouts → +N weeks; drop protein → slower gain* — a joint model no siloed
+  competitor can produce.
+- **Roadmap:** transparent math (v1) → individualized Bayesian fitness–fatigue → ML
+  refinement once there's data — **always explainable, always honest.** "Best" =
+  most-complete-data + individualized + most-honest, held with the humility that no
+  forecast is certain.
+
 ## The strength/physique SKILL-TREE (the roadmap idea, best version)
 
 Concept: a **living visual map of the user's journey to their goal physique** — where
@@ -131,3 +158,23 @@ RP/strength standards + physique milestones + Duolingo-style path gamification (
   recognized benchmark under the hood (so it's meaningful + earnable), just presented
   as "your next milestone," not "universal tier 3." This keeps legitimacy without a
   one-size ladder.
+
+### Skill-node milestones (the "cool" athletic feats) — Brody 2026-08-26
+Beyond numbers, the tree includes **aspirational athletic/calisthenics skills** as
+nodes — identity-driven, fun, shareable (fits the physique/identity north star).
+- **A curated skill library**, e.g. wall → freestanding **handstand** → handstand
+  push-up → handstand walk; pull-up → **muscle-up**; **pistol squat**; **1-minute
+  dead hang**; L-sit → tuck front lever → **front lever** → **human flag**; and
+  technique feats like the **backflip**.
+- **Each node has:** (a) **prerequisites** the engine estimates readiness for from
+  real data — a dead hang gates on grip + relative strength, an HSPU on overhead-press
+  relative strength, a pistol on unilateral leg strength + mobility; (b) a
+  **progression path** (sub-nodes/regressions); (c) a **readiness estimate** ("your
+  pressing strength suggests you're ~ready to try a wall handstand").
+- **Honesty + SAFETY gates (critical):** strength-gated skills only light "ready" on
+  real data. **Technique/risk skills (backflip, muscle-up, human flag) are shown as
+  unlockable _challenges_ with an explicit "needs skill practice + safe progression,
+  not just strength" caveat + a safety note** — we NEVER say "you can backflip now"
+  (injury + honesty). Strength readiness ≠ a green light to attempt.
+- These turn the tree from a number-chart into a **"what am I becoming"** map — the
+  emotional pull the gym section is missing.
