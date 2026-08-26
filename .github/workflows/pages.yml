@@ -53,7 +53,7 @@ jobs:
             --dart-define=POSTHOG_HOST=https://eu.i.posthog.com \
             --dart-define=SENTRY_DSN=https://f775e4b18f079774e940eac1ef3c3467@o4511412046921728.ingest.de.sentry.io/4511412054196304
 
-      - uses: actions/configure-pages@v5
+      - uses: actions/configure-pages@v6
 
       - uses: actions/upload-pages-artifact@v3
         with:
