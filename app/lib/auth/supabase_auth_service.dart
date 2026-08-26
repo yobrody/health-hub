@@ -16,9 +16,13 @@ import 'auth_service.dart';
 ///  * Apple / phone throw a clear "not enabled yet" [AuthFailure] because those
 ///    providers are disabled on the live project.
 class SupabaseAuthService implements AuthService {
-  SupabaseAuthService(this._auth);
+  SupabaseAuthService(this._client);
 
-  final GoTrueClient _auth;
+  final SupabaseClient _client;
+
+  /// The auth sub-client. Held via [_client] so we can also reach
+  /// `_client.functions` for the server-side account deletion.
+  GoTrueClient get _auth => _client.auth;
 
   AuthUser? _toUser(User? u) {
     if (u == null) return null;
@@ -90,6 +94,29 @@ class SupabaseAuthService implements AuthService {
   Future<void> signOut() async {
     try {
       await _auth.signOut();
+    } on AuthException catch (e) {
+      throw _mapError(e);
+    } catch (e) {
+      throw _mapUnknown(e);
+    }
+  }
+
+  @override
+  Future<void> deleteAccount() async {
+    try {
+      // Server-side purge of ALL data + the auth user, via the `delete-account`
+      // edge function. It verifies our JWT and only ever deletes THIS user.
+      // Non-2xx → the SDK throws FunctionException, so a thrown call means
+      // nothing was deleted.
+      await _client.functions.invoke('delete-account');
+      // Deletion succeeded → drop the now-defunct local session so the auth gate
+      // routes back to sign-in.
+      await _auth.signOut();
+    } on FunctionException catch (_) {
+      throw const AuthFailure(
+        "Couldn't delete your account — please try again.",
+        code: 'delete_failed',
+      );
     } on AuthException catch (e) {
       throw _mapError(e);
     } catch (e) {

@@ -100,6 +100,12 @@ abstract class AuthService {
   /// Sign out the current session. Idempotent.
   Future<void> signOut();
 
+  /// Permanently delete the current user's account and ALL their data on the
+  /// server (via the `delete-account` edge function), then sign out locally.
+  /// IRREVERSIBLE. Throws [AuthFailure] on error — and when it throws, nothing
+  /// has been deleted, so the UI can safely tell the user it didn't happen.
+  Future<void> deleteAccount();
+
   /// Send a password-reset email. Throws [AuthFailure] on error. Does not reveal
   /// whether the address exists (Supabase returns success either way).
   Future<void> sendPasswordReset({required String email});
