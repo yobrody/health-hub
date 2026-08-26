@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#FBF7F1">
+<title>Health Hub — onboarding prototype</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --canvas:#FBF7F1; --ink:#2B2622; --ink-soft:#6B635B; --ink-faint:#A89E92;
+    --card:#FFFDFB; --line:#EFE7DC;
+    --orange:#EDA774; --orange-deep:#D97A45; --orange-ink:#7A3E1E;
+    --green:#7C9A6B;
+    --shadow:0 18px 44px -20px rgba(120,70,30,.34);
+    --r:22px;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;height:100%}
+  body{
+    font-family:'Inter',system-ui,sans-serif;color:var(--ink);
+    background:
+      radial-gradient(120% 80% at 100% 0%, #FCEBDD 0%, rgba(252,235,221,0) 55%),
+      radial-gradient(100% 70% at 0% 100%, #F3ECFA00 0%, rgba(243,236,250,0) 60%),
+      var(--canvas);
+    display:flex;align-items:center;justify-content:center;min-height:100dvh;
+    overflow:hidden;
+  }
+  /* Phone frame (desktop shows a device; phone fills screen) */
+  .device{
+    position:relative;width:min(430px,100vw);height:min(932px,100dvh);
+    background:var(--canvas);overflow:hidden;
+    box-shadow:0 40px 120px -30px rgba(90,50,20,.45);
+  }
+  @media(min-width:480px){ .device{border-radius:44px;border:10px solid #1c1815;height:min(880px,94dvh)} }
+  /* grain */
+  .device::after{content:"";position:absolute;inset:0;pointer-events:none;z-index:60;opacity:.05;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");}
+
+  /* progress dots */
+  .rail{position:absolute;top:0;left:0;right:0;z-index:40;display:flex;gap:6px;padding:18px 24px 10px}
+  .rail span{height:4px;flex:1;border-radius:99px;background:#EADFD1;overflow:hidden;position:relative}
+  .rail span i{position:absolute;inset:0;background:linear-gradient(90deg,var(--orange),var(--orange-deep));transform:scaleX(0);transform-origin:left;transition:transform .5s cubic-bezier(.7,0,.2,1)}
+  .rail span.done i{transform:scaleX(1)}
+  .rail span.active i{transform:scaleX(.5)}
+
+  /* slides track */
+  .track{position:absolute;inset:0;display:flex;transition:transform .55s cubic-bezier(.65,0,.2,1)}
+  .slide{min-width:100%;height:100%;position:relative;display:flex;flex-direction:column;
+    padding:74px 26px 108px;overflow-y:auto}
+  .kicker{font-size:12.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--orange-deep);font-weight:600;margin:0 0 14px}
+  h1{font-family:'Fraunces',serif;font-weight:600;font-size:34px;line-height:1.08;letter-spacing:-.02em;margin:0 0 10px}
+  h1 .em{font-style:italic;color:var(--orange-deep)}
+  .sub{color:var(--ink-soft);font-size:15.5px;line-height:1.5;margin:0 0 26px;max-width:34ch}
+
+  /* staggered entrance for the active slide */
+  .slide.is-active .stg{opacity:0;transform:translateY(14px);animation:rise .6s cubic-bezier(.2,.7,.2,1) forwards}
+  .slide.is-active .stg:nth-child(1){animation-delay:.05s}
+  .slide.is-active .stg:nth-child(2){animation-delay:.12s}
+  .slide.is-active .stg:nth-child(3){animation-delay:.19s}
+  .slide.is-active .stg:nth-child(4){animation-delay:.26s}
+  .slide.is-active .stg:nth-child(5){animation-delay:.33s}
+  @keyframes rise{to{opacity:1;transform:none}}
+
+  /* footer nav */
+  .foot{position:absolute;left:0;right:0;bottom:0;z-index:45;padding:16px 26px 30px;
+    background:linear-gradient(to top,var(--canvas) 60%,rgba(251,247,241,0));display:flex;gap:12px;align-items:center}
+  .btn{flex:1;border:0;border-radius:99px;padding:17px 22px;font-family:'Inter';font-weight:600;font-size:16px;cursor:pointer;transition:transform .15s,box-shadow .25s,opacity .2s}
+  .btn.primary{background:linear-gradient(180deg,#F2B584,var(--orange));color:#3a1e0c;box-shadow:0 12px 26px -10px rgba(217,122,69,.7)}
+  .btn.primary:active{transform:translateY(1px) scale(.99)}
+  .btn.primary[disabled]{opacity:.4;box-shadow:none;cursor:default}
+  .btn.ghost{flex:0 0 auto;width:54px;background:#F1E8DC;color:var(--ink-soft);padding:17px 0}
+  .hint{position:absolute;left:0;right:0;bottom:6px;text-align:center;font-size:11px;color:var(--ink-faint);z-index:45}
+
+  /* ---------- Welcome ---------- */
+  .brandmark{width:56px;height:56px;border-radius:18px;display:grid;place-items:center;margin-bottom:22px;
+    background:linear-gradient(150deg,var(--orange),var(--orange-deep));box-shadow:var(--shadow)}
+  .brandmark svg{width:30px;height:30px}
+  .field{margin-top:8px;background:var(--card);border:1.5px solid var(--line);border-radius:16px;padding:15px 18px;display:flex;flex-direction:column;gap:3px}
+  .field label{font-size:11.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-faint);font-weight:600}
+  .field input{border:0;background:transparent;font-family:'Inter';font-size:19px;font-weight:500;color:var(--ink);outline:none;padding:2px 0}
+
+  /* ---------- PIN ---------- */
+  .pindots{display:flex;gap:16px;justify-content:center;margin:8px 0 30px}
+  .pindots b{width:16px;height:16px;border-radius:99px;background:#E8DCCC;transition:.25s;transform:scale(.9)}
+  .pindots b.on{background:var(--orange-deep);transform:scale(1.05);box-shadow:0 4px 12px -3px rgba(217,122,69,.6)}
+  .keypad{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;max-width:290px;margin:0 auto}
+  .key{background:var(--card);border:1.5px solid var(--line);border-radius:20px;font-family:'Fraunces';font-size:26px;font-weight:500;color:var(--ink);padding:16px 0;cursor:pointer;transition:.12s}
+  .key:active{transform:scale(.95);background:#F7EEE2}
+  .key.blank{background:transparent;border:0;cursor:default}
+  .key.del{font-family:'Inter';font-size:15px;color:var(--ink-soft)}
+
+  /* ---------- Goals ---------- */
+  .goals{display:grid;grid-template-columns:1fr 1fr;gap:13px}
+  .goal{position:relative;background:var(--card);border:1.5px solid var(--line);border-radius:20px;padding:16px 14px 14px;cursor:pointer;overflow:hidden;transition:.22s;text-align:left}
+  .goal svg{width:100%;height:96px;display:block;margin-bottom:8px}
+  .goal .gt{font-family:'Fraunces';font-weight:600;font-size:17px}
+  .goal .gd{font-size:12px;color:var(--ink-soft);margin-top:2px;line-height:1.35}
+  .goal .fig{fill:#E7D8C6;transition:.3s}
+  .goal .fig-a{fill:#D9C4AE;transition:.3s}
+  .goal.sel{border-color:var(--orange-deep);background:linear-gradient(180deg,#FFF6EC,var(--card));transform:translateY(-2px);box-shadow:var(--shadow)}
+  .goal.sel .fig{fill:var(--orange)}
+  .goal.sel .fig-a{fill:var(--orange-deep)}
+  .goal .tick{position:absolute;top:10px;right:10px;width:22px;height:22px;border-radius:99px;background:var(--orange-deep);color:#fff;display:grid;place-items:center;font-size:13px;opacity:0;transform:scale(.5);transition:.22s}
+  .goal.sel .tick{opacity:1;transform:none}
+
+  /* ---------- Wheels ---------- */
+  .toggle{display:inline-flex;background:#EFE5D8;border-radius:99px;padding:4px;margin-bottom:20px;align-self:flex-start}
+  .toggle button{border:0;background:transparent;padding:8px 18px;border-radius:99px;font-family:'Inter';font-weight:600;font-size:13.5px;color:var(--ink-soft);cursor:pointer;transition:.2s}
+  .toggle button.on{background:var(--card);color:var(--ink);box-shadow:0 3px 10px -4px rgba(120,70,30,.4)}
+  .wheels{display:flex;gap:10px;justify-content:center;align-items:stretch;margin-top:4px}
+  .wheelwrap{flex:1;position:relative}
+  .wheelwrap .cap{text-align:center;font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-faint);font-weight:600;margin-bottom:8px}
+  .wheel{--h:190px;height:var(--h);overflow-y:scroll;scroll-snap-type:y mandatory;position:relative;
+    -ms-overflow-style:none;scrollbar-width:none;
+    mask-image:linear-gradient(180deg,transparent,#000 30%,#000 70%,transparent);
+    -webkit-mask-image:linear-gradient(180deg,transparent,#000 30%,#000 70%,transparent)}
+  .wheel::-webkit-scrollbar{display:none}
+  .wheel ul{list-style:none;margin:0;padding:calc(var(--h)/2 - 26px) 0}
+  .wheel li{height:52px;scroll-snap-align:center;display:grid;place-items:center;
+    font-family:'Fraunces';font-size:26px;font-weight:500;color:var(--ink-faint);transition:.18s}
+  .wheel li.cur{color:var(--ink);font-size:32px;font-weight:600}
+  .wheel li .u{font-size:14px;color:var(--ink-faint);margin-left:3px;font-family:'Inter'}
+  .selband{position:absolute;left:0;right:0;top:calc(50% - 26px);height:52px;border-top:1.5px solid var(--line);border-bottom:1.5px solid var(--line);pointer-events:none}
+  .wcard{background:var(--card);border:1.5px solid var(--line);border-radius:22px;padding:16px 6px}
+
+  /* ---------- Aha ---------- */
+  .aha{padding-top:70px}
+  .aha .halo{position:absolute;top:-10%;left:50%;transform:translateX(-50%);width:150%;height:340px;z-index:0;
+    background:radial-gradient(50% 60% at 50% 40%,#FADFC6 0%,rgba(250,223,198,0) 70%)}
+  .aha .inner{position:relative;z-index:1}
+  .path{background:var(--card);border:1.5px solid var(--line);border-radius:var(--r);padding:20px 18px;box-shadow:var(--shadow);margin-top:4px}
+  .node{display:flex;gap:14px;align-items:flex-start;position:relative;padding-bottom:20px}
+  .node:last-child{padding-bottom:0}
+  .node .dot{flex:0 0 auto;width:34px;height:34px;border-radius:99px;display:grid;place-items:center;font-size:15px;font-weight:700;z-index:1;
+    background:#F0E6D8;color:var(--ink-faint);border:2px solid var(--card)}
+  .node.reached .dot{background:linear-gradient(150deg,var(--orange),var(--orange-deep));color:#fff}
+  .node.goal .dot{background:var(--ink);color:var(--orange)}
+  .node .line{position:absolute;left:16px;top:30px;bottom:-4px;width:2px;background:repeating-linear-gradient(var(--line) 0 4px,transparent 4px 8px)}
+  .node:last-child .line{display:none}
+  .node .nt{font-family:'Fraunces';font-weight:600;font-size:16px;line-height:1.2}
+  .node .nd{font-size:12.5px;color:var(--ink-soft);margin-top:2px}
+  .node .eta{margin-left:auto;font-size:11.5px;font-weight:600;color:var(--orange-deep);white-space:nowrap;padding-top:3px}
+  .honest{display:flex;gap:9px;align-items:flex-start;margin-top:16px;font-size:12px;color:var(--ink-soft);line-height:1.45;
+    background:#F5EFE6;border-radius:14px;padding:12px 14px}
+  .honest svg{flex:0 0 auto;margin-top:1px}
+  .reveal .path .node,.reveal .honest{opacity:0;transform:translateY(10px);animation:rise .55s cubic-bezier(.2,.7,.2,1) forwards}
+  .reveal .path .node:nth-child(1){animation-delay:.15s}
+  .reveal .path .node:nth-child(2){animation-delay:.30s}
+  .reveal .path .node:nth-child(3){animation-delay:.45s}
+  .reveal .path .node:nth-child(4){animation-delay:.60s}
+  .reveal .honest{animation-delay:.78s}
+  .big{font-family:'Fraunces';font-weight:600}
+</style>
+</head>
+<body>
+<div class="device">
+  <div class="rail" id="rail"></div>
+
+  <div class="track" id="track">
+
+    <!-- 0: WELCOME -->
+    <section class="slide" data-chapter="0">
+      <div class="brandmark stg"><svg viewBox="0 0 24 24" fill="none"><path d="M4 13c4 0 4-7 8-7s4 7 8 7" stroke="#fff" stroke-width="2.4" stroke-linecap="round"/><circle cx="12" cy="18" r="1.7" fill="#fff"/></svg></div>
+      <p class="kicker stg">Health Hub</p>
+      <h1 class="stg">Let's map your path to <span class="em">your body.</span></h1>
+      <p class="sub stg">Two minutes. We'll set a few honest numbers, then show you exactly where you're headed — and what it'll take.</p>
+      <div class="field stg"><label>First name</label><input id="fname" placeholder="What should we call you?" autocomplete="off"></div>
+    </section>
+
+    <!-- 1: PIN -->
+    <section class="slide" data-chapter="0">
+      <p class="kicker stg">Quick unlock</p>
+      <h1 class="stg">Set a 4-digit PIN</h1>
+      <p class="sub stg">So you're one tap in next time. You can still use your password anytime.</p>
+      <div class="pindots stg" id="pindots"><b></b><b></b><b></b><b></b></div>
+      <div class="keypad stg" id="keypad"></div>
+    </section>
+
+    <!-- 2: GOAL -->
+    <section class="slide" data-chapter="1">
+      <p class="kicker stg">Your goal</p>
+      <h1 class="stg">What are you <span class="em">building toward?</span></h1>
+      <p class="sub stg">Pick the one that fits right now — you can change it whenever.</p>
+      <div class="goals stg" id="goals"></div>
+    </section>
+
+    <!-- 3: BODY -->
+    <section class="slide" data-chapter="2">
+      <p class="kicker stg">About you</p>
+      <h1 class="stg">The honest starting line</h1>
+      <p class="sub stg">Real numbers in, real predictions out. Nothing here is ever a guess.</p>
+      <div class="toggle stg" id="unit"><button class="on" data-u="imp">ft / in</button><button data-u="met">cm</button></div>
+      <div class="wcard stg">
+        <div class="wheels" id="wheels"></div>
+      </div>
+      <p class="sub stg" style="margin-top:18px;font-size:13.5px">And your weight — <span id="wsummary" class="big">—</span></p>
+      <div class="wcard stg" style="margin-top:4px"><div class="wheels" id="wheels2"></div></div>
+    </section>
+
+    <!-- 4: AHA -->
+    <section class="slide aha" data-chapter="3">
+      <div class="halo"></div>
+      <div class="inner">
+        <p class="kicker stg">Your path</p>
+        <h1 class="stg" id="ahaTitle">Here's your path, <span class="em">friend.</span></h1>
+        <p class="sub stg" id="ahaSub">Based on what you told us, at a healthy, sustainable pace.</p>
+        <div class="path stg" id="pathNodes"></div>
+      </div>
+    </section>
+
+  </div>
+
+  <div class="foot" id="foot">
+    <button class="btn ghost" id="back" aria-label="Back">←</button>
+    <button class="btn primary" id="next">Continue</button>
+  </div>
+  <div class="hint">swipe · arrow keys · or tap Continue</div>
+</div>
+
+<script>
+const SLIDES=[...document.querySelectorAll('.slide')];
+const CHAPTERS=4;
+const track=document.getElementById('track');
+const rail=document.getElementById('rail');
+const nextBtn=document.getElementById('next');
+const backBtn=document.getElementById('back');
+let i=0;
+const state={name:'',pin:'',goal:null,unit:'imp',ft:5,in:9,cm:175,wt:75,goalWt:80};
+
+// build rail
+for(let c=0;c<CHAPTERS;c++){const s=document.createElement('span');s.innerHTML='<i></i>';rail.appendChild(s);}
+function paintRail(){const ch=+SLIDES[i].dataset.chapter;[...rail.children].forEach((s,c)=>{s.className='';if(c<ch)s.classList.add('done');else if(c===ch)s.classList.add('active');});}
+
+function show(n){
+  i=Math.max(0,Math.min(SLIDES.length-1,n));
+  track.style.transform=`translateX(-${i*100}%)`;
+  SLIDES.forEach((s,x)=>s.classList.toggle('is-active',x===i));
+  backBtn.style.visibility=i===0?'hidden':'visible';
+  paintRail();
+  gate();
+  if(i===SLIDES.length-1)renderAha();
+  nextBtn.textContent = i===SLIDES.length-1?'Start Health Hub':'Continue';
+}
+function gate(){ // enforce one clear primary action / required input
+  let ok=true;
+  if(i===0) ok=state.name.trim().length>0;
+  if(i===1) ok=state.pin.length===4;
+  if(i===2) ok=!!state.goal;
+  nextBtn.disabled=!ok;
+}
+nextBtn.onclick=()=>{ if(nextBtn.disabled)return; if(i<SLIDES.length-1)show(i+1); else bounce(); };
+backBtn.onclick=()=>show(i-1);
+function bounce(){nextBtn.style.transform='scale(.96)';setTimeout(()=>nextBtn.style.transform='',150);}
+
+// keyboard
+addEventListener('keydown',e=>{if(e.key==='ArrowRight'&&!nextBtn.disabled)show(i+1);if(e.key==='ArrowLeft')show(i-1);});
+// swipe
+let sx=0,sy=0;
+track.addEventListener('touchstart',e=>{sx=e.touches[0].clientX;sy=e.touches[0].clientY;},{passive:true});
+track.addEventListener('touchend',e=>{const dx=e.changedTouches[0].clientX-sx,dy=e.changedTouches[0].clientY-sy;
+  if(Math.abs(dx)>60&&Math.abs(dx)>Math.abs(dy)){ if(dx<0&&!nextBtn.disabled)show(i+1); if(dx>0)show(i-1); }},{passive:true});
+
+// name
+document.getElementById('fname').addEventListener('input',e=>{state.name=e.target.value;gate();});
+
+// PIN
+const dots=[...document.querySelectorAll('#pindots b')];
+const kp=document.getElementById('keypad');
+['1','2','3','4','5','6','7','8','9','','0','⌫'].forEach(k=>{
+  const b=document.createElement('button');
+  if(k===''){b.className='key blank';}
+  else if(k==='⌫'){b.className='key del';b.textContent=k;b.onclick=()=>{state.pin=state.pin.slice(0,-1);paintPin();};}
+  else {b.className='key';b.textContent=k;b.onclick=()=>{if(state.pin.length<4){state.pin+=k;paintPin();if(state.pin.length===4)setTimeout(()=>show(i+1),260);}};}
+  kp.appendChild(b);
+});
+function paintPin(){dots.forEach((d,x)=>d.classList.toggle('on',x<state.pin.length));gate();}
+
+// GOALS
+const GOALS=[
+  {id:'muscle',t:'Build muscle',d:'Add size & strength',pose:'bulk'},
+  {id:'fat',t:'Lose fat',d:'Lean out, keep muscle',pose:'lean'},
+  {id:'recomp',t:'Recomposition',d:'Build + get leaner',pose:'recomp'},
+  {id:'strong',t:'Get stronger',d:'Chase the big lifts',pose:'strong'},
+];
+function silhouette(pose){
+  // simple stylised figure; shoulders/arms vary a touch by pose
+  const w=pose==='bulk'||pose==='strong'?15:11;
+  return `<svg viewBox="0 0 80 96" aria-hidden="true">
+    <circle class="fig-a" cx="40" cy="15" r="9"/>
+    <path class="fig" d="M40 25c-${w} 0-${w+4} 6-${w+4} 14 0 5 2 9 4 12l-3 30h8l3-24 3 24h8l-3-30c2-3 4-7 4-12 0-8-${w-6}-14-${w+4}-14z"/>
+    <rect class="fig-a" x="${40-w-3}" y="40" width="6" height="${pose==='strong'?26:20}" rx="3"/>
+    <rect class="fig-a" x="${40+w-3}" y="40" width="6" height="${pose==='strong'?26:20}" rx="3"/>
+  </svg>`;
+}
+const goalsEl=document.getElementById('goals');
+GOALS.forEach(g=>{
+  const el=document.createElement('button');el.className='goal';el.dataset.id=g.id;
+  el.innerHTML=`<span class="tick">✓</span>${silhouette(g.pose)}<div class="gt">${g.t}</div><div class="gd">${g.d}</div>`;
+  el.onclick=()=>{state.goal=g.id;[...goalsEl.children].forEach(c=>c.classList.toggle('sel',c===el));gate();};
+  goalsEl.appendChild(el);
+});
+
+// WHEELS
+function makeWheel(host,from,to,unit,val,onChange){
+  host.innerHTML='';
+  const wrap=document.createElement('div');wrap.className='wheel';
+  const ul=document.createElement('ul');
+  for(let v=from;v<=to;v++){const li=document.createElement('li');li.dataset.v=v;li.innerHTML=v+(unit?`<span class="u">${unit}</span>`:'');ul.appendChild(li);}
+  wrap.appendChild(ul);const band=document.createElement('div');band.className='selband';host.appendChild(wrap);host.appendChild(band);
+  const items=[...ul.children];const H=52;
+  function center(){const idx=Math.round(wrap.scrollTop/H);items.forEach((li,x)=>li.classList.toggle('cur',x===idx));const v=+items[Math.max(0,Math.min(items.length-1,idx))].dataset.v;onChange(v);}
+  wrap.addEventListener('scroll',()=>{clearTimeout(wrap._t);wrap._t=setTimeout(center,60);requestAnimationFrame(()=>{const idx=Math.round(wrap.scrollTop/H);items.forEach((li,x)=>li.classList.toggle('cur',x===idx));});});
+  // init
+  requestAnimationFrame(()=>{wrap.scrollTop=(val-from)*H;center();});
+}
+function buildHeight(){
+  const host=document.getElementById('wheels');host.innerHTML='';
+  if(state.unit==='imp'){
+    const a=col('Feet'),b=col('Inches');host.append(a.wrap,b.wrap);
+    makeWheel(a.slot,3,7,"'",state.ft,v=>{state.ft=v;});
+    makeWheel(b.slot,0,11,'"',state.in,v=>{state.in=v;});
+  }else{
+    const a=col('Height');host.append(a.wrap);
+    makeWheel(a.slot,120,220,'cm',state.cm,v=>{state.cm=v;});
+  }
+}
+function buildWeight(){
+  const host=document.getElementById('wheels2');host.innerHTML='';
+  const cur=col('Now'),goal=col('Goal');host.append(cur.wrap,goal.wrap);
+  const u=state.unit==='imp'?'lb':'kg';const lo=state.unit==='imp'?90:40,hi=state.unit==='imp'?350:160;
+  const cw=state.unit==='imp'?Math.round(state.wt*2.20462):state.wt;
+  const gw=state.unit==='imp'?Math.round(state.goalWt*2.20462):state.goalWt;
+  makeWheel(cur.slot,lo,hi,u,cw,v=>{state.wt=state.unit==='imp'?Math.round(v/2.20462):v;summ();});
+  makeWheel(goal.slot,lo,hi,u,gw,v=>{state.goalWt=state.unit==='imp'?Math.round(v/2.20462):v;summ();});
+}
+function col(cap){const wrap=document.createElement('div');wrap.className='wheelwrap';const c=document.createElement('div');c.className='cap';c.textContent=cap;const slot=document.createElement('div');wrap.append(c,slot);return{wrap,slot};}
+function summ(){const u=state.unit==='imp'?'lb':'kg';const cw=state.unit==='imp'?Math.round(state.wt*2.20462):state.wt;const gw=state.unit==='imp'?Math.round(state.goalWt*2.20462):state.goalWt;const dir=gw>cw?'to gain':gw<cw?'to lose':'to hold';document.getElementById('wsummary').textContent=`${cw}${u} → ${gw}${u} · ${Math.abs(gw-cw)}${u} ${dir}`;}
+document.getElementById('unit').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;state.unit=b.dataset.u;[...e.currentTarget.children].forEach(x=>x.classList.toggle('on',x===b));buildHeight();buildWeight();summ();});
+buildHeight();buildWeight();summ();
+
+// AHA
+function renderAha(){
+  const first=state.name.trim().split(' ')[0]||'friend';
+  document.getElementById('ahaTitle').innerHTML=`Here's your path, <span class="em">${first}.</span>`;
+  const goalMap={muscle:'building muscle',fat:'leaning out',recomp:'recomposition',strong:'getting stronger'};
+  const diff=state.goalWt-state.wt;
+  const dirWord=diff>0?'gain':diff<0?'lose':'hold';
+  const rateKgWk=diff>0?0.25:0.5; // honest sustainable pace
+  const weeks=Math.max(1,Math.round(Math.abs(diff)/rateKgWk));
+  const months=Math.max(1,Math.round(weeks/4.3));
+  document.getElementById('ahaSub').innerHTML=`Focused on <b>${goalMap[state.goal]||'your goal'}</b> — a healthy, sustainable pace of ~${rateKgWk}kg/week.`;
+  const midWt=Math.round(state.wt+diff/2);
+  const nodes=[
+    {c:'reached',ic:'●',t:`Today · ${state.wt}kg`,d:'Your honest starting line.',eta:'now'},
+    {c:'',ic:'2',t:`First milestone`,d:`On track to ${midWt}kg + strength base.`,eta:`~${Math.max(1,Math.round(months/2))} mo`},
+    {c:'',ic:'3',t:`Habit locked in`,d:'Plan, log & lifts on autopilot.',eta:`~${months} mo`},
+    {c:'goal',ic:'★',t:`Goal physique · ${state.goalWt}kg`,d:`Your target, reached the real way.`,eta:`~${months} mo`},
+  ];
+  const host=document.getElementById('pathNodes');
+  host.innerHTML=nodes.map(n=>`<div class="node ${n.c}"><div class="line"></div><div class="dot">${n.ic}</div><div><div class="nt">${n.t}</div><div class="nd">${n.d}</div></div><div class="eta">${n.eta}</div></div>`).join('')
+    +`<div class="honest"><svg width="15" height="15" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="#B99" stroke-width="1.6"/><path d="M12 7v6M12 16.5v.5" stroke="#B99" stroke-width="1.8" stroke-linecap="round"/></svg><span>This is an <b>estimate</b> from what you've told us — no fake precision. It sharpens into a real forecast once you start logging.</span></div>`;
+  requestAnimationFrame(()=>SLIDES[i].classList.add('reveal'));
+}
+
+show(0);
+</script>
+</body>
+</html>
