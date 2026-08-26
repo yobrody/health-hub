@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#0D0C10">
+<title>Health Hub — onboarding (dark)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,500;0,9..144,600;1,9..144,600&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0D0C10; --bg2:#141118; --surface:#191620; --surface2:#221D2C; --line:#2C2636;
+    --txt:#F5F1EC; --soft:#A69FB0; --faint:#6C6678;
+    --ember:#FF7A3C; --ember2:#FFA968; --win:#8BF0A6;
+    --r:20px;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;height:100%}
+  body{
+    font-family:'Inter',system-ui,sans-serif;color:var(--txt);
+    background:#000;display:flex;align-items:center;justify-content:center;min-height:100dvh;overflow:hidden;
+  }
+  .device{
+    position:relative;width:100vw;height:100dvh;max-width:440px;max-height:100dvh;overflow:hidden;
+    background:
+      radial-gradient(120% 55% at 50% -8%, #241528 0%, rgba(36,21,40,0) 60%),
+      radial-gradient(90% 40% at 50% 108%, #2a160c 0%, rgba(42,22,12,0) 55%),
+      var(--bg);
+  }
+  @media(min-width:480px){ .device{border-radius:46px;border:9px solid #050506;height:min(900px,96dvh);box-shadow:0 50px 130px -30px rgba(255,122,60,.18)} }
+  .device::after{content:"";position:absolute;inset:0;pointer-events:none;z-index:70;opacity:.045;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");}
+
+  .rail{position:absolute;top:0;left:0;right:0;z-index:40;display:flex;gap:5px;padding:16px 22px 8px}
+  .rail span{height:3px;flex:1;border-radius:99px;background:#2A2534;overflow:hidden}
+  .rail span i{display:block;height:100%;width:100%;background:linear-gradient(90deg,var(--ember),var(--ember2));transform:scaleX(0);transform-origin:left;transition:transform .5s cubic-bezier(.7,0,.2,1)}
+  .rail span.done i{transform:scaleX(1)} .rail span.active i{transform:scaleX(.5)}
+
+  .track{position:absolute;inset:0;display:flex;transition:transform .5s cubic-bezier(.65,0,.2,1)}
+  .slide{min-width:100%;height:100%;position:relative;display:flex;flex-direction:column;padding:64px 24px 96px;overflow-y:auto}
+  .kicker{font-size:11.5px;letter-spacing:.22em;text-transform:uppercase;color:var(--ember);font-weight:700;margin:0 0 12px}
+  h1{font-family:'Fraunces',serif;font-weight:600;font-size:32px;line-height:1.06;letter-spacing:-.02em;margin:0 0 10px}
+  h1 .em{font-style:italic;color:var(--ember2)}
+  .sub{color:var(--soft);font-size:14.5px;line-height:1.5;margin:0 0 22px;max-width:33ch}
+
+  .slide.is-active .stg{opacity:0;transform:translateY(13px);animation:rise .55s cubic-bezier(.2,.7,.2,1) forwards}
+  .slide.is-active .stg:nth-child(1){animation-delay:.04s}.slide.is-active .stg:nth-child(2){animation-delay:.10s}
+  .slide.is-active .stg:nth-child(3){animation-delay:.16s}.slide.is-active .stg:nth-child(4){animation-delay:.22s}
+  .slide.is-active .stg:nth-child(5){animation-delay:.28s}.slide.is-active .stg:nth-child(6){animation-delay:.34s}
+  @keyframes rise{to{opacity:1;transform:none}}
+
+  .foot{position:absolute;left:0;right:0;bottom:0;z-index:45;padding:14px 24px 26px;display:flex;gap:11px;align-items:center;
+    background:linear-gradient(to top,var(--bg) 62%,rgba(13,12,16,0))}
+  .btn{flex:1;border:0;border-radius:99px;padding:16px 20px;font-weight:700;font-size:15.5px;cursor:pointer;transition:transform .14s,box-shadow .25s,opacity .2s;font-family:'Inter'}
+  .btn.primary{background:linear-gradient(180deg,var(--ember2),var(--ember));color:#1a0c04;box-shadow:0 14px 30px -12px rgba(255,122,60,.75)}
+  .btn.primary:active{transform:translateY(1px) scale(.99)}
+  .btn.primary[disabled]{opacity:.32;box-shadow:none;cursor:default;filter:grayscale(.4)}
+  .btn.ghost{flex:0 0 auto;width:52px;background:#211C2A;color:var(--soft);padding:16px 0}
+  .hint{position:absolute;left:0;right:0;bottom:6px;text-align:center;font-size:10.5px;color:var(--faint);z-index:45;letter-spacing:.02em}
+
+  .brandmark{width:52px;height:52px;border-radius:16px;display:grid;place-items:center;margin-bottom:20px;
+    background:linear-gradient(150deg,var(--ember2),var(--ember));box-shadow:0 12px 30px -10px rgba(255,122,60,.6)}
+  .brandmark svg{width:28px;height:28px}
+  .field{margin-top:6px;background:var(--surface);border:1.5px solid var(--line);border-radius:15px;padding:13px 16px;display:flex;flex-direction:column;gap:2px}
+  .field label{font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);font-weight:700}
+  .field input{border:0;background:transparent;font-family:'Inter';font-size:18px;font-weight:600;color:var(--txt);outline:none;padding:2px 0}
+  .field input::placeholder{color:var(--faint);font-weight:500}
+
+  /* PIN — compact so all 4 rows + the 0 always fit */
+  .pindots{display:flex;gap:15px;justify-content:center;margin:4px 0 22px}
+  .pindots b{width:14px;height:14px;border-radius:99px;background:#2C2636;transition:.25s;transform:scale(.9)}
+  .pindots b.on{background:var(--ember);transform:scale(1.05);box-shadow:0 0 14px -1px rgba(255,122,60,.8)}
+  .keypad{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;max-width:252px;margin:0 auto;width:100%}
+  .key{background:var(--surface);border:1.5px solid var(--line);border-radius:16px;font-family:'Fraunces';font-size:23px;font-weight:600;color:var(--txt);padding:12px 0;cursor:pointer;transition:.12s}
+  .key:active{transform:scale(.94);background:var(--surface2);border-color:var(--ember)}
+  .key.blank{background:transparent;border:0;cursor:default}
+  .key.del{font-family:'Inter';font-size:14px;color:var(--soft)}
+
+  /* Goal = target physique */
+  .frames{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .frame{position:relative;background:var(--surface);border:1.5px solid var(--line);border-radius:18px;padding:12px 12px 13px;cursor:pointer;overflow:hidden;transition:.22s;text-align:left}
+  .frame svg{width:100%;height:120px;display:block;margin:2px 0 8px}
+  .frame .body{fill:#332B40;stroke:#413650;stroke-width:1;transition:.3s}
+  .frame .glow{opacity:0;transition:.3s}
+  .frame .ft{font-family:'Fraunces';font-weight:600;font-size:16px}
+  .frame .fd{font-size:11.5px;color:var(--soft);margin-top:1px;line-height:1.3}
+  .frame.sel{border-color:var(--ember);background:linear-gradient(180deg,#241723,var(--surface));transform:translateY(-2px);box-shadow:0 16px 34px -18px rgba(255,122,60,.6)}
+  .frame.sel .body{fill:url(#emberGrad);stroke:var(--ember)}
+  .frame.sel .glow{opacity:.5}
+  .frame .tick{position:absolute;top:9px;right:9px;width:21px;height:21px;border-radius:99px;background:var(--ember);color:#1a0c04;display:grid;place-items:center;font-size:12px;font-weight:800;opacity:0;transform:scale(.5);transition:.22s}
+  .frame.sel .tick{opacity:1;transform:none}
+
+  /* Wheels (dark) */
+  .toggle{display:inline-flex;background:#211C2A;border-radius:99px;padding:4px;margin-bottom:16px;align-self:flex-start}
+  .toggle button{border:0;background:transparent;padding:7px 16px;border-radius:99px;font-family:'Inter';font-weight:700;font-size:13px;color:var(--soft);cursor:pointer;transition:.2s}
+  .toggle button.on{background:var(--surface2);color:var(--txt);box-shadow:0 0 0 1px var(--line)}
+  .wcard{background:var(--surface);border:1.5px solid var(--line);border-radius:20px;padding:14px 6px}
+  .wheels{display:flex;gap:8px;justify-content:center}
+  .wheelwrap{flex:1;position:relative}
+  .wheelwrap .cap{text-align:center;font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);font-weight:700;margin-bottom:6px}
+  .wheel{--h:172px;height:var(--h);overflow-y:scroll;scroll-snap-type:y mandatory;position:relative;-ms-overflow-style:none;scrollbar-width:none;
+    mask-image:linear-gradient(180deg,transparent,#000 32%,#000 68%,transparent);-webkit-mask-image:linear-gradient(180deg,transparent,#000 32%,#000 68%,transparent)}
+  .wheel::-webkit-scrollbar{display:none}
+  .wheel ul{list-style:none;margin:0;padding:calc(var(--h)/2 - 24px) 0}
+  .wheel li{height:48px;scroll-snap-align:center;display:grid;place-items:center;font-family:'Fraunces';font-size:23px;font-weight:500;color:var(--faint);transition:.16s}
+  .wheel li.cur{color:var(--txt);font-size:29px;font-weight:600}
+  .wheel li .u{font-size:12px;color:var(--faint);margin-left:2px;font-family:'Inter'}
+  .selband{position:absolute;left:6px;right:6px;top:calc(50% - 24px);height:48px;border-top:1.5px solid var(--line);border-bottom:1.5px solid var(--line);pointer-events:none}
+
+  /* Path = reward engine */
+  .pathhead{background:linear-gradient(160deg,#2a1626,#191620);border:1.5px solid var(--line);border-radius:var(--r);padding:16px 16px 14px;display:flex;gap:14px;align-items:center;margin-bottom:14px}
+  .pathhead svg{width:70px;height:96px;flex:0 0 auto}
+  .pathhead .body{fill:url(#emberGrad);stroke:var(--ember);stroke-width:1}
+  .pathhead .pt{font-family:'Fraunces';font-weight:600;font-size:18px;line-height:1.1}
+  .pathhead .pd{font-size:12px;color:var(--soft);margin-top:3px;line-height:1.4}
+  .weeklbl{font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--faint);font-weight:700;margin:2px 0 9px}
+  .win{display:flex;gap:12px;align-items:center;background:var(--surface);border:1.5px solid var(--line);border-radius:15px;padding:12px 13px;margin-bottom:9px}
+  .win .ic{flex:0 0 auto;width:34px;height:34px;border-radius:11px;display:grid;place-items:center;background:#1e2b22;color:var(--win);font-size:16px}
+  .win.ember .ic{background:#2b1c12;color:var(--ember2)}
+  .win .wt{font-weight:600;font-size:14px}
+  .win .wd{font-size:11.5px;color:var(--soft);margin-top:1px}
+  .win .chev{margin-left:auto;color:var(--faint);font-size:15px}
+  .photocta{margin-top:6px;background:linear-gradient(160deg,#20182a,#191620);border:1.5px dashed #3a3348;border-radius:16px;padding:14px;display:flex;gap:12px;align-items:center}
+  .photocta .ic{flex:0 0 auto;width:38px;height:38px;border-radius:12px;background:#2b1c12;color:var(--ember2);display:grid;place-items:center;font-size:18px}
+  .photocta .pt{font-weight:600;font-size:13.5px}
+  .photocta .pd{font-size:11.5px;color:var(--soft);margin-top:2px;line-height:1.4}
+  .reveal .stagger{opacity:0;transform:translateY(11px);animation:rise .5s cubic-bezier(.2,.7,.2,1) forwards}
+  .reveal .stagger:nth-child(1){animation-delay:.12s}.reveal .stagger:nth-child(2){animation-delay:.24s}
+  .reveal .stagger:nth-child(3){animation-delay:.34s}.reveal .stagger:nth-child(4){animation-delay:.44s}
+  .reveal .stagger:nth-child(5){animation-delay:.56s}
+
+  /* "You're in" overlay */
+  .done-ov{position:absolute;inset:0;z-index:80;background:radial-gradient(80% 50% at 50% 40%,#2a1626,var(--bg));display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:40px;opacity:0;pointer-events:none;transition:.4s}
+  .done-ov.on{opacity:1;pointer-events:auto}
+  .done-ov .ring{width:96px;height:96px;border-radius:99px;display:grid;place-items:center;background:linear-gradient(150deg,var(--ember2),var(--ember));box-shadow:0 0 60px -6px rgba(255,122,60,.7);font-size:44px;color:#1a0c04;margin-bottom:24px;animation:pop .5s cubic-bezier(.2,1.5,.4,1)}
+  @keyframes pop{from{transform:scale(.4);opacity:0}to{transform:scale(1);opacity:1}}
+  .done-ov h1{font-size:30px}
+  .spark{position:absolute;width:7px;height:7px;border-radius:2px;background:var(--ember2);opacity:0}
+</style>
+</head>
+<body>
+<div class="device">
+  <div class="rail" id="rail"></div>
+  <svg width="0" height="0"><defs><linearGradient id="emberGrad" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#FFA968"/><stop offset="1" stop-color="#FF7A3C"/></linearGradient></defs></svg>
+
+  <div class="track" id="track">
+
+    <!-- 0 WELCOME -->
+    <section class="slide" data-chapter="0">
+      <div class="brandmark stg"><svg viewBox="0 0 24 24" fill="none"><path d="M4 13c4 0 4-7 8-7s4 7 8 7" stroke="#1a0c04" stroke-width="2.6" stroke-linecap="round"/><circle cx="12" cy="18" r="1.7" fill="#1a0c04"/></svg></div>
+      <p class="kicker stg">Health Hub</p>
+      <h1 class="stg">Build the body <span class="em">you actually want.</span></h1>
+      <p class="sub stg">Two minutes to set your target. Then we show you the exact path — and make hitting it feel good, every day.</p>
+      <div class="field stg"><label>First name</label><input id="fname" placeholder="What should we call you?" autocomplete="off"></div>
+    </section>
+
+    <!-- 1 PIN -->
+    <section class="slide" data-chapter="0">
+      <p class="kicker stg">Fast unlock</p>
+      <h1 class="stg">Set a 4-digit PIN</h1>
+      <p class="sub stg" style="margin-bottom:14px">One tap in next time. Your password still works whenever you want it.</p>
+      <div class="pindots stg" id="pindots"><b></b><b></b><b></b><b></b></div>
+      <div class="keypad stg" id="keypad"></div>
+    </section>
+
+    <!-- 2 GOAL = PHYSIQUE -->
+    <section class="slide" data-chapter="1">
+      <p class="kicker stg">Your target</p>
+      <h1 class="stg">Which frame are you <span class="em">building toward?</span></h1>
+      <p class="sub stg">Pick the shape you want — not a number on a scale. This is what everything aims at.</p>
+      <div class="frames stg" id="frames"></div>
+    </section>
+
+    <!-- 3 BODY -->
+    <section class="slide" data-chapter="2">
+      <p class="kicker stg">Starting line</p>
+      <h1 class="stg">Where you're at today</h1>
+      <p class="sub stg">Real numbers in, real predictions out — never a guess.</p>
+      <div class="toggle stg" id="unit"><button class="on" data-u="imp">ft / in</button><button data-u="met">cm</button></div>
+      <div class="wcard stg"><div class="wheels" id="wheels"></div></div>
+      <p class="sub stg" style="margin:16px 0 4px;font-size:13px">Current weight</p>
+      <div class="wcard stg"><div class="wheels" id="wheels2"></div></div>
+    </section>
+
+    <!-- 4 PATH -->
+    <section class="slide" data-chapter="3">
+      <p class="kicker stg stagger">Your path</p>
+      <h1 class="stg stagger" id="pathTitle">Here's the plan, <span class="em">friend.</span></h1>
+      <div class="pathhead stagger" id="pathhead"></div>
+      <p class="weeklbl stagger">This week — your first wins</p>
+      <div class="stagger" id="wins"></div>
+      <div class="photocta stagger">
+        <div class="ic">📸</div>
+        <div><div class="pt">Track the real change</div><div class="pd">Drop a physique photo weekly — we read it, show your progress, and <b>delete it instantly</b>. Never stored.</div></div>
+      </div>
+    </section>
+
+  </div>
+
+  <div class="foot" id="foot">
+    <button class="btn ghost" id="back" aria-label="Back">←</button>
+    <button class="btn primary" id="next">Continue</button>
+  </div>
+  <div class="hint">swipe · arrow keys · or tap Continue</div>
+
+  <div class="done-ov" id="doneOv">
+    <div class="ring">✓</div>
+    <h1>You're in,<br><span class="em" id="doneName">friend</span>.</h1>
+    <p class="sub" style="text-align:center;max-width:26ch">Your path is set. Let's make today the first win.</p>
+  </div>
+</div>
+
+<script>
+const SLIDES=[...document.querySelectorAll('.slide')];const CH=4;
+const track=document.getElementById('track'),rail=document.getElementById('rail');
+const nextBtn=document.getElementById('next'),backBtn=document.getElementById('back');
+let i=0;
+const st={name:'',pin:'',frame:null,unit:'imp',ft:5,in:9,cm:175,wt:75};
+
+for(let c=0;c<CH;c++){const s=document.createElement('span');s.innerHTML='<i></i>';rail.appendChild(s);}
+function paintRail(){const ch=+SLIDES[i].dataset.chapter;[...rail.children].forEach((s,c)=>{s.className='';if(c<ch)s.classList.add('done');else if(c===ch)s.classList.add('active');});}
+
+function show(n){
+  i=Math.max(0,Math.min(SLIDES.length-1,n));
+  track.style.transform=`translateX(-${i*100}%)`;
+  SLIDES.forEach((s,x)=>s.classList.toggle('is-active',x===i));
+  backBtn.style.visibility=i===0?'hidden':'visible';
+  paintRail();gate();
+  if(i===SLIDES.length-1){renderPath();}
+  nextBtn.textContent=i===SLIDES.length-1?'Start Health Hub':'Continue';
+}
+function gate(){let ok=true;
+  if(i===0)ok=st.name.trim().length>0;
+  if(i===1)ok=st.pin.length===4;
+  if(i===2)ok=!!st.frame;
+  nextBtn.disabled=!ok;}
+nextBtn.onclick=()=>{if(nextBtn.disabled)return;if(i<SLIDES.length-1)show(i+1);else finish();};
+backBtn.onclick=()=>show(i-1);
+addEventListener('keydown',e=>{if(e.key==='ArrowRight'&&!nextBtn.disabled)nextBtn.click();if(e.key==='ArrowLeft')show(i-1);});
+let sx=0,sy=0;
+track.addEventListener('touchstart',e=>{sx=e.touches[0].clientX;sy=e.touches[0].clientY;},{passive:true});
+track.addEventListener('touchend',e=>{const dx=e.changedTouches[0].clientX-sx,dy=e.changedTouches[0].clientY-sy;
+  if(Math.abs(dx)>55&&Math.abs(dx)>Math.abs(dy)){if(dx<0&&!nextBtn.disabled)show(i+1);if(dx>0)show(i-1);}},{passive:true});
+
+document.getElementById('fname').addEventListener('input',e=>{st.name=e.target.value;gate();});
+
+// PIN
+const dots=[...document.querySelectorAll('#pindots b')],kp=document.getElementById('keypad');
+['1','2','3','4','5','6','7','8','9','','0','⌫'].forEach(k=>{const b=document.createElement('button');
+  if(k===''){b.className='key blank';}
+  else if(k==='⌫'){b.className='key del';b.textContent='⌫';b.onclick=()=>{st.pin=st.pin.slice(0,-1);paintPin();};}
+  else{b.className='key';b.textContent=k;b.onclick=()=>{if(st.pin.length<4){st.pin+=k;paintPin();if(st.pin.length===4)setTimeout(()=>show(i+1),240);}};}
+  kp.appendChild(b);});
+function paintPin(){dots.forEach((d,x)=>d.classList.toggle('on',x<st.pin.length));gate();}
+
+// PHYSIQUE FRAMES — silhouettes vary by build (shoulder/torso width)
+function figure(build){ // 0 lean .. 3 powerful
+  const sh=[13,17,21,25][build], w=[7,9,11,13][build], arm=[4,5,6,7][build];
+  return `<svg viewBox="0 0 90 120" aria-hidden="true">
+    <g class="glow"><ellipse cx="45" cy="60" rx="42" ry="56" fill="url(#emberGrad)" opacity=".18"/></g>
+    <circle class="body" cx="45" cy="16" r="9"/>
+    <path class="body" d="M45 26c-${sh} 0-${sh} 7-${sh-2} 13l-${w} 2 ${w} 3c0 0 1 8 2 14l-3 42h9l4-32 4 32h9l-3-42c1-6 2-14 2-14l${w} -3-${w}-2c2-6 2-13-${sh-2}-13S45 26 45 26z"/>
+    <rect class="body" x="${45-sh-arm}" y="42" width="${arm}" height="34" rx="${arm/2}"/>
+    <rect class="body" x="${45+sh}" y="42" width="${arm}" height="34" rx="${arm/2}"/>
+  </svg>`;
+}
+const FRAMES=[
+  {id:'lean',t:'Lean & defined',d:'Low body fat, sharp lines',b:1},
+  {id:'athletic',t:'Athletic',d:'Balanced muscle, capable',b:2},
+  {id:'muscular',t:'Muscular',d:'Noticeable size & shape',b:3},
+  {id:'powerful',t:'Powerful',d:'Maximum strength & mass',b:3},
+];
+const fr=document.getElementById('frames');
+FRAMES.forEach(f=>{const el=document.createElement('button');el.className='frame';
+  el.innerHTML=`<span class="tick">✓</span>${figure(f.b)}<div class="ft">${f.t}</div><div class="fd">${f.d}</div>`;
+  el.onclick=()=>{st.frame=f.id;[...fr.children].forEach(c=>c.classList.toggle('sel',c===el));gate();};
+  fr.appendChild(el);});
+
+// WHEELS
+function wheel(host,from,to,unit,val,on){host.innerHTML='';const wrap=document.createElement('div');wrap.className='wheel';const ul=document.createElement('ul');
+  for(let v=from;v<=to;v++){const li=document.createElement('li');li.dataset.v=v;li.innerHTML=v+(unit?`<span class="u">${unit}</span>`:'');ul.appendChild(li);}
+  wrap.appendChild(ul);const band=document.createElement('div');band.className='selband';host.append(wrap,band);const items=[...ul.children],H=48;
+  function c(){const idx=Math.round(wrap.scrollTop/H);items.forEach((li,x)=>li.classList.toggle('cur',x===idx));on(+items[Math.max(0,Math.min(items.length-1,idx))].dataset.v);}
+  wrap.addEventListener('scroll',()=>{clearTimeout(wrap._t);wrap._t=setTimeout(c,55);requestAnimationFrame(()=>{const idx=Math.round(wrap.scrollTop/H);items.forEach((li,x)=>li.classList.toggle('cur',x===idx));});});
+  requestAnimationFrame(()=>{wrap.scrollTop=(val-from)*H;c();});}
+function col(cap){const wrap=document.createElement('div');wrap.className='wheelwrap';const c=document.createElement('div');c.className='cap';c.textContent=cap;const slot=document.createElement('div');wrap.append(c,slot);return{wrap,slot};}
+function height(){const h=document.getElementById('wheels');h.innerHTML='';if(st.unit==='imp'){const a=col('Feet'),b=col('Inches');h.append(a.wrap,b.wrap);wheel(a.slot,3,7,"'",st.ft,v=>st.ft=v);wheel(b.slot,0,11,'"',st.in,v=>st.in=v);}else{const a=col('Height');h.append(a.wrap);wheel(a.slot,120,220,'cm',st.cm,v=>st.cm=v);}}
+function weight(){const h=document.getElementById('wheels2');h.innerHTML='';const a=col(st.unit==='imp'?'Pounds':'Kilograms');h.append(a.wrap);const u=st.unit==='imp'?'lb':'kg',lo=st.unit==='imp'?90:40,hi=st.unit==='imp'?350:160,cur=st.unit==='imp'?Math.round(st.wt*2.20462):st.wt;wheel(a.slot,lo,hi,u,cur,v=>{st.wt=st.unit==='imp'?Math.round(v/2.20462):v;});}
+document.getElementById('unit').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;st.unit=b.dataset.u;[...e.currentTarget.children].forEach(x=>x.classList.toggle('on',x===b));height();weight();});
+height();weight();
+
+// PATH
+function renderPath(){
+  const first=st.name.trim().split(' ')[0]||'friend';
+  document.getElementById('pathTitle').innerHTML=`Here's the plan, <span class="em">${first}.</span>`;
+  const fdef=FRAMES.find(f=>f.id===st.frame)||FRAMES[1];
+  document.getElementById('pathhead').innerHTML=`${figure(fdef.b)}<div><div class="pt">Target: ${fdef.t.toLowerCase()}</div><div class="pd">Every meal, lift and step is now pointed at this. We'll show the real change as it happens.</div></div>`;
+  const wins=[
+    {c:'ember',ic:'🍽️',t:'Log 3 meals today',d:'Unlock your real calorie & protein baseline.'},
+    {c:'',ic:'💪',t:'Log your first workout',d:'We start predicting your next lift instantly.'},
+    {c:'',ic:'🔥',t:'Hit protein 2 days running',d:'Your first streak — the habit that builds the frame.'},
+  ];
+  document.getElementById('wins').innerHTML=wins.map(w=>`<div class="win ${w.c}"><div class="ic">${w.ic}</div><div><div class="wt">${w.t}</div><div class="wd">${w.d}</div></div><div class="chev">›</div></div>`).join('');
+  requestAnimationFrame(()=>SLIDES[i].classList.add('reveal'));
+}
+
+// FINISH
+function finish(){
+  document.getElementById('doneName').textContent=st.name.trim().split(' ')[0]||'friend';
+  const ov=document.getElementById('doneOv');ov.classList.add('on');
+  for(let s=0;s<14;s++){const el=document.createElement('div');el.className='spark';el.style.left=(20+Math.random()*60)+'%';el.style.top=(30+Math.random()*30)+'%';el.style.background=Math.random()>.5?'#FFA968':'#8BF0A6';ov.appendChild(el);
+    el.animate([{transform:'translate(0,0) scale(1)',opacity:1},{transform:`translate(${(Math.random()-.5)*220}px,${(Math.random()-.5)*260}px) scale(0)`,opacity:0}],{duration:900+Math.random()*500,easing:'cubic-bezier(.2,.7,.2,1)'});}
+}
+show(0);
+</script>
+</body>
+</html>
