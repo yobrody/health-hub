@@ -72,6 +72,7 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
   bool _goalResetting = false;
   bool _requestingPermissions = false;
   bool _signingOut = false;
+  bool _deletingAccount = false;
 
   // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -187,6 +188,52 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
       }
     } finally {
       if (mounted) setState(() => _signingOut = false);
+    }
+  }
+
+  /// Permanently delete the account + ALL server data (GDPR erasure + Apple
+  /// requirement). On success the auth stream emits null and the gate routes
+  /// back to sign-in. Strongly confirmed because it's irreversible.
+  Future<void> _onDeleteAccount() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete account?'),
+        content: const Text(
+          'This permanently erases your account and ALL your data — profile, '
+          'goals, weigh-ins, food log, workouts, pantry and lists. It cannot be '
+          'undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(ctx).colorScheme.error,
+            ),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Delete forever'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    if (_deletingAccount) return;
+
+    setState(() => _deletingAccount = true);
+    try {
+      await _authService.deleteAccount();
+      // Success → the auth stream drives the gate back to the auth screen.
+    } on AuthFailure catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(e.message)),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _deletingAccount = false);
     }
   }
 
@@ -387,6 +434,20 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
                     ? _spinner()
                     : const Icon(Icons.chevron_right),
                 onTap: _onSignOut,
+                destructive: true,
+              ),
+            ),
+            const SizedBox(height: 10),
+            StatCard(
+              child: _SettingsTile(
+                tileKey: const Key('settings-delete-account'),
+                icon: Icons.delete_forever_outlined,
+                title: 'Delete account',
+                subtitle: 'Permanently erase your account and all data',
+                trailing: _deletingAccount
+                    ? _spinner()
+                    : const Icon(Icons.chevron_right),
+                onTap: _onDeleteAccount,
                 destructive: true,
               ),
             ),

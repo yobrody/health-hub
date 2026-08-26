@@ -81,6 +81,40 @@ void main() {
     expect(find.byKey(const Key('settings-page')), findsOneWidget);
   });
 
+  testWidgets('Delete account: cancel does nothing; confirm calls deleteAccount',
+      (tester) async {
+    final auth = FakeAuthService();
+    await tester.pumpWidget(ProviderScope(
+      child: MaterialApp(
+        home: SettingsPage(
+          repo: _repo(),
+          secrets: Secrets(FakeSecureStore()),
+          authService: auth,
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    final tile = find.byKey(const Key('settings-delete-account'));
+    await tester.ensureVisible(tile);
+    await tester.pumpAndSettle();
+
+    // Open the confirm dialog and CANCEL → nothing is deleted.
+    await tester.tap(tile);
+    await tester.pumpAndSettle();
+    expect(find.text('Delete account?'), findsOneWidget);
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+    expect(auth.accountDeleted, isFalse);
+
+    // Re-open and CONFIRM → deletion runs.
+    await tester.tap(tile);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Delete forever'));
+    await tester.pumpAndSettle();
+    expect(auth.accountDeleted, isTrue);
+  });
+
   testWidgets('all 8 section rows are rendered', (tester) async {
     await tester.pumpWidget(_harness());
     await tester.pumpAndSettle();

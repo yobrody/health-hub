@@ -418,7 +418,7 @@ final authServiceProvider = Provider<AuthService>((ref) {
     // Degraded local mode — no real backend to authenticate against.
     return FakeAuthService(autoConfirm: false);
   }
-  return SupabaseAuthService(Supabase.instance.client.auth);
+  return SupabaseAuthService(Supabase.instance.client);
 });
 
 /// The reactive auth state: emits the current [AuthUser] (or null) and every

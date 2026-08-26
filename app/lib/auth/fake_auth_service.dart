@@ -114,6 +114,19 @@ class FakeAuthService implements AuthService {
     _emit(null);
   }
 
+  /// Set true once [deleteAccount] purges the account — lets tests assert it ran.
+  bool accountDeleted = false;
+
+  @override
+  Future<void> deleteAccount() async {
+    final f = _takeFailure();
+    if (f != null) throw f; // honest error path → NOTHING is deleted.
+    final email = _current?.email;
+    if (email != null) _accounts.remove(email);
+    accountDeleted = true;
+    _emit(null); // account gone → signed out; the gate routes back to sign-in.
+  }
+
   @override
   Future<void> sendPasswordReset({required String email}) async {
     final f = _takeFailure();
