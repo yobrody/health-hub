@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#0A0A0B">
+<title>Health Hub — onboarding v3 (athletic)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@600;700;800;900&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0A0A0B; --bg2:#111114; --surf:#141418; --surf2:#1B1B20; --line:#26262E;
+    --txt:#F6F7F5; --soft:#93939E; --faint:#5C5C67;
+    --volt:#B8FF3C; --volt-dim:#2c3a14; --danger:#FF5A4D;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;height:100%}
+  body{font-family:'Inter',system-ui,sans-serif;color:var(--txt);background:#000;
+    display:flex;align-items:center;justify-content:center;min-height:100dvh;overflow:hidden}
+  .device{position:relative;width:100vw;height:100dvh;max-width:440px;max-height:100dvh;overflow:hidden;background:var(--bg)}
+  @media(min-width:480px){.device{border-radius:42px;border:9px solid #030304;height:min(900px,96dvh);box-shadow:0 40px 120px -30px rgba(184,255,60,.12)}}
+  .device::after{content:"";position:absolute;inset:0;pointer-events:none;z-index:70;opacity:.05;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='100'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")}
+
+  .rail{position:absolute;top:0;left:0;right:0;z-index:40;display:flex;gap:4px;padding:15px 20px 8px}
+  .rail span{height:3px;flex:1;background:#22222A;overflow:hidden}
+  .rail span i{display:block;height:100%;width:100%;background:var(--volt);transform:scaleX(0);transform-origin:left;transition:transform .45s cubic-bezier(.7,0,.2,1)}
+  .rail span.done i{transform:scaleX(1)} .rail span.active i{transform:scaleX(.5)}
+
+  .track{position:absolute;inset:0;display:flex;transition:transform .45s cubic-bezier(.65,0,.2,1)}
+  .slide{min-width:100%;height:100%;position:relative;display:flex;flex-direction:column;padding:60px 22px 94px;overflow-y:auto}
+  .kick{font-size:11px;letter-spacing:.26em;text-transform:uppercase;color:var(--volt);font-weight:700;margin:0 0 12px}
+  h1{font-family:'Archivo',sans-serif;font-weight:900;font-size:33px;line-height:.98;letter-spacing:-.015em;text-transform:uppercase;margin:0 0 12px}
+  h1 .hl{color:var(--volt)}
+  .sub{color:var(--soft);font-size:14.5px;line-height:1.5;margin:0 0 22px;max-width:34ch}
+
+  .slide.is-active .stg{opacity:0;transform:translateY(12px);animation:rise .5s cubic-bezier(.2,.7,.2,1) forwards}
+  .slide.is-active .stg:nth-child(1){animation-delay:.03s}.slide.is-active .stg:nth-child(2){animation-delay:.09s}
+  .slide.is-active .stg:nth-child(3){animation-delay:.15s}.slide.is-active .stg:nth-child(4){animation-delay:.21s}
+  .slide.is-active .stg:nth-child(5){animation-delay:.27s}.slide.is-active .stg:nth-child(6){animation-delay:.33s}
+  @keyframes rise{to{opacity:1;transform:none}}
+
+  .foot{position:absolute;left:0;right:0;bottom:0;z-index:45;padding:13px 22px 24px;display:flex;gap:10px;align-items:center;
+    background:linear-gradient(to top,var(--bg) 62%,rgba(10,10,11,0))}
+  .btn{flex:1;border:0;border-radius:10px;padding:16px 20px;font-weight:800;font-size:14px;letter-spacing:.04em;text-transform:uppercase;cursor:pointer;transition:transform .13s,box-shadow .25s,opacity .2s;font-family:'Inter'}
+  .btn.primary{background:var(--volt);color:#0a0a0b;box-shadow:0 10px 26px -10px rgba(184,255,60,.6)}
+  .btn.primary:active{transform:translateY(1px) scale(.99)}
+  .btn.primary[disabled]{opacity:.28;box-shadow:none;cursor:default;filter:grayscale(.6)}
+  .btn.ghost{flex:0 0 auto;width:50px;background:#1B1B20;color:var(--soft);padding:16px 0;font-size:16px}
+  .hint{position:absolute;left:0;right:0;bottom:5px;text-align:center;font-size:10px;color:var(--faint);z-index:45;letter-spacing:.03em}
+
+  .brand{display:flex;align-items:center;gap:9px;margin-bottom:22px}
+  .brand .m{width:30px;height:30px;border-radius:8px;display:grid;place-items:center;background:var(--volt)}
+  .brand .m svg{width:18px;height:18px}
+  .brand b{font-family:'Archivo';font-weight:800;font-size:15px;letter-spacing:.02em;text-transform:uppercase}
+  .field{margin-top:4px;background:var(--surf);border:1.5px solid var(--line);border-radius:11px;padding:13px 15px;display:flex;flex-direction:column;gap:2px}
+  .field.focus{border-color:var(--volt)}
+  .field label{font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--faint);font-weight:700}
+  .field input{border:0;background:transparent;font-family:'Inter';font-size:18px;font-weight:600;color:var(--txt);outline:none;padding:2px 0}
+  .field input::placeholder{color:var(--faint);font-weight:500}
+
+  /* PIN */
+  .pindots{display:flex;gap:14px;justify-content:center;margin:2px 0 18px}
+  .pindots b{width:13px;height:13px;border-radius:99px;background:#26262E;transition:.22s}
+  .pindots b.on{background:var(--volt);box-shadow:0 0 12px -1px rgba(184,255,60,.8)}
+  .keypad{display:grid;grid-template-columns:repeat(3,1fr);gap:9px;max-width:250px;margin:0 auto;width:100%}
+  .key{background:var(--surf);border:1.5px solid var(--line);border-radius:12px;font-family:'Archivo';font-weight:700;font-size:22px;color:var(--txt);padding:12px 0;cursor:pointer;transition:.11s}
+  .key:active{transform:scale(.94);background:var(--surf2);border-color:var(--volt)}
+  .key.act{background:transparent;border:0;font-family:'Inter';font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--soft);cursor:pointer}
+  .key.del{font-family:'Inter';font-size:13px;color:var(--soft)}
+
+  /* Wheels */
+  .toggle{display:inline-flex;background:#17171C;border:1px solid var(--line);border-radius:9px;padding:3px;margin-bottom:14px;align-self:flex-start}
+  .toggle button{border:0;background:transparent;padding:7px 15px;border-radius:7px;font-family:'Inter';font-weight:700;font-size:12.5px;color:var(--soft);cursor:pointer;transition:.18s;text-transform:uppercase;letter-spacing:.05em}
+  .toggle button.on{background:var(--volt);color:#0a0a0b}
+  .wcard{background:var(--surf);border:1.5px solid var(--line);border-radius:12px;padding:12px 6px}
+  .wheels{display:flex;gap:6px;justify-content:center}
+  .wcol{flex:1;position:relative}
+  .wcol .cap{text-align:center;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);font-weight:700;margin-bottom:5px}
+  .wheel{--h:160px;height:var(--h);overflow-y:scroll;scroll-snap-type:y mandatory;position:relative;-ms-overflow-style:none;scrollbar-width:none;
+    mask-image:linear-gradient(180deg,transparent,#000 34%,#000 66%,transparent);-webkit-mask-image:linear-gradient(180deg,transparent,#000 34%,#000 66%,transparent)}
+  .wheel::-webkit-scrollbar{display:none}
+  .wheel ul{list-style:none;margin:0;padding:calc(var(--h)/2 - 22px) 0}
+  .wheel li{height:44px;scroll-snap-align:center;display:grid;place-items:center;font-family:'Archivo';font-size:22px;font-weight:700;color:var(--faint);transition:.15s}
+  .wheel li.cur{color:var(--txt);font-size:27px}
+  .wheel li .u{font-size:11px;color:var(--faint);margin-left:2px;font-family:'Inter'}
+  .selband{position:absolute;left:6px;right:6px;top:calc(50% - 22px);height:44px;border-top:1.5px solid var(--volt-dim);border-bottom:1.5px solid var(--volt-dim);pointer-events:none}
+
+  /* FRAMES — vertical list with the CONSEQUENCE shown */
+  .frame{display:flex;gap:13px;align-items:center;background:var(--surf);border:1.5px solid var(--line);border-radius:13px;padding:11px 13px;margin-bottom:10px;cursor:pointer;transition:.2s;text-align:left;width:100%}
+  .frame svg{width:44px;height:64px;flex:0 0 auto}
+  .frame .body{fill:#2A2A33;transition:.25s}
+  .frame.sel{border-color:var(--volt);background:#16180F}
+  .frame.sel .body{fill:var(--volt)}
+  .frame .nm{font-family:'Archivo';font-weight:800;font-size:15px;text-transform:uppercase;letter-spacing:.01em;display:flex;align-items:center;gap:8px}
+  .tag{font-family:'Inter';font-size:9.5px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;padding:2px 6px;border-radius:4px}
+  .tag.closest{background:var(--volt);color:#0a0a0b}
+  .tag.stretch{background:#3a3320;color:#ffd873}
+  .tag.furthest{background:#2a2130;color:#c79bff}
+  .frame .plan{font-size:11.5px;color:var(--soft);margin-top:3px;line-height:1.35}
+  .frame .plan b{color:var(--txt);font-weight:600}
+  .frame .pick{margin-left:auto;flex:0 0 auto;width:22px;height:22px;border-radius:99px;border:2px solid var(--line);display:grid;place-items:center;color:#0a0a0b;font-size:12px;font-weight:800;transition:.2s}
+  .frame.sel .pick{background:var(--volt);border-color:var(--volt)}
+
+  /* PATH — dive-in-now */
+  .target{display:flex;gap:13px;align-items:center;background:linear-gradient(120deg,#16180F,var(--surf));border:1.5px solid var(--volt-dim);border-radius:13px;padding:13px;margin-bottom:16px}
+  .target svg{width:52px;height:74px;flex:0 0 auto}.target .body{fill:var(--volt)}
+  .target .t{font-family:'Archivo';font-weight:800;font-size:16px;text-transform:uppercase}
+  .target .d{font-size:11.5px;color:var(--soft);margin-top:2px;line-height:1.4}
+  .nowlbl{font-size:10.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--volt);font-weight:800;margin:2px 0 10px;display:flex;align-items:center;gap:7px}
+  .nowlbl::after{content:"";flex:1;height:1px;background:var(--line)}
+  .hook{display:flex;gap:12px;align-items:center;background:var(--surf);border:1.5px solid var(--line);border-radius:12px;padding:13px;margin-bottom:9px;cursor:pointer;transition:.16s}
+  .hook:active{transform:scale(.99);border-color:var(--volt)}
+  .hook .ic{flex:0 0 auto;width:40px;height:40px;border-radius:10px;display:grid;place-items:center;font-size:19px;background:#14180c}
+  .hook .ht{font-weight:700;font-size:14px;line-height:1.15}
+  .hook .hd{font-size:11.5px;color:var(--soft);margin-top:2px;line-height:1.3}
+  .hook .go{margin-left:auto;color:var(--volt);font-size:19px;font-weight:800}
+  .reveal .stagger{opacity:0;transform:translateY(10px);animation:rise .5s cubic-bezier(.2,.7,.2,1) forwards}
+  .reveal .stagger:nth-child(1){animation-delay:.1s}.reveal .stagger:nth-child(2){animation-delay:.22s}
+  .reveal .stagger:nth-child(3){animation-delay:.32s}.reveal .stagger:nth-child(4){animation-delay:.42s}
+  .reveal .stagger:nth-child(5){animation-delay:.52s}.reveal .stagger:nth-child(6){animation-delay:.62s}
+
+  /* Mock home (fixes the dead-end) */
+  .home{position:absolute;inset:0;z-index:80;background:var(--bg);transform:translateX(100%);transition:transform .5s cubic-bezier(.65,0,.2,1);display:flex;flex-direction:column;padding:60px 22px 30px;overflow-y:auto}
+  .home.on{transform:none}
+  .home .hi{font-family:'Archivo';font-weight:900;font-size:26px;text-transform:uppercase;letter-spacing:-.01em}
+  .home .ring{margin:18px 0;background:var(--surf);border:1.5px solid var(--line);border-radius:16px;padding:18px;display:flex;gap:18px;align-items:center}
+  .home .ring .big{font-family:'Archivo';font-weight:900;font-size:40px;color:var(--volt);line-height:1}
+  .home .card{background:var(--surf);border:1.5px solid var(--line);border-radius:13px;padding:14px;margin-bottom:10px;display:flex;gap:12px;align-items:center}
+  .home .card .ic{width:38px;height:38px;border-radius:10px;background:#14180c;display:grid;place-items:center;font-size:18px}
+  .home .cta{position:absolute;left:22px;right:22px;bottom:26px;background:var(--volt);color:#0a0a0b;border:0;border-radius:12px;padding:15px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;font-size:14px}
+  .fab{position:absolute;right:24px;bottom:86px;width:58px;height:58px;border-radius:99px;background:var(--volt);display:grid;place-items:center;box-shadow:0 12px 30px -8px rgba(184,255,60,.6);font-size:24px}
+</style>
+</head>
+<body>
+<div class="device">
+  <div class="rail" id="rail"></div>
+  <div class="track" id="track">
+
+    <!-- 0 WELCOME -->
+    <section class="slide" data-chapter="0">
+      <div class="brand stg"><span class="m"><svg viewBox="0 0 24 24" fill="none"><path d="M4 13c4 0 4-7 8-7s4 7 8 7" stroke="#0a0a0b" stroke-width="2.6" stroke-linecap="round"/><circle cx="12" cy="18" r="1.7" fill="#0a0a0b"/></svg></span><b>Health Hub</b></div>
+      <h1 class="stg">Build the body.<br><span class="hl">Not the guesswork.</span></h1>
+      <p class="sub stg">Set your target in 2 minutes. Then every meal, lift and step is aimed at it — and hitting it feels good, daily.</p>
+      <div class="field stg"><label>First name</label><input id="fname" placeholder="What do we call you?" autocomplete="off"></div>
+    </section>
+
+    <!-- 1 PIN -->
+    <section class="slide" data-chapter="0">
+      <p class="kick stg">Fast unlock</p>
+      <h1 class="stg">Set a 4-digit PIN</h1>
+      <p class="sub stg" style="margin-bottom:12px">One tap in next time — your password always works too.</p>
+      <div class="pindots stg" id="pindots"><b></b><b></b><b></b><b></b></div>
+      <div class="keypad stg" id="keypad"></div>
+    </section>
+
+    <!-- 2 BODY (before frames, so frames can show distance) -->
+    <section class="slide" data-chapter="1">
+      <p class="kick stg">Starting line</p>
+      <h1 class="stg">Where you're at <span class="hl">today</span></h1>
+      <p class="sub stg">Real numbers in, real predictions out. Never a guess.</p>
+      <div class="toggle stg" id="unit"><button class="on" data-u="imp">ft / in / lb</button><button data-u="met">cm / kg</button></div>
+      <div class="wcard stg"><div class="wheels" id="wheels"></div></div>
+    </section>
+
+    <!-- 3 FRAMES -->
+    <section class="slide" data-chapter="2">
+      <p class="kick stg">Your target</p>
+      <h1 class="stg">Which frame are you <span class="hl">chasing?</span></h1>
+      <p class="sub stg" style="margin-bottom:14px">Here's what each one takes from where you are now.</p>
+      <div class="stg" id="frames"></div>
+    </section>
+
+    <!-- 4 PATH -->
+    <section class="slide" data-chapter="3">
+      <p class="kick stg stagger">Locked in</p>
+      <h1 class="stg stagger" id="pt">Let's go, <span class="hl">champ</span>.</h1>
+      <div class="target stagger" id="target"></div>
+      <p class="nowlbl stagger">Do this now</p>
+      <div class="stagger" id="hooks"></div>
+    </section>
+
+  </div>
+
+  <div class="foot" id="foot">
+    <button class="btn ghost" id="back">←</button>
+    <button class="btn primary" id="next">Continue</button>
+  </div>
+  <div class="hint">swipe · arrow keys · or tap</div>
+
+  <!-- Mock home — so "start" leads somewhere, not a dead end -->
+  <div class="home" id="home">
+    <div class="hi" id="homeHi">Let's move, champ.</div>
+    <div class="ring">
+      <div class="big">0<span style="font-size:16px;color:var(--soft)">/3</span></div>
+      <div><div style="font-weight:700;font-size:14px">Today's wins</div><div style="font-size:12px;color:var(--soft)">Log a meal to claim your first.</div></div>
+    </div>
+    <div class="card"><div class="ic">📸</div><div><div style="font-weight:700;font-size:13.5px">Snap a meal</div><div style="font-size:11.5px;color:var(--soft)">Macros in 3 seconds.</div></div></div>
+    <div class="card"><div class="ic">💪</div><div><div style="font-weight:700;font-size:13.5px">Today's workout</div><div style="font-size:11.5px;color:var(--soft)" id="homeWk">5 lifts, dialed to your frame.</div></div></div>
+    <div class="card"><div class="ic">🎯</div><div><div style="font-weight:700;font-size:13.5px" id="homeTarget">Your path</div><div style="font-size:11.5px;color:var(--soft)">On track — keep the streak alive.</div></div></div>
+    <div class="fab">＋</div>
+    <button class="cta" onclick="location.reload()">↺ Replay the onboarding</button>
+  </div>
+</div>
+
+<script>
+const S=[...document.querySelectorAll('.slide')],CH=4;
+const track=document.getElementById('track'),rail=document.getElementById('rail');
+const nextBtn=document.getElementById('next'),backBtn=document.getElementById('back');
+let i=0;
+const st={name:'',pin:'',unit:'imp',ft:5,in:9,cm:175,wt:75,frame:null};
+
+for(let c=0;c<CH;c++){const s=document.createElement('span');s.innerHTML='<i></i>';rail.appendChild(s);}
+function paintRail(){const ch=+S[i].dataset.chapter;[...rail.children].forEach((s,c)=>{s.className='';if(c<ch)s.classList.add('done');else if(c===ch)s.classList.add('active');});}
+function show(n){i=Math.max(0,Math.min(S.length-1,n));track.style.transform=`translateX(-${i*100}%)`;
+  S.forEach((s,x)=>s.classList.toggle('is-active',x===i));backBtn.style.visibility=i===0?'hidden':'visible';paintRail();gate();
+  if(i===3)buildFrames();
+  if(i===S.length-1)renderPath();
+  nextBtn.textContent=i===S.length-1?'Enter Health Hub':'Continue';}
+function gate(){let ok=true;if(i===0)ok=st.name.trim().length>0;if(i===1)ok=st.pin.length===4;if(i===3)ok=!!st.frame;nextBtn.disabled=!ok;}
+nextBtn.onclick=()=>{if(nextBtn.disabled)return;if(i<S.length-1)show(i+1);else enterHome();};
+backBtn.onclick=()=>show(i-1);
+addEventListener('keydown',e=>{if(e.key==='ArrowRight'&&!nextBtn.disabled)nextBtn.click();if(e.key==='ArrowLeft')show(i-1);});
+let sx=0,sy=0;
+track.addEventListener('touchstart',e=>{sx=e.touches[0].clientX;sy=e.touches[0].clientY;},{passive:true});
+track.addEventListener('touchend',e=>{const dx=e.changedTouches[0].clientX-sx,dy=e.changedTouches[0].clientY-sy;
+  if(Math.abs(dx)>55&&Math.abs(dx)>Math.abs(dy)){if(dx<0&&!nextBtn.disabled)show(i+1);if(dx>0)show(i-1);}},{passive:true});
+
+const fn=document.getElementById('fname');
+fn.addEventListener('input',e=>{st.name=e.target.value;gate();});
+fn.addEventListener('focus',()=>fn.parentElement.classList.add('focus'));
+fn.addEventListener('blur',()=>fn.parentElement.classList.remove('focus'));
+
+// PIN — note the bottom-LEFT now carries the standard "use password" action
+const dots=[...document.querySelectorAll('#pindots b')],kp=document.getElementById('keypad');
+[['1'],['2'],['3'],['4'],['5'],['6'],['7'],['8'],['9'],['pw'],['0'],['del']].forEach(([k])=>{const b=document.createElement('button');
+  if(k==='pw'){b.className='key act';b.textContent='Use password';b.onclick=()=>show(i+1);}
+  else if(k==='del'){b.className='key del';b.textContent='⌫';b.onclick=()=>{st.pin=st.pin.slice(0,-1);paintPin();};}
+  else{b.className='key';b.textContent=k;b.onclick=()=>{if(st.pin.length<4){st.pin+=k;paintPin();if(st.pin.length===4)setTimeout(()=>show(i+1),220);}};}
+  kp.appendChild(b);});
+function paintPin(){dots.forEach((d,x)=>d.classList.toggle('on',x<st.pin.length));gate();}
+
+// Body wheels
+function figure(b){const sh=[13,17,21,25][b],w=[7,9,11,13][b],a=[4,5,6,7][b];
+  return `<svg viewBox="0 0 90 120"><circle class="body" cx="45" cy="15" r="9"/><path class="body" d="M45 25c-${sh} 0-${sh} 7-${sh-2} 13l-${w} 2 ${w} 3c0 0 1 8 2 14l-3 42h9l4-32 4 32h9l-3-42c1-6 2-14 2-14l${w} -3-${w}-2c2-6 2-13-${sh-2}-13S45 25 45 25z"/><rect class="body" x="${45-sh-a}" y="40" width="${a}" height="34" rx="${a/2}"/><rect class="body" x="${45+sh}" y="40" width="${a}" height="34" rx="${a/2}"/></svg>`;}
+function wheel(host,from,to,unit,val,on){host.innerHTML='';const wrap=document.createElement('div');wrap.className='wheel';const ul=document.createElement('ul');
+  for(let v=from;v<=to;v++){const li=document.createElement('li');li.dataset.v=v;li.innerHTML=v+(unit?`<span class="u">${unit}</span>`:'');ul.appendChild(li);}
+  wrap.appendChild(ul);const band=document.createElement('div');band.className='selband';host.append(wrap,band);const items=[...ul.children],H=44;
+  function c(){const idx=Math.round(wrap.scrollTop/H);items.forEach((li,x)=>li.classList.toggle('cur',x===idx));on(+items[Math.max(0,Math.min(items.length-1,idx))].dataset.v);}
+  wrap.addEventListener('scroll',()=>{clearTimeout(wrap._t);wrap._t=setTimeout(c,50);requestAnimationFrame(()=>{const idx=Math.round(wrap.scrollTop/H);items.forEach((li,x)=>li.classList.toggle('cur',x===idx));});});
+  requestAnimationFrame(()=>{wrap.scrollTop=(val-from)*H;c();});}
+function col(cap){const w=document.createElement('div');w.className='wcol';const c=document.createElement('div');c.className='cap';c.textContent=cap;const s=document.createElement('div');w.append(c,s);return{w,s};}
+function body(){const h=document.getElementById('wheels');h.innerHTML='';const u=st.unit;
+  if(u==='imp'){const a=col('Feet'),b=col('Inches'),c=col('Weight');h.append(a.w,b.w,c.w);
+    wheel(a.s,3,7,"'",st.ft,v=>st.ft=v);wheel(b.s,0,11,'"',st.in,v=>st.in=v);
+    wheel(c.s,90,350,'lb',Math.round(st.wt*2.20462),v=>st.wt=Math.round(v/2.20462));}
+  else{const a=col('Height'),c=col('Weight');h.append(a.w,c.w);
+    wheel(a.s,120,220,'cm',st.cm,v=>st.cm=v);wheel(c.s,40,160,'kg',st.wt,v=>st.wt=v);}}
+document.getElementById('unit').addEventListener('click',e=>{const b=e.target.closest('button');if(!b)return;st.unit=b.dataset.u;[...e.currentTarget.children].forEach(x=>x.classList.toggle('on',x===b));body();});
+body();
+
+// FRAMES with the CONSEQUENCE (distance from current + the plan it implies)
+const FRAMES=[
+  {id:'lean',nm:'Lean & defined',b:0,delta:-2,plan:'<b>Cut:</b> −400 kcal, 2.2g/kg protein, more steps + conditioning'},
+  {id:'athletic',nm:'Athletic',b:1,delta:3,plan:'<b>Recomp:</b> maintenance, 2g/kg protein, balanced push/pull/legs'},
+  {id:'muscular',nm:'Muscular',b:2,delta:7,plan:'<b>Lean bulk:</b> +300 kcal, 1.8g/kg protein, heavier hypertrophy volume'},
+  {id:'powerful',nm:'Powerful',b:3,delta:13,plan:'<b>Strength+size:</b> +450 kcal, big compounds, carbs around training'},
+];
+function months(kg){return Math.max(1,Math.round(Math.abs(kg)/0.35/4.3));}
+function buildFrames(){
+  const host=document.getElementById('frames');if(host.dataset.done)return;host.dataset.done='1';
+  // rank by absolute distance to tag closest/stretch/furthest
+  const ranked=[...FRAMES].map(f=>({f,dist:Math.abs(f.delta)})).sort((a,b)=>a.dist-b.dist);
+  const tagFor=id=>{const idx=ranked.findIndex(r=>r.f.id===id);return idx===0?'closest':idx>=ranked.length-1?'furthest':'stretch';};
+  const tagTxt={closest:'Closest',stretch:'A stretch',furthest:'Furthest'};
+  host.innerHTML=FRAMES.map(f=>{const t=tagFor(f.id);const dir=f.delta>0?`+${f.delta}kg`:f.delta<0?`${f.delta}kg`:'recomp';
+    return `<button class="frame" data-id="${f.id}">${figure(f.b)}
+      <div style="flex:1;min-width:0"><div class="nm">${f.nm}<span class="tag ${t}">${tagTxt[t]}</span></div>
+      <div class="plan">${f.plan}<br><b>${dir} · ~${months(f.delta)} mo</b> from you now</div></div>
+      <div class="pick">✓</div></button>`;}).join('');
+  [...host.children].forEach(el=>el.onclick=()=>{st.frame=el.dataset.id;[...host.children].forEach(c=>c.classList.toggle('sel',c===el));gate();});
+}
+
+// PATH — dive-in-now hooks, personalised to the chosen frame
+function renderPath(){
+  const first=st.name.trim().split(' ')[0]||'champ';
+  document.getElementById('pt').innerHTML=`Let's go, <span class="hl">${first}</span>.`;
+  const f=FRAMES.find(x=>x.id===st.frame)||FRAMES[1];
+  const word=f.nm.toLowerCase();
+  document.getElementById('target').innerHTML=`${figure(f.b)}<div><div class="t">Target: ${word}</div><div class="d">${f.plan.replace(/<[^>]+>/g,'')}.</div></div>`;
+  const hooks=[
+    {ic:'📸',t:'Snap your next meal',d:'Full macro breakdown in 3 seconds — watch it work.'},
+    {ic:'🔮',t:`See your ${word} body in 12 weeks`,d:'Your predicted transformation, from today\'s numbers.'},
+    {ic:'💪',t:'Start your first workout',d:`5 lifts loaded to build your ${word} frame.`},
+  ];
+  document.getElementById('hooks').innerHTML=hooks.map(h=>`<div class="hook" onclick="enterHome()"><div class="ic">${h.ic}</div><div><div class="ht">${h.t}</div><div class="hd">${h.d}</div></div><div class="go">→</div></div>`).join('');
+  requestAnimationFrame(()=>S[i].classList.add('reveal'));
+}
+
+// enter the mock home (no dead-end)
+function enterHome(){
+  const first=st.name.trim().split(' ')[0]||'champ';
+  const f=FRAMES.find(x=>x.id===st.frame)||FRAMES[1];
+  document.getElementById('homeHi').textContent=`Let's move, ${first}.`;
+  document.getElementById('homeTarget').textContent=`Target: ${f.nm.toLowerCase()}`;
+  document.getElementById('home').classList.add('on');
+}
+show(0);
+</script>
+</body>
+</html>
