@@ -68,3 +68,48 @@ workflows:
     #   app_store_connect:
     #     auth: integration
     #     submit_to_testflight: true
+
+  # ── SIDELOAD: run the FULL app on an iPhone with a FREE Apple ID (no paid
+  #    account, no App Store) via SideStore/AltStore. Produces an UNSIGNED .ipa;
+  #    SideStore re-signs it on-device with the free Apple ID. Trade-off: a free
+  #    Apple ID cannot sign HealthKit + push, so those two are stripped here and
+  #    won't work — but the whole core loop (fridge→plan→cart→log, workouts,
+  #    physique, the UI) does. 7-day cert (SideStore auto-refreshes on-device).
+  #    ⚠️ UNVERIFIED from a non-Mac dev box — the standard recipe; confirm on first run.
+  sideload-ipa:
+    name: iOS — unsigned IPA for SideStore (free Apple ID)
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    environment:
+      flutter: 3.47.0
+    scripts:
+      - name: Get packages
+        working_directory: app
+        script: flutter pub get
+      - name: Strip paid-only entitlements (HealthKit + push) so a free Apple ID can sign
+        working_directory: app
+        script: |
+          ENT=ios/Runner/Runner.entitlements
+          if [ -f "$ENT" ]; then
+            /usr/libexec/PlistBuddy -c "Delete :com.apple.developer.healthkit" "$ENT" 2>/dev/null || true
+            /usr/libexec/PlistBuddy -c "Delete :com.apple.developer.healthkit.access" "$ENT" 2>/dev/null || true
+            /usr/libexec/PlistBuddy -c "Delete :aps-environment" "$ENT" 2>/dev/null || true
+          fi
+      - name: Build unsigned .app (client-safe public keys, same as the web build)
+        working_directory: app
+        script: |
+          flutter build ios --release --no-codesign \
+            --dart-define=SUPABASE_URL=https://eazwtlqieizvsqvbbknj.supabase.co \
+            --dart-define=SUPABASE_PUBLISHABLE_KEY=sb_publishable_zuKTonIi1rrL7R1KSxujhA_m1Wc1lQP \
+            --dart-define=POSTHOG_KEY=phc_nQubrCHs6xpBuoKSUTeexSY5PXjKE4QrZiAz7zzXHYSz \
+            --dart-define=POSTHOG_HOST=https://eu.i.posthog.com \
+            --dart-define=SENTRY_DSN=https://f775e4b18f079774e940eac1ef3c3467@o4511412046921728.ingest.de.sentry.io/4511412054196304
+      - name: Package UNSIGNED .ipa (Payload zip) for SideStore
+        working_directory: app
+        script: |
+          cd build/ios/iphoneos
+          mkdir -p Payload && cp -R Runner.app Payload/
+          zip -r ../../../HealthHub-sideload.ipa Payload >/dev/null
+          echo "built app/HealthHub-sideload.ipa"
+    artifacts:
+      - app/HealthHub-sideload.ipa
