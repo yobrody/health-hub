@@ -23,7 +23,10 @@ class HealthHubApp extends ConsumerWidget {
       title: 'Health Hub',
       theme: lightTheme,
       darkTheme: darkTheme,
-      themeMode: ThemeMode.system,
+      // Premium "Obsidian" dark is the brand direction (like Whoop/Oura) — force
+      // it rather than following the device, so the app always shows the intended
+      // look. (Trivially revertable to ThemeMode.system, or wire a toggle later.)
+      themeMode: ThemeMode.dark,
       home: const _AuthGate(),
     );
   }
