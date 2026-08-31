@@ -50,7 +50,7 @@ dependencies:
   url_launcher: ^6.3.2
   share_plus: ^13.3.0
   posthog_flutter: ^5.37.1
-  sentry_flutter: ^8.14.2
+  sentry_flutter: ^9.0.0
 
 dev_dependencies:
   flutter_test:
