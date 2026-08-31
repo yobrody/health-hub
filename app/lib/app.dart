@@ -8,6 +8,7 @@ import 'auth/auth_service.dart';
 import 'design_system/app_theme.dart';
 import 'nav/root_scaffold.dart';
 import 'onboarding/onboarding_flow.dart';
+import 'settings/theme_mode_controller.dart';
 
 /// Root application widget.
 class HealthHubApp extends ConsumerWidget {
@@ -23,7 +24,9 @@ class HealthHubApp extends ConsumerWidget {
       title: 'Health Hub',
       theme: lightTheme,
       darkTheme: darkTheme,
-      themeMode: ThemeMode.system,
+      // Light by default; the user can switch to the premium "Obsidian" dark
+      // theme in Settings → Appearance (persisted via themeModeProvider).
+      themeMode: ref.watch(themeModeProvider),
       home: const _AuthGate(),
     );
   }
