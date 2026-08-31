@@ -14,6 +14,7 @@ import '../onboarding/onboarding_flow.dart';
 import '../profile/profile_repo.dart';
 import 'goal_reset_controller.dart';
 import 'quiet_hours.dart';
+import 'theme_mode_controller.dart';
 
 /// The Settings hub — a scaffold of 8 sections, wired where cheap and stubbed
 /// (with a "coming soon" subtitle) for later phases.
@@ -330,6 +331,24 @@ class _SettingsPageState extends ConsumerState<SettingsPage> {
             StatCard(
               child: Column(
                 children: [
+                  _SettingsTile(
+                    tileKey: const Key('settings-dark-mode'),
+                    icon: Icons.dark_mode_outlined,
+                    title: 'Dark mode',
+                    subtitle: 'The premium Obsidian dark theme',
+                    trailing: Switch(
+                      value: ref.watch(themeModeProvider) == ThemeMode.dark,
+                      onChanged: (on) => ref
+                          .read(themeModeProvider.notifier)
+                          .set(on ? ThemeMode.dark : ThemeMode.light),
+                    ),
+                    onTap: () => ref.read(themeModeProvider.notifier).set(
+                          ref.read(themeModeProvider) == ThemeMode.dark
+                              ? ThemeMode.light
+                              : ThemeMode.dark,
+                        ),
+                  ),
+                  _tileDivider(colors),
                   _SettingsTile(
                     tileKey: const Key('settings-budget'),
                     icon: Icons.wallet_outlined,
