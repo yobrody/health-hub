@@ -1,0 +1,60 @@
+/* Shared styling for the hosted legal pages (privacy.html, terms.html).
+   Light "Creamsicle" palette + Fraunces/Inter to match the app. Self-contained. */
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600&family=Inter:wght@400;500;600;700&display=swap');
+
+:root {
+  --canvas: #FBF7F1; --surface: #FFFDFB; --primary: #D97A45; --primary-soft: #EDA774;
+  --ink: #2B2622; --ink2: #6B635B; --hairline: #EDE4D8; --leaf: #7C9A6D;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  background: var(--canvas); color: var(--ink);
+  font-family: 'Inter', -apple-system, system-ui, sans-serif;
+  line-height: 1.62; font-size: 17px;
+  -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 760px; margin: 0 auto; padding: 56px 24px 96px; }
+
+/* Header */
+header { border-bottom: 1px solid var(--hairline); padding-bottom: 28px; margin-bottom: 40px; }
+.brand { font-family: 'Fraunces', serif; font-weight: 600; font-size: 22px; letter-spacing: -.01em; }
+.brand .dot { color: var(--primary); }
+h1 { font-family: 'Fraunces', serif; font-weight: 600; font-size: 40px;
+     line-height: 1.1; letter-spacing: -.015em; margin: 20px 0 10px; }
+.updated { color: var(--ink2); font-size: 14px; }
+
+/* DRAFT banner — kept visible so this never reads as final until reviewed. */
+.draft {
+  background: rgba(217,122,69,.09); border: 1px solid rgba(217,122,69,.35);
+  border-radius: 14px; padding: 14px 18px; margin: 22px 0 8px;
+  font-size: 14.5px; color: #7a4a25;
+}
+.draft b { color: var(--primary); }
+
+/* Body */
+h2 { font-family: 'Fraunces', serif; font-weight: 600; font-size: 25px;
+     letter-spacing: -.01em; margin: 40px 0 12px; }
+p { margin: 0 0 14px; }
+ul { margin: 0 0 16px; padding-left: 22px; }
+li { margin: 0 0 9px; }
+strong, b { font-weight: 600; color: var(--ink); }
+a { color: var(--primary); text-decoration: none; border-bottom: 1px solid rgba(217,122,69,.4); }
+a:hover { border-bottom-color: var(--primary); }
+
+/* Unfilled placeholders — obviously "to complete", not real text. */
+.todo {
+  font-weight: 600; color: #8a6a2a; background: rgba(237,167,116,.22);
+  border: 1px dashed #cb9a5f; border-radius: 6px; padding: 1px 7px;
+  font-size: .92em; white-space: nowrap;
+}
+
+/* Callout for the "not medical advice" / important notes. */
+.callout {
+  background: var(--surface); border: 1px solid var(--hairline);
+  border-left: 4px solid var(--primary); border-radius: 12px;
+  padding: 16px 20px; margin: 18px 0;
+}
+.callout h2 { margin-top: 0; }
+
+footer { margin-top: 56px; padding-top: 24px; border-top: 1px solid var(--hairline);
+         color: var(--ink2); font-size: 14px; display: flex; gap: 18px; flex-wrap: wrap; }
