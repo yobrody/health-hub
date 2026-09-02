@@ -36,11 +36,12 @@ licence to process it **solely to provide the app** (see the Privacy Policy). Do
 upload anything unlawful or that infringes others' rights.
 
 ## 6. Subscriptions & payments _(when paid features launch)_
-Some features (e.g. **automatic grocery reordering**) may require a paid subscription.
+Some features (e.g. **autopilot grocery reordering up to one-tap checkout**) may require a paid subscription.
 If offered: pricing is shown before purchase; subscriptions **auto-renew** until
 cancelled; **manage or cancel via your App Store / Google Play account**; billing and
 refunds are handled by the app store under its terms. We'll never charge you for a
-feature that isn't actually available.
+feature that isn't actually available, and we never place or pay for an order
+without your explicit tap.
 
 ## 7. Acceptable use
 Don't misuse the app: no reverse-engineering except as law allows, no attempts to

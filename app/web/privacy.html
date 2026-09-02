@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Privacy Policy — Health Hub</title>
+  <meta name="robots" content="noindex">
+  <link rel="icon" type="image/png" href="favicon.png"/>
+  <link rel="stylesheet" href="legal.css">
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="brand">Health<span class="dot">·</span>Hub</div>
+    <h1>Privacy Policy</h1>
+    <div class="updated">Last updated: 31 August 2026</div>
+  </header>
+
+  <div class="draft">
+    <b>DRAFT.</b> Accurate to how the app handles data today, but pending a solicitor's
+    review before launch. Items shown like <span class="todo">[to complete]</span> still
+    need the operator's legal details filled in.
+  </div>
+
+  <p><span class="todo">[Health Hub / your legal name or company]</span> (&ldquo;we&rdquo;,
+  &ldquo;us&rdquo;) operates the Health Hub app. This policy explains what we collect, why,
+  who it&rsquo;s shared with, and your rights. We take a <strong>privacy-first,
+  honesty-first</strong> stance: we never sell your data, and our analytics/error tools are
+  configured to carry <strong>no personal or health values</strong>.</p>
+
+  <h2>Who&rsquo;s responsible (Data Controller)</h2>
+  <p><span class="todo">[Your legal name / company]</span>,
+  <span class="todo">[address]</span>, <span class="todo">[contact email]</span>. For UK/EU
+  users this is the data controller under UK GDPR / EU GDPR.</p>
+
+  <h2>What we collect</h2>
+  <ul>
+    <li><strong>Account:</strong> your email address and an authentication record (password
+    is stored only as a salted hash by our auth provider &mdash; we never see it).</li>
+    <li><strong>Profile you enter:</strong> first name, and optionally age, sex, height,
+    weight, body measurements, activity level, and your goals.</li>
+    <li><strong>Health &amp; fitness data you log:</strong> weigh-ins, workouts and sets,
+    food/nutrition logs, pantry items, and grocery lists. <strong>This is &ldquo;special
+    category&rdquo; health data under GDPR</strong> and is processed only with your explicit
+    consent (see Legal basis).</li>
+    <li><strong>Photos you take</strong> (e.g. of food or your fridge): the image is
+    <strong>sent to our AI provider to recognise the contents</strong>, and the recognised
+    result (text/macros) is what we store &mdash; <strong>we do not store the photo
+    itself</strong> in our database. <em>(A future version will process photos entirely
+    in-memory and delete them immediately; until that ships, this describes the real
+    behaviour.)</em></li>
+    <li><strong>Usage analytics:</strong> product-usage events via <strong>PostHog</strong>
+    (EU region), configured to capture <strong>counts and feature usage only &mdash; never
+    your name, email, food, weight, or any health value.</strong></li>
+    <li><strong>Error diagnostics:</strong> crash/error reports via <strong>Sentry</strong>,
+    configured to send the <strong>error type and stack only &mdash; no PII, no health
+    values, and performance tracing off.</strong></li>
+  </ul>
+
+  <h2>Legal basis (UK/EU GDPR)</h2>
+  <ul>
+    <li><strong>Contract</strong> &mdash; to provide the app you asked for (account,
+    planning, tracking).</li>
+    <li><strong>Explicit consent</strong> &mdash; for your <strong>health/fitness
+    special-category data</strong>; you can withdraw at any time by deleting the data or your
+    account.</li>
+    <li><strong>Legitimate interests</strong> &mdash; minimal, privacy-preserving analytics +
+    error monitoring to keep the app working (balanced against your rights; no profiling that
+    affects you).</li>
+  </ul>
+
+  <h2>Who we share it with (processors &mdash; not sold, ever)</h2>
+  <ul>
+    <li><strong>Supabase</strong> &mdash; database + authentication, hosted in the
+    <strong>EU (Frankfurt)</strong>. Your rows are isolated per-user by row-level
+    security.</li>
+    <li><strong>Google (via OpenRouter)</strong> &mdash; AI processing: the <strong>text and
+    any photos</strong> needed for meal planning / food recognition are sent to generate your
+    result. Not used to train models on your identity; not stored by us beyond the returned
+    result.</li>
+    <li><strong>PostHog (EU)</strong> &mdash; PII-free product analytics.
+    <strong>Sentry</strong> &mdash; PII-free error reports.</li>
+    <li><strong>Instacart / grocery partners</strong> &mdash; <em>only if/when you use grocery
+    reordering</em> (not yet live); we&rsquo;d share the shopping list needed to build your
+    cart.</li>
+    <li><strong>Legal</strong> &mdash; if required by law.</li>
+  </ul>
+  <p>We do <strong>not</strong> sell your data or use it for third-party advertising.</p>
+
+  <h2>Where your data lives + how long</h2>
+  <p>Stored in the EU (Supabase, Frankfurt). We keep it while your account is active.
+  <strong>Delete your account in the app (Settings &rarr; Delete account)</strong> and we
+  permanently erase all your data from our systems (verified &mdash; it removes every table +
+  the auth record). You can also delete individual entries anytime.</p>
+
+  <h2>Your rights</h2>
+  <p>Access, rectification, <strong>erasure</strong> (in-app Delete Account), restriction,
+  portability, and to withdraw consent or object. To exercise any, use the in-app controls or
+  email <span class="todo">[contact email]</span>. You may also complain to the UK
+  <strong>ICO</strong> (or your local authority).</p>
+
+  <h2>Security</h2>
+  <p>Encryption in transit and at rest, per-user row-level security (a user can only ever
+  access their own rows), secrets kept server-side, and dependency + code security scanning in
+  our pipeline.</p>
+
+  <h2>Children</h2>
+  <p>Health Hub is <strong>not for under-16s</strong> (or the minimum digital-consent age in
+  your country). We don&rsquo;t knowingly collect data from children.</p>
+
+  <h2>Changes</h2>
+  <p>We&rsquo;ll update this page and change the &ldquo;Last updated&rdquo; date; material
+  changes will be notified in-app.</p>
+
+  <h2>Contact</h2>
+  <p><span class="todo">[contact email]</span> &middot;
+  <span class="todo">[Your legal name / company]</span>,
+  <span class="todo">[address]</span>.</p>
+
+  <footer>
+    <a href="terms.html">Terms of Service</a>
+    <a href="/">&larr; Back to Health Hub</a>
+  </footer>
+</div>
+</body>
+</html>
