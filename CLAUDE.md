@@ -1,6 +1,47 @@
 # CLAUDE.md — Health Hub (handoff / current state)
 
-> **▶ RESUME HERE (as of 2026-08-18, tip `11e5e5e`, all pushed + deployed):** The app is fully caught up — everything green (402 frontend + 31 backend tests, tsc/eslint/build clean), frontend/Functions auto-deployed via CF, backend redeployed on lucky-vps + verified. **The whole "Still worth doing" backlog is done and there are no open bugs.** Only two things are left, both optional and requiring Brody (see **Open / pending** at the bottom): (1) prove a push notification actually lands on a real device, and (2) — done, `SCAN_SAMPLES_TOKEN` is set + live. The one durable gotcha: the vault's Cloudflare "Pages-Edit" API token is **expired**, so CF env vars must be set via the dashboard until it's refreshed — helper to refresh it: `python C:\Users\brody\.tools\update-cf-pages-token.py <new-token>`. To drive the whole app end-to-end locally, run `scripts/optimal_day.py` against an isolated instance (see the E2E note below).
+> **▶ RESUME HERE (2026-09-03).** The app is a **native Flutter (iOS-first) app in `app/`**,
+> backed by **Supabase** (Postgres + RLS + Auth + Deno edge functions in `supabase/`).
+> The React/Vite PWA + single-user FastAPI notes further down this file are the **RETIRED**
+> old app — kept as history only; do not treat them as current. For the live Flutter build
+> history read the memory `project-health-hub-flutter-rewrite.md`; read **AGENTS.md** for
+> conventions (esp. **SURVEY BEFORE YOU BUILD** + the design-system-is-the-source-of-truth rule).
+>
+> **Live web build:** https://yobrody.github.io/health-hub/ (GitHub Pages, auto-deploys on
+> push to `main`). **iOS:** unsigned sideload IPA builds on Codemagic (`sideload-ipa` workflow) →
+> SideStore; App Store submission waits on Apple enrolment.
+>
+> **This session (2026-09-03) — the "honest monetization + launch-legal" pass:**
+> - **★ Key finding: "fully automatic reordering" is INFEASIBLE for us** (Instacart's public
+>   IDP API only builds a *pre-filled cart the user checks out* — it never places an order).
+>   So the £5 paywall pitch is reframed to **"autopilot up to one-tap checkout."** Full reality
+>   check + build scope: `docs/plans/2026-08-31-auto-reorder-and-paywall-reality.md`. **There is
+>   NO paywall/IAP code yet** — that build (Instacart IDP deploy → auto-loop trigger →
+>   RevenueCat/StoreKit subscription) is sequenced AFTER dogfooding validates the loop + WTP.
+> - **Overclaim copy reframed everywhere facing** (live-site meta/OG + PWA manifest + investor
+>   deck + pitch/strategy docs) → *"plans your meals, fills your cart from the gaps, and reorders
+>   in one tap."* → **PR #72** (branch `docs/auto-reorder-paywall-reality`, open).
+> - **Legal launch docs**: privacy policy + terms drafted (accurate to real data handling, with
+>   `[BRACKETED]` operator details + "not medical advice") AND **hosted as real pages**
+>   (`app/web/privacy.html`, `app/web/terms.html`, `app/web/legal.css` → live at
+>   `/privacy.html` + `/terms.html` on merge) → **PR #71** (branch `docs/legal-privacy-terms`, open).
+> - Earlier this arc (merged): **#70** light-by-default theme + persisted Dark-mode toggle in
+>   Settings; **#69** sentry_flutter 8→9.28 (fixed iOS Xcode build); **#67** sideload-IPA workflow
+>   + Apple-escalation doc; **#65** account-deletion edge fn.
+>
+> **THE GATE (unchanged): dogfood the core loop** (fridge→plan→cart-gaps→log→reorder) on a real
+> phone before building commerce/billing. Everything below is engine-honest and green; the
+> highest-leverage move is real usage + ~50 users' D-7/D-28 retention, not more features.
+>
+> **Waiting on Brody (I can't do these):** (1) grab the Codemagic IPA → SideStore → **use the
+> app**; (2) fill the legal `[BRACKETED]` items (legal name/entity, address, contact email) +
+> solicitor review → then PR #71 merges and the pages publish; (3) send the Apple escalation.
+> **Small follow-on when #71 merges:** add in-app Settings links to /privacy.html + /terms.html
+> and drop the privacy URL into App Store Connect metadata.
+
+---
+
+_Below this line is the RETIRED React/PWA handoff (historical — the app is Flutter now)._
 
 Read **AGENTS.md** first for repo conventions, where the code lives, deploy targets, and the vault/secret rules. This file is the live handoff: where things stand and what's next. Fuller detail (decisions, per-commit notes) is in the claude.ai Project docs `claude/health-hub-status-and-backlog.md` and `claude/health-hub-feedback-2026-08-04b.md` — the key bits are duplicated below in case those aren't loaded here.
 
