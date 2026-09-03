@@ -7,7 +7,8 @@ strategy that maximizes Health Hub's odds — and, per Brody, drives the brandin
 Health Hub = "an AI that runs your food life": snap fridge → AI plans the week to
 your goals → fills a grocery cart with only the gaps → orders → deducts pantry as
 you eat → reorders. Wedge = goal-driven eaters (muscle/fat-loss/health flag).
-Spine = honesty. Planned paywall = ~£5/mo unlocks automatic reordering.
+Spine = honesty. Planned paywall = ~£5/mo unlocks autopilot up to one-tap reordering
+(NOT hands-off ordering — see docs/plans/2026-08-31-auto-reorder-and-paywall-reality.md).
 
 > Coverage: the 7 highest-signal analogs (AI-photo-nutrition, behavior-change,
 > habit design, trust-brand, PMF method, meal-plan→cart, pricing landscape).
@@ -175,7 +176,7 @@ real cohort — you're likely underpriced for "runs your food life." Sources:
    add a consistency/streak mechanic, and make the **pantry-deduct + food-waste
    savings** a *felt* weekly payoff. Target the 67%-retention AI-personalization bar.
 3. **Monetization = honest freemium.** Free: scan + plan + gap-list (aha + trust).
-   Paid (£5/mo, + annual, + trial): **automatic reordering.** Never a dark pattern
+   Paid (£5/mo, + annual, + trial): **autopilot up to one-tap reordering.** Never a dark pattern
    (Apple punishes it; it breaks our moat).
 4. **Growth = organic-first ladder (Cal AI) powered by trust (Yuka).** Short-form
    organic → native fitness/nutrition creator network → paid only post-PMF. Fuel it

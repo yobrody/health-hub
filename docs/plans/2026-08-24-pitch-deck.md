@@ -12,7 +12,7 @@ before sending — do NOT ship guesses.
 
 ## Slide 1 — Title
 **Health Hub**
-*Your AI nutritionist that plans, shops, and restocks your food — automatically.*
+*Your AI nutritionist that plans your meals, fills your cart from the gaps, and reorders in one tap.*
 [logo] · [founder name] · [email] · [date]
 > Speaker note: say the one-liner out loud; it should land in 5 seconds.
 

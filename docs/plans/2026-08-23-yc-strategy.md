@@ -1,7 +1,7 @@
 # Health Hub — YC strategy & narrative (2026-08-23, v2 research-backed)
 
 **One-liner (the 10-second test):**
-> *Your AI nutritionist that plans, shops, and restocks your food — automatically.*
+> *Your AI nutritionist that plans your meals, fills your cart from the gaps, and reorders in one tap.*
 
 Mechanism, in one breath: *snap your fridge → AI plans your week to your real
 goals → auto-fills your grocery cart with only the gaps → one tap to order →
@@ -149,7 +149,7 @@ pour the rest into distribution + measurement.
 ## Drafted YC application answers (v1 — refine from real usage before submitting)
 
 **What are you making?**
-Your AI nutritionist that plans, shops, and restocks your food automatically.
+Your AI nutritionist that plans your meals, fills your cart from the gaps, and reorders in one tap.
 Snap your fridge; it plans your week to your real goals, fills your grocery cart
 with only what you're missing, orders in a tap, deducts your pantry as you eat,
 and reorders before you run out.

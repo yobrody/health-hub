@@ -9,7 +9,7 @@ real — grounded in the YC research (`2026-08-23-yc-strategy.md`). Three bucket
 
 ### Product & insight
 - ✅ What do you make? (one-liner) — *"Your AI nutritionist that plans, shops,
-  and restocks your food — automatically."*
+  and reorders in one tap."*
 - ✅ What's the mechanism? — snap → plan → cart → order → deduct → reorder.
 - ✅ What do you understand that others don't? — the **loop**: plans fail on
   plan↔kitchen friction, not willpower; close plan→buy→eat→deduct→re-plan.
