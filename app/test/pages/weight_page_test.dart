@@ -22,6 +22,7 @@ import 'package:health_hub/nutrition/nutrition_repo.dart';
 import 'package:health_hub/offline/outbox.dart';
 import 'package:health_hub/offline/outbox_store.dart';
 import 'package:health_hub/offline/pending_mutation.dart';
+import 'package:health_hub/nutrition/plan/meal_plan_repo.dart';
 import 'package:health_hub/pages/today_page.dart';
 import 'package:health_hub/pages/weight_page.dart';
 import 'package:health_hub/pantry/pantry_item.dart';
@@ -86,6 +87,16 @@ class _FakePantryStore implements PantryStore {
 }
 
 // ── Builders ─────────────────────────────────────────────────────────────────
+
+class _FakeMealPlanStore implements MealPlanStore {
+  Map<String, dynamic>? _saved;
+  @override
+  Future<Map<String, dynamic>?> load() async => _saved;
+  @override
+  Future<void> save(Map<String, dynamic> json) async => _saved = json;
+  @override
+  Future<void> clear() async => _saved = null;
+}
 
 Outbox _outbox() => Outbox(_FakeOutboxStore());
 
@@ -288,6 +299,10 @@ void main() {
                 outbox: _outbox(),
                 store: _FakePantryStore(),
               ),
+              mealPlanRepo: MealPlanRepo(
+                outbox: _outbox(),
+                store: _FakeMealPlanStore(),
+              ),
             ),
           ),
         ),
@@ -302,6 +317,9 @@ void main() {
       );
       final card = find.byKey(const Key('today-weight-card'));
       expect(card, findsOneWidget);
+      // Fully reveal it before tapping (dragUntilVisible can stop at the edge).
+      await tester.ensureVisible(card);
+      await tester.pumpAndSettle();
       await tester.tap(card);
       await tester.pumpAndSettle();
 

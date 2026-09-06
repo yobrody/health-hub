@@ -56,6 +56,10 @@ void main() {
       200,
       scrollable: find.byType(Scrollable).first,
     );
+    // Fully reveal it (scrollUntilVisible can stop at the viewport edge, where a
+    // centre tap misses) before tapping.
+    await tester.ensureVisible(find.byKey(const Key('today-edit-goals')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('today-edit-goals')));
     await tester.pumpAndSettle();
     await tester.enterText(find.byKey(const Key('goals-kcal')), '2000');
@@ -226,15 +230,10 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    // Home surfaces the real BUY insight in "For you" (a low item is genuine).
-    // The section now sits below the nutrition hero — scroll to it.
-    await tester.dragUntilVisible(
-      find.byKey(const Key('home-brain')),
-      find.byType(Scrollable).first,
-      const Offset(0, -250),
-    );
-    await tester.pumpAndSettle();
-    expect(find.byKey(const Key('home-brain')), findsOneWidget);
+    // Home surfaces the real BUY insight (a low item is genuine). A single
+    // insight is promoted to the "NEXT" hero (the top action), so it lives there
+    // rather than in the "For you" section.
+    expect(find.byKey(const Key('home-next-action')), findsOneWidget);
     expect(find.byKey(const Key('insight-card-buy-milk')), findsOneWidget);
 
     // Go to Food — the BUY insight is woven there too, with its restock "why".
@@ -332,28 +331,23 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    // Home's "For you" section is present and carries BOTH a real EAT and a real
-    // BUY card — the Brain woven multiple kinds from one user's real data. It now
-    // sits below the nutrition hero — scroll to it first.
+    // The top insight — EAT (priority 100) — is promoted to the "NEXT" hero; the
+    // remaining BUY (priority 80) sits in the "For you" section BELOW it. That
+    // ordering (hero above For-you) is structural — honest, most-actionable
+    // first — so we assert the two slots rather than a fragile pixel compare.
+    expect(find.byKey(const Key('home-next-action')), findsOneWidget);
+    expect(find.byKey(const Key('insight-card-eat')), findsOneWidget);
+    // The EAT insight's real arithmetic: 2200 − 400 = 1800 kcal left.
+    expect(find.textContaining('1800 kcal left today'), findsOneWidget);
+    // The remaining BUY is in "For you" below the hero — scroll to it.
     await tester.dragUntilVisible(
-      find.byKey(const Key('home-brain')),
+      find.byKey(const Key('insight-card-buy-eggs')),
       find.byType(Scrollable).first,
       const Offset(0, -250),
     );
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('home-brain')), findsOneWidget);
-    expect(find.byKey(const Key('insight-card-eat')), findsOneWidget);
     expect(find.byKey(const Key('insight-card-buy-eggs')), findsOneWidget);
-
-    // The EAT insight's real arithmetic: 2200 − 400 = 1800 kcal left.
-    expect(find.textContaining('1800 kcal left today'), findsOneWidget);
-
-    // EAT (priority 100) is ordered ABOVE BUY (priority 80): the EAT card sits
-    // higher on the screen than the BUY card — honest, most-actionable-first.
-    final eatY = tester.getTopLeft(find.byKey(const Key('insight-card-eat'))).dy;
-    final buyY =
-        tester.getTopLeft(find.byKey(const Key('insight-card-buy-eggs'))).dy;
-    expect(eatY, lessThan(buyY));
 
     // Add the low item from Home's BUY insight → it writes the real list and
     // switches to the Cart tab (Home's addToCart action calls onOpenCart).

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:health_hub/app.dart';
 import 'package:health_hub/app_providers.dart';
+import 'package:health_hub/nutrition/plan/meal_plan_repo.dart';
 import 'package:health_hub/auth/auth_service.dart';
 import 'package:health_hub/auth/fake_auth_service.dart';
 import 'package:health_hub/api/probe_status.dart';
@@ -116,6 +117,16 @@ class _FakeGroceryStore implements GroceryListStore {
   Future<void> save(List<GroceryItem> items) async => _items = List.of(items);
 }
 
+class _FakeMealPlanStore implements MealPlanStore {
+  Map<String, dynamic>? _saved;
+  @override
+  Future<Map<String, dynamic>?> load() async => _saved;
+  @override
+  Future<void> save(Map<String, dynamic> json) async => _saved = json;
+  @override
+  Future<void> clear() async => _saved = null;
+}
+
 // A signed-in user so the auth gate resolves past the auth screen.
 const _signedIn =
     AuthUser(id: 'u1', email: 'brody@example.com', emailConfirmed: true);
@@ -144,6 +155,11 @@ void main() {
           ),
           groceryListRepoProvider.overrideWithValue(
             GroceryListRepo(outbox: Outbox(_FakeOutboxStore()), store: _FakeGroceryStore()),
+          ),
+          // In-memory meal-plan store so Home's loop strip loads without
+          // SharedPreferences (else TodayPage stays blank in the test).
+          mealPlanRepoProvider.overrideWithValue(
+            MealPlanRepo(outbox: Outbox(_FakeOutboxStore()), store: _FakeMealPlanStore()),
           ),
         ],
         child: const HealthHubApp(),

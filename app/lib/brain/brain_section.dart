@@ -27,6 +27,7 @@ class BrainSection extends ConsumerWidget {
     required this.onAction,
     this.sectionKey,
     this.trailingGap = false,
+    this.skipFirst = false,
   });
 
   /// Which screen's slice to show (drives the kind filter).
@@ -48,9 +49,17 @@ class BrainSection extends ConsumerWidget {
   /// stray gap for an omitted section.
   final bool trailingGap;
 
+  /// When true, DROPS the top insight from this section — used on Home, where
+  /// the single most-relevant insight is promoted to the "NEXT" hero card and
+  /// this section carries only the REMAINING ones (so the hero isn't duplicated
+  /// here). The whole section collapses to nothing when skipping leaves it
+  /// empty — the same honest "show nothing we can't ground" rule.
+  final bool skipFirst;
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final insights = insightsForScreen(ref, screen);
+    final all = insightsForScreen(ref, screen);
+    final insights = skipFirst && all.isNotEmpty ? all.sublist(1) : all;
     if (insights.isEmpty) return const SizedBox.shrink();
 
     return Column(
