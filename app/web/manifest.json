@@ -5,7 +5,7 @@
     "display": "standalone",
     "background_color": "#FBF7F1",
     "theme_color": "#FBF7F1",
-    "description": "Your AI nutritionist that plans, shops, and restocks your food — automatically.",
+    "description": "Your AI nutritionist that plans your meals, fills your grocery cart from the gaps, and reorders in one tap.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [
