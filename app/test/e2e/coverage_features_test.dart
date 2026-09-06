@@ -22,7 +22,6 @@ import 'package:health_hub/auth/auth_service.dart';
 import 'package:health_hub/auth/fake_auth_service.dart';
 import 'package:health_hub/app_providers.dart';
 import 'package:health_hub/cart/location_service.dart';
-import 'package:health_hub/cart/instacart_client.dart';
 import 'package:health_hub/nutrition/food_log_entry.dart';
 import 'package:health_hub/nutrition/packaged_food_model.dart';
 import 'package:health_hub/pantry/pantry_item.dart';
@@ -700,7 +699,7 @@ void main() {
   });
 
   // ══════════════════════════════════════════════════════════════════════════
-  // CART — notepad / hand-off (Amazon/Instacart) / delivery / restock
+  // CART — notepad / hand-off (UK grocers) / delivery / restock
   // ══════════════════════════════════════════════════════════════════════════
   group('Cart', () {
     Future<void> openCart(WidgetTester tester) async {
@@ -747,14 +746,13 @@ void main() {
     });
 
     // The nav shell constructs CartPage without seam overrides, so the hand-off
-    // seams (launcher / Instacart / location) are driven by building CartPage
-    // directly with those injected params — the grocery repo is the harness's
-    // SHARED one, so the list is real and the interconnection holds.
+    // seams (launcher / location) are driven by building CartPage directly with
+    // those injected params — the grocery repo is the harness's SHARED one, so
+    // the list is real and the interconnection holds.
     Widget cartWith(
       WidgetTester tester,
       JourneyHarness h, {
       required FakeLinkLauncher launcher,
-      InstacartClient? instacart,
       LocationService? location,
     }) {
       // A tall surface so the Cart's long hand-off section fits without fighting
@@ -769,14 +767,13 @@ void main() {
           home: CartPage(
             repo: h.groceryRepo,
             linkLauncher: launcher,
-            instacartClient: instacart,
             locationService: location,
           ),
         ),
       );
     }
 
-    testWidgets('Amazon hand-off launches a search URL (fake launcher)',
+    testWidgets('Tesco grocer hand-off launches a search URL (fake launcher)',
         (tester) async {
       final h = JourneyHarness();
       await h.groceryRepo.add('Eggs');
@@ -785,66 +782,39 @@ void main() {
       await tester.pumpAndSettle();
 
       await tester.scrollUntilVisible(
-        find.byKey(const Key('cart-amazon')),
+        find.byKey(const Key('cart-grocer-tesco')),
         200,
         scrollable: find.byType(Scrollable).first,
       );
-      await tester.tap(find.byKey(const Key('cart-amazon')));
+      await tester.tap(find.byKey(const Key('cart-grocer-tesco')));
       await tester.pumpAndSettle();
 
       expect(launcher.launched, hasLength(1));
-      final url = launcher.launched.single.toString().toLowerCase();
-      expect(url, contains('amazon'));
+      final uri = launcher.launched.single;
+      expect(uri.host, 'www.tesco.com');
+      expect(uri.queryParameters['query'], 'Eggs');
     });
 
-    testWidgets(
-        'Instacart hand-off: pre-filled list URL preferred (fake client)',
+    testWidgets('grocer hand-off with an empty list opens the store home',
         (tester) async {
       final h = JourneyHarness();
-      await h.groceryRepo.add('Milk');
       final launcher = FakeLinkLauncher();
-      final instacart =
-          FakeInstacartClient(result: Uri.parse('https://instacart.test/list'));
-
-      await tester.pumpWidget(
-          cartWith(tester, h, launcher: launcher, instacart: instacart));
+      await tester.pumpWidget(cartWith(tester, h, launcher: launcher));
       await tester.pumpAndSettle();
 
       await tester.scrollUntilVisible(
-        find.byKey(const Key('cart-instacart')),
+        find.byKey(const Key('cart-grocer-ocado')),
         200,
         scrollable: find.byType(Scrollable).first,
       );
-      await tester.tap(find.byKey(const Key('cart-instacart')));
+      await tester.tap(find.byKey(const Key('cart-grocer-ocado')));
       await tester.pumpAndSettle();
 
-      // The pre-filled list URL was launched (not the search fallback).
-      expect(launcher.launched.single, Uri.parse('https://instacart.test/list'));
-      expect(instacart.lastItemNames, ['Milk']);
-    });
-
-    testWidgets('Instacart falls back to search when the edge fn returns null',
-        (tester) async {
-      final h = JourneyHarness();
-      await h.groceryRepo.add('Milk');
-      final launcher = FakeLinkLauncher();
-      final instacart = FakeInstacartClient(result: null); // failure → fallback
-
-      await tester.pumpWidget(
-          cartWith(tester, h, launcher: launcher, instacart: instacart));
-      await tester.pumpAndSettle();
-      await tester.scrollUntilVisible(
-        find.byKey(const Key('cart-instacart')),
-        200,
-        scrollable: find.byType(Scrollable).first,
-      );
-      await tester.tap(find.byKey(const Key('cart-instacart')));
-      await tester.pumpAndSettle();
-
-      // A URL WAS launched (the search fallback) — the button is never a dead end.
+      // A URL WAS launched (store home) — never a dead end.
       expect(launcher.launched, hasLength(1));
-      expect(launcher.launched.single.toString().toLowerCase(),
-          contains('instacart'));
+      final uri = launcher.launched.single;
+      expect(uri.host, 'www.ocado.com');
+      expect(uri.queryParameters['entry'], isNull); // no search on empty list
     });
 
     testWidgets('delivery near-me: denied permission still lists services',
@@ -872,7 +842,7 @@ void main() {
       // Honest note + the full service list (never claims to verify delivery).
       expect(find.byKey(const Key('cart-delivery-denied-note')), findsOneWidget);
       expect(
-          find.byKey(const Key('cart-delivery-amazon-fresh')), findsOneWidget);
+          find.byKey(const Key('cart-delivery-amazon-fresh-uk')), findsOneWidget);
     });
   });
 
