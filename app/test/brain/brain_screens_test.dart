@@ -157,14 +157,15 @@ void main() {
     ));
     await tester.pumpAndSettle();
 
-    // The For-you section now sits below the nutrition hero — scroll to it.
+    // No profile/plan/food here → the hero is the "start your loop" invitation,
+    // so the real BUY insight surfaces in the "For you" section (skipFirst is off
+    // on a brand-new device). It sits below the loop strip — scroll to it.
     await tester.dragUntilVisible(
       find.byKey(const Key('home-brain')),
       find.byType(Scrollable).first,
       const Offset(0, -250),
     );
     await tester.pumpAndSettle();
-
     expect(find.byKey(const Key('home-brain')), findsOneWidget);
     expect(find.byKey(const Key('insight-card-buy-butter')), findsOneWidget);
   });

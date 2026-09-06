@@ -17,6 +17,7 @@ import 'package:health_hub/metrics/weigh_in_repo.dart';
 import 'package:health_hub/nutrition/food_log_entry.dart';
 import 'package:health_hub/nutrition/nutrition_goals_repo.dart';
 import 'package:health_hub/nutrition/nutrition_repo.dart';
+import 'package:health_hub/nutrition/plan/meal_plan_repo.dart';
 import 'package:health_hub/offline/outbox.dart';
 import 'package:health_hub/offline/outbox_store.dart';
 import 'package:health_hub/offline/pending_mutation.dart';
@@ -114,6 +115,17 @@ class _PurchaseHistory implements PurchaseHistoryStore {
 
 /// The full set of overrides the Brain needs, seeded with the given real data.
 /// Pass a shared [grocery] repo when a test needs to inspect what was written.
+/// In-memory meal-plan store — no plan by default (the honest empty state).
+class _MealPlan implements MealPlanStore {
+  Map<String, dynamic>? _saved;
+  @override
+  Future<Map<String, dynamic>?> load() async => _saved;
+  @override
+  Future<void> save(Map<String, dynamic> json) async => _saved = json;
+  @override
+  Future<void> clear() async => _saved = null;
+}
+
 List<Override> brainOverrides({
   Map<String, dynamic>? goals,
   List<FoodLogEntry>? food,
@@ -148,6 +160,11 @@ List<Override> brainOverrides({
       ),
       groceryListRepoProvider.overrideWithValue(
         grocery ?? GroceryListRepo(outbox: Outbox(_Outbox()), store: _Grocery()),
+      ),
+      // In-memory meal-plan store (null = no plan) so TodayPage's loop strip
+      // loads without touching SharedPreferences (else Home stays blank).
+      mealPlanRepoProvider.overrideWithValue(
+        MealPlanRepo(outbox: Outbox(_Outbox()), store: _MealPlan()),
       ),
       // In-memory purchase-history store so the honest reorder-cadence learner
       // (acquisitionServiceProvider, which reads the SAME overridden pantry repo

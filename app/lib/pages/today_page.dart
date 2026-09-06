@@ -6,6 +6,7 @@ import '../brain/brain_providers.dart';
 import '../brain/brain_section.dart';
 import '../brain/insight.dart';
 import '../design_system/colors.dart';
+import '../design_system/components/insight_card.dart';
 import '../design_system/components/progress_ring.dart';
 import '../design_system/components/section_header.dart';
 import '../design_system/components/stat_card.dart';
@@ -18,6 +19,9 @@ import '../nutrition/food_log_entry.dart';
 import '../nutrition/nutrition_goals.dart';
 import '../nutrition/nutrition_goals_repo.dart';
 import '../nutrition/nutrition_repo.dart';
+import '../nutrition/plan/meal_plan.dart';
+import '../nutrition/plan/meal_plan_client.dart';
+import '../nutrition/plan/meal_plan_repo.dart';
 import '../onboarding/onboarding_flow.dart';
 import '../pantry/pantry_glance.dart';
 import '../pantry/pantry_item.dart';
@@ -28,15 +32,18 @@ import '../settings/settings_page.dart';
 import '../widgets/log_weight_sheet.dart';
 import '../widgets/nutrition_goals_editor.dart';
 import 'nutrition_page.dart';
+import 'plan_page.dart';
 import 'weight_page.dart';
 
 /// The daily dashboard — the flagship luxury home screen.
 ///
-/// It answers "how am I / what's next" in one calm glance: a warm greeting, a
-/// settings button (top-LEFT), a prominent "Log a meal" action, a weight card
-/// (current + goal), a nutrition-rings card (today's real intake), and — in
-/// place of the old training card — a **"Restock soon"** card. Depth is one tap
-/// away.
+/// It leads with the **food loop** — the app's moat — made visible: a greeting,
+/// a **loop strip** (Plan → Cart → Restock, live real counts), then a
+/// goal-adaptive hero (the "start your loop" invitation on a fresh device, or
+/// the single most-relevant NEXT action once there's real guidance), the
+/// camera-first "Log a meal" action, the "For you" insights, and — DEMOTED to a
+/// secondary glance below — today's calorie ring + macro rings, the weight card,
+/// and a conditional "Restock soon" card. Depth is one tap away.
 ///
 /// **Honesty is the spine.** Every value comes from REAL data:
 ///  * weight/goal from the [Profile] ([profileRepoProvider]);
@@ -61,9 +68,11 @@ class TodayPage extends ConsumerStatefulWidget {
     this.goalsRepo,
     this.weighInRepo,
     this.pantryRepo,
+    this.mealPlanRepo,
     this.onOpenPantry,
     this.onOpenGym,
     this.onOpenCart,
+    this.onOpenPlan,
   });
 
   final ProfileRepo? repo;
@@ -71,6 +80,7 @@ class TodayPage extends ConsumerStatefulWidget {
   final NutritionGoalsRepo? goalsRepo;
   final WeighInRepo? weighInRepo;
   final PantryRepo? pantryRepo;
+  final MealPlanRepo? mealPlanRepo;
 
   /// Called when the pantry-glance card is tapped — opens the Fridge & Pantry
   /// (Food) page. Wired by the root shell to switch to the Food tab. When null
@@ -84,6 +94,13 @@ class TodayPage extends ConsumerStatefulWidget {
   /// Switch to the Cart tab (wired by the root shell). Used by a Brain BUY
   /// insight's "Add to list" action (after the item is added). Null → no-op.
   final VoidCallback? onOpenCart;
+
+  /// Open the "Plan my week" screen — the loop strip's Plan cell taps here.
+  /// When null (isolated widget tests) the page defaults to its internal
+  /// [_TodayPageState._openPlan], which pushes [PlanPage] wired from the
+  /// composition-root providers. Tests that want to assert routing WITHOUT the
+  /// Supabase-backed plan client inject a fake callback here.
+  final VoidCallback? onOpenPlan;
 
   @override
   ConsumerState<TodayPage> createState() => _TodayPageState();
@@ -99,12 +116,21 @@ class _TodayPageState extends ConsumerState<TodayPage> {
       widget.weighInRepo ?? ref.read(weighInRepoProvider);
   late final PantryRepo _pantry =
       widget.pantryRepo ?? ref.read(pantryRepoProvider);
+  late final MealPlanRepo _mealPlan =
+      widget.mealPlanRepo ?? ref.read(mealPlanRepoProvider);
 
   Profile _profile = const Profile();
   _DayNutrition _today = const _DayNutrition.empty();
   NutritionGoals _goalsData = const NutritionGoals();
   WeightTrend _weightTrend = WeightTrend.none;
   List<RestockItem> _restock = const [];
+
+  /// The loop's live state, all from REAL data:
+  ///  • [_planMealCount] — meals across the current plan (null = no plan yet);
+  ///  • [_cartGapCount]  — how many planned ingredients the kitchen lacks;
+  ///  • the restock count is [_restock].length.
+  int? _planMealCount;
+  int _cartGapCount = 0;
   bool _loading = true;
 
   @override
@@ -119,6 +145,15 @@ class _TodayPageState extends ConsumerState<TodayPage> {
     final goals = await _goals.load();
     final weighInHistory = await _weighIns.all();
     final pantryItems = await _pantry.all();
+    // Tolerant read (like every other load in the app): a plan-store hiccup must
+    // never blank the whole Home — an unreadable/absent plan is an honest "no
+    // plan yet" (null), which the loop strip renders as "Plan your week".
+    MealPlan? plan;
+    try {
+      plan = await _mealPlan.load();
+    } catch (_) {
+      plan = null;
+    }
     if (!mounted) return;
 
     // Anchor both the "today" food filter and the pantry glance to a SINGLE
@@ -126,12 +161,25 @@ class _TodayPageState extends ConsumerState<TodayPage> {
     // midnight between the awaits above.
     final now = DateTime.now();
     final todayEntries = _nutrition.logsForDay(foodLog, now);
+
+    // The loop counts — all from REAL data, never fabricated. A missing plan
+    // leaves the meal count null (an honest "no plan yet"), which the strip
+    // renders as its "Plan your week" empty label; the cart-gap count is the
+    // real diff between the plan and the kitchen (0 when there's no plan or the
+    // pantry already covers it).
+    final planMealCount =
+        plan?.days.fold<int>(0, (n, d) => n + d.meals.length);
+    final cartGaps =
+        plan == null ? 0 : neededIngredients(plan, pantryItems).length;
+
     setState(() {
       _profile = profile;
       _today = _DayNutrition.from(todayEntries);
       _goalsData = goals;
       _weightTrend = computeWeightTrend(weighInHistory);
       _restock = restockSoon(pantryItems, now);
+      _planMealCount = planMealCount;
+      _cartGapCount = cartGaps;
       _loading = false;
     });
   }
@@ -221,6 +269,28 @@ class _TodayPageState extends ConsumerState<TodayPage> {
     await _reload();
   }
 
+  /// Open the agentic "Plan my week" screen as a route, wired to the SAME repos
+  /// + planner client the composition root provides (mirrors [_openWeightPage]).
+  /// Refreshes on return so the loop strip's plan / cart-gap counts reflect any
+  /// plan generated or gaps added while inside.
+  Future<void> _openPlan() async {
+    await Navigator.of(context).push<void>(
+      _appRoute(
+        (_) => PlanPage(
+          planRepo: _mealPlan,
+          planClient: ref.read(mealPlanClientProvider),
+          goalsRepo: _goals,
+          pantryRepo: _pantry,
+          groceryRepo: ref.read(groceryListRepoProvider),
+          nutritionRepo: _nutrition,
+          eatInService: ref.read(eatInServiceProvider),
+          analytics: ref.read(analyticsProvider),
+        ),
+      ),
+    );
+    await _reload();
+  }
+
   /// Route a Brain insight action to the REAL flow. addToCart writes the item to
   /// the real grocery list then jumps to Cart; the others navigate to where the
   /// user acts. Nothing is faked — the item genuinely lands on the Cart list.
@@ -254,6 +324,18 @@ class _TodayPageState extends ConsumerState<TodayPage> {
   /// All the scrollable content of the home screen. Extracted so the
   /// TweenAnimationBuilder can wrap the whole list without nesting issues.
   Widget _buildContent() {
+    // The Brain's ranked home insights (most-actionable first). The TOP one is
+    // promoted to the "NEXT" hero; the remainder fall to the "For you" section
+    // below (which is told to skip the first so nothing duplicates). This is a
+    // read of the SAME real insights the section renders — no separate source.
+    final homeInsights = insightsForScreen(ref, BrainScreen.home);
+    final topInsight = homeInsights.isNotEmpty ? homeInsights.first : null;
+
+    // A genuinely fresh device: no profile, no plan, nothing eaten today. This
+    // gates the "start your food loop" invitation (vs. the NEXT-action hero).
+    final isBrandNew =
+        _profile.isEmpty && _planMealCount == null && _today.isEmpty;
+
     return ListView(
       padding: AppSpacing.pagePadding,
       children: [
@@ -284,22 +366,51 @@ class _TodayPageState extends ConsumerState<TodayPage> {
         ),
         AppSpacing.gapV6,
 
-        // If the profile is empty, lead with the gentle setup affordance —
-        // the honest "we show nothing we don't know" invitation.
-        if (_profile.isEmpty) ...[
+        // ── The LOOP strip — the moat made visible, ALWAYS on ─────────────────
+        // Plan → Cart → Restock, each a live REAL count with an honest empty
+        // label. The differentiator the user sees first, every day.
+        _LoopStrip(
+          planMealCount: _planMealCount,
+          cartGapCount: _cartGapCount,
+          restockCount: _restock.length,
+          onOpenPlan: widget.onOpenPlan ?? _openPlan,
+          onOpenCart: widget.onOpenCart,
+          onOpenRestock: widget.onOpenPantry,
+        ),
+        AppSpacing.gapV8,
+
+        // ── HERO — adapts to state ────────────────────────────────────────────
+        if (isBrandNew) ...[
+          // A brand-new device leads with the loop invitation…
+          _StartLoopCard(onStart: widget.onOpenPantry),
+          AppSpacing.gapV6,
+          // …and still offers the gentle profile-setup affordance (its Key is a
+          // test/first-run contract). Shown right below the invitation.
           _SetupProfileCard(onTap: _openOnboarding),
           AppSpacing.gapV8,
+        ] else ...[
+          // If the profile is empty (but there's a plan / logged food), keep
+          // the honest setup affordance available above the hero.
+          if (_profile.isEmpty) ...[
+            _SetupProfileCard(onTap: _openOnboarding),
+            AppSpacing.gapV6,
+          ],
+          // The single most-relevant NEXT action, as a prominent hero card.
+          // Reuses the shared InsightCard (kind badge + title + detail + its
+          // action) so it's honest by construction and routes via the same
+          // handler. Omitted when the Brain has nothing genuine to promote.
+          if (topInsight != null) ...[
+            const SectionHeader(title: 'NEXT'),
+            KeyedSubtree(
+              key: const Key('home-next-action'),
+              child: InsightCard(
+                insight: topInsight,
+                onAction: _onInsightAction,
+              ),
+            ),
+            AppSpacing.gapV8,
+          ],
         ],
-
-        // HERO — today's nutrition (calorie ring + macros). The centerpiece:
-        // the calm "how am I doing today" glance, modelled on the calorie-ring
-        // home that nutrition-app users already know — wearing our own brand.
-        _NutritionHero(
-          today: _today,
-          goals: _goalsData,
-          onEditGoals: _editGoals,
-        ),
-        AppSpacing.gapV6,
 
         // The single, camera-first primary action — snap-to-log a meal.
         FilledButton.icon(
@@ -310,9 +421,9 @@ class _TodayPageState extends ConsumerState<TodayPage> {
         ),
         AppSpacing.gapV8,
 
-        // The Brain's "For you" section — the top few personalized insights
-        // across all kinds (Eat / Buy / Train), each an honest connected card
-        // with a visible "why". Renders NOTHING when there are no real insights
+        // The Brain's "For you" section — the REMAINING personalized insights
+        // (skipFirst drops the one promoted to the NEXT hero above, so nothing
+        // duplicates). Renders NOTHING when there are no leftover insights
         // (BrainSection returns SizedBox.shrink), so the section — and this
         // trailing gap — simply collapse away. Keyed for tests.
         BrainSection(
@@ -321,7 +432,24 @@ class _TodayPageState extends ConsumerState<TodayPage> {
           title: 'FOR YOU',
           onAction: _onInsightAction,
           trailingGap: true,
+          // Only drop the top insight here when it's actually promoted to the
+          // NEXT hero above (i.e. not on a brand-new device, where the hero is
+          // the "start your loop" invitation and this section shows them all).
+          skipFirst: !isBrandNew && topInsight != null,
         ),
+
+        // ── Today's nutrition — DEMOTED to a secondary glance ─────────────────
+        // The calorie ring + macros still live here (same honest data + keys),
+        // now sized down and placed below the loop + next action rather than
+        // leading — so the app reads as a food-loop tool, not a calorie counter.
+        const SectionHeader(title: 'TODAY'),
+        _NutritionHero(
+          today: _today,
+          goals: _goalsData,
+          goalDirection: _profile.goalDirection,
+          onEditGoals: _editGoals,
+        ),
+        AppSpacing.gapV8,
 
         SectionHeader(
           title: 'WEIGHT',
@@ -743,11 +871,18 @@ class _NutritionHero extends StatelessWidget {
     required this.today,
     required this.goals,
     required this.onEditGoals,
+    this.goalDirection,
   });
 
   final _DayNutrition today;
   final NutritionGoals goals;
   final VoidCallback onEditGoals;
+
+  /// The user's goal (`gain` / `cut` / `maintain` / null). Drives ONLY the tone
+  /// of the caption — never the data. A gain/cut goal keeps the number-forward
+  /// framing (calories/protein are their metric); maintain/null gets a calmer,
+  /// less pressuring line over the SAME honest values.
+  final String? goalDirection;
 
   @override
   Widget build(BuildContext context) {
@@ -771,7 +906,9 @@ class _NutritionHero extends StatelessWidget {
 
     return Column(
       children: [
-        // The calorie hero ring — the app's core "how am I doing" glyph, big.
+        // The calorie ring — now a SECONDARY glance (the loop is the hero), so
+        // it's sized down from the old 208 centerpiece to a calm ~150 read.
+        // Same honest fill rules.
         ProgressRing(
           key: const Key('today-calorie-ring'),
           value: eaten, // drives the arc (eaten / goal); null → bare track
@@ -779,8 +916,8 @@ class _NutritionHero extends StatelessWidget {
           centerLabel: center,
           unit: hasGoal ? 'kcal left' : 'kcal today',
           label: 'CALORIES',
-          size: 208,
-          strokeWidth: 16,
+          size: 150,
+          strokeWidth: 12,
           color: colors.primaryStrong,
         ),
         AppSpacing.gapV5,
@@ -841,12 +978,230 @@ class _NutritionHero extends StatelessWidget {
 
   /// The honest supporting line: nothing logged, targets active, or an
   /// invitation to set a daily goal.
+  ///
+  /// Goal-adaptive TONE only (the numbers above are identical either way): a
+  /// `maintain` goal gets a calmer, low-pressure line so the app doesn't nag
+  /// someone who isn't chasing a number; gain/cut (and an as-yet-unset
+  /// direction) keep the number-forward framing, since calories/protein are the
+  /// metric they're actively tracking.
   String _caption() {
-    if (today.isEmpty) return 'Nothing logged yet today.';
+    final calm = goalDirection == 'maintain';
+    if (today.isEmpty) {
+      return calm ? 'Nothing logged yet — no pressure.' : 'Nothing logged yet today.';
+    }
     if (goals.isEmpty) {
       return 'Tracked above — set a daily goal to see targets.';
     }
-    return 'Tracked above, against your daily targets.';
+    return calm
+        ? 'Tracked — no pressure, just holding steady.'
+        : 'Tracked above, against your daily targets.';
+  }
+}
+
+// ── Loop strip ───────────────────────────────────────────────────────────────
+
+/// The home "loop strip" — the app's moat, made visible and ALWAYS on.
+///
+/// Three tappable cells across the top of Home: **Plan → Cart → Restock**, each
+/// showing a live REAL count with an honest empty label:
+///  • Plan    — `<N> meals` when a plan exists, else "Plan your week";
+///  • Cart    — `<G> to buy` (the real plan-vs-kitchen gap), else "No gaps" (0);
+///  • Restock — `<R> low` (real low/expiring/reorder-due items), else "Stocked".
+///
+/// **Honesty:** every count is derived only from real data (the meal plan, the
+/// [neededIngredients] gap diff, the [restockSoon] selector). A 0 is shown
+/// honestly as its empty label — never hidden as if unknown, never a fabricated
+/// number. A missing plan leaves the meal count null → the "Plan your week"
+/// invitation, not a fake "0 meals".
+class _LoopStrip extends StatelessWidget {
+  const _LoopStrip({
+    required this.planMealCount,
+    required this.cartGapCount,
+    required this.restockCount,
+    this.onOpenPlan,
+    this.onOpenCart,
+    this.onOpenRestock,
+  });
+
+  /// Meals across the current plan; `null` = no plan yet (honest empty state).
+  final int? planMealCount;
+
+  /// Real plan-vs-kitchen shopping gaps (0 when no plan or fully covered).
+  final int cartGapCount;
+
+  /// Real restock-soon items (low / expiring / reorder-due).
+  final int restockCount;
+
+  final VoidCallback? onOpenPlan;
+  final VoidCallback? onOpenCart;
+  final VoidCallback? onOpenRestock;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+
+    // Plan cell: "<N> meals" or the honest "Plan your week" invitation.
+    final (String planValue, String planLabel) = planMealCount == null
+        ? ('Plan', 'your week')
+        : ('$planMealCount', planMealCount == 1 ? 'meal' : 'meals');
+
+    // Cart cell: "<G> to buy", or "No gaps" when there's nothing to buy (0 is
+    // shown honestly, never hidden).
+    final (String cartValue, String cartLabel) =
+        cartGapCount == 0 ? ('No', 'gaps') : ('$cartGapCount', 'to buy');
+
+    // Restock cell: "<R> low", or "Stocked" when nothing's due.
+    final (String restockValue, String restockLabel) =
+        restockCount == 0 ? ('Stocked', '') : ('$restockCount', 'low');
+
+    return StatCard(
+      child: Row(
+        children: [
+          Expanded(
+            child: _LoopCell(
+              cellKey: const Key('home-loop-plan'),
+              icon: Icons.event_note_outlined,
+              value: planValue,
+              label: planLabel,
+              color: colors.primaryStrong,
+              onTap: onOpenPlan,
+            ),
+          ),
+          _LoopDivider(color: colors.hairline),
+          Expanded(
+            child: _LoopCell(
+              cellKey: const Key('home-loop-cart'),
+              icon: Icons.shopping_basket_outlined,
+              value: cartValue,
+              label: cartLabel,
+              color: colors.primary,
+              onTap: onOpenCart,
+            ),
+          ),
+          _LoopDivider(color: colors.hairline),
+          Expanded(
+            child: _LoopCell(
+              cellKey: const Key('home-loop-restock'),
+              icon: Icons.inventory_2_outlined,
+              value: restockValue,
+              label: restockLabel,
+              color: colors.accent,
+              onTap: onOpenRestock,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// One tappable cell of the loop strip — an icon, a big value, a small label.
+class _LoopCell extends StatelessWidget {
+  const _LoopCell({
+    required this.cellKey,
+    required this.icon,
+    required this.value,
+    required this.label,
+    required this.color,
+    this.onTap,
+  });
+
+  final Key cellKey;
+  final IconData icon;
+  final String value;
+  final String label;
+  final Color color;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.appColors;
+    final text = Theme.of(context).textTheme;
+
+    return InkWell(
+      key: cellKey,
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(AppSpacing.space2),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: AppSpacing.space2),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 18, color: color),
+            AppSpacing.gapV2,
+            Text(
+              value,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.center,
+              style: text.titleMedium?.copyWith(
+                color: colors.textPrimary,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            if (label.isNotEmpty) ...[
+              AppSpacing.gapV1,
+              Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                style: text.labelSmall?.copyWith(color: colors.textSecondary),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// A quiet vertical hairline between loop cells.
+class _LoopDivider extends StatelessWidget {
+  const _LoopDivider({required this.color});
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) =>
+      Container(width: 1, height: 44, color: color);
+}
+
+// ── Start-the-loop invitation (brand-new device) ─────────────────────────────
+
+/// The brand-new-device hero: an honest, warm invitation to START the food loop
+/// (snap fridge → plan week → fill cart from the gaps). Shown only on a genuinely
+/// fresh device (no profile, no plan, nothing logged); once there's real
+/// guidance, the NEXT-action hero takes this slot instead.
+class _StartLoopCard extends StatelessWidget {
+  const _StartLoopCard({this.onStart});
+
+  /// Opens the Food/fridge tab to add the first items — the loop's front door.
+  final VoidCallback? onStart;
+
+  @override
+  Widget build(BuildContext context) {
+    final text = Theme.of(context).textTheme;
+    return StatCard(
+      warm: true,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Start your food loop', style: text.titleMedium),
+          AppSpacing.gapV2,
+          Text(
+            'Snap your fridge → we plan your week → fill your cart from the gaps.',
+            style: text.bodyMedium,
+          ),
+          AppSpacing.gapV4,
+          FilledButton.icon(
+            key: const Key('home-start-loop'),
+            onPressed: onStart,
+            icon: const Icon(Icons.kitchen_outlined),
+            label: const Text('Add your fridge'),
+          ),
+        ],
+      ),
+    );
   }
 }
 

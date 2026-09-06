@@ -19,6 +19,7 @@ import 'package:health_hub/metrics/weigh_in_repo.dart';
 import 'package:health_hub/nutrition/food_log_entry.dart';
 import 'package:health_hub/nutrition/nutrition_goals_repo.dart';
 import 'package:health_hub/nutrition/nutrition_repo.dart';
+import 'package:health_hub/nutrition/plan/meal_plan_repo.dart';
 import 'package:health_hub/offline/outbox.dart';
 import 'package:health_hub/offline/outbox_store.dart';
 import 'package:health_hub/offline/pending_mutation.dart';
@@ -85,6 +86,16 @@ class _FakePantryStore implements PantryStore {
   Future<void> save(List<PantryItem> items) async {}
 }
 
+class _FakeMealPlanStore implements MealPlanStore {
+  Map<String, dynamic>? _saved;
+  @override
+  Future<Map<String, dynamic>?> load() async => _saved;
+  @override
+  Future<void> save(Map<String, dynamic> json) async => _saved = json;
+  @override
+  Future<void> clear() async => _saved = null;
+}
+
 Outbox _ob() => Outbox(_FakeOutboxStore());
 
 Widget _dashboard(List<PantryItem> pantry, {VoidCallback? onOpenPantry}) {
@@ -101,6 +112,7 @@ Widget _dashboard(List<PantryItem> pantry, {VoidCallback? onOpenPantry}) {
         goalsRepo: NutritionGoalsRepo(outbox: _ob(), store: _FakeGoalsStore()),
         weighInRepo: WeighInRepo(outbox: _ob(), store: _FakeWeighInStore()),
         pantryRepo: PantryRepo(outbox: _ob(), store: _FakePantryStore(pantry)),
+        mealPlanRepo: MealPlanRepo(outbox: _ob(), store: _FakeMealPlanStore()),
         onOpenPantry: onOpenPantry,
       ),
     ),

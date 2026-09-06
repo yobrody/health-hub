@@ -22,6 +22,8 @@ import 'package:health_hub/nutrition/nutrition_repo.dart';
 import 'package:health_hub/metrics/weigh_in.dart';
 import 'package:health_hub/metrics/weigh_in_repo.dart';
 import 'package:health_hub/nutrition/nutrition_goals_repo.dart';
+import 'package:health_hub/nutrition/plan/meal_plan.dart';
+import 'package:health_hub/nutrition/plan/meal_plan_repo.dart';
 import 'package:health_hub/offline/outbox.dart';
 import 'package:health_hub/offline/outbox_store.dart';
 import 'package:health_hub/offline/pending_mutation.dart';
@@ -94,6 +96,18 @@ class FakePantryStore implements PantryStore {
   Future<void> save(List<PantryItem> items) async => _items = List.of(items);
 }
 
+class FakeMealPlanStore implements MealPlanStore {
+  FakeMealPlanStore([this._saved]);
+  Map<String, dynamic>? _saved;
+  @override
+  Future<Map<String, dynamic>?> load() async => _saved;
+  @override
+  Future<void> save(Map<String, dynamic> json) async =>
+      _saved = Map<String, dynamic>.from(json);
+  @override
+  Future<void> clear() async => _saved = null;
+}
+
 // ── Builders ─────────────────────────────────────────────────────────────────
 
 ProfileRepo _profileRepo([Map<String, dynamic>? stored]) => ProfileRepo(
@@ -123,12 +137,18 @@ PantryRepo _pantryRepo([List<PantryItem>? seed]) => PantryRepo(
       store: FakePantryStore(seed),
     );
 
+MealPlanRepo _mealPlanRepo([MealPlan? plan]) => MealPlanRepo(
+      outbox: Outbox(FakeOutboxStore()),
+      store: FakeMealPlanStore(plan?.toJson()),
+    );
+
 Widget _dashboard({
   Map<String, dynamic>? profile,
   List<FoodLogEntry>? food,
   Map<String, dynamic>? goals,
   List<WeighIn>? weighIns,
   List<PantryItem>? pantry,
+  MealPlan? plan,
 }) {
   return ProviderScope(
     child: MaterialApp(
@@ -139,6 +159,7 @@ Widget _dashboard({
         goalsRepo: _goalsRepo(goals),
         weighInRepo: _weighInRepo(weighIns),
         pantryRepo: _pantryRepo(pantry),
+        mealPlanRepo: _mealPlanRepo(plan),
       ),
     ),
   );
@@ -188,6 +209,18 @@ Future<void> _scrollToWeight(WidgetTester tester) async {
   await tester.pumpAndSettle();
 }
 
+/// Scroll the tall loop-home until [key] is built + visible. The nutrition
+/// glance, log-meal button, and weight card now sit below the fold (the loop
+/// strip + hero lead), and a lazy ListView doesn't build off-screen rows.
+Future<void> _scrollTo(WidgetTester tester, Key key) async {
+  await tester.dragUntilVisible(
+    find.byKey(key),
+    find.byType(Scrollable),
+    const Offset(0, -300),
+  );
+  await tester.pumpAndSettle();
+}
+
 /// A pantry item helper for restock-soon tests.
 PantryItem _pItem(
   String id, {
@@ -221,15 +254,18 @@ void main() {
     await tester.pumpWidget(_dashboard());
     await tester.pumpAndSettle();
 
-    // Honest empty state: em-dashes appear; NO fabricated 80/72 numbers do.
-    expect(find.text('—'), findsWidgets);
+    // The gentle setup affordance is offered at the top (opens onboarding) —
+    // check it before scrolling away. And NO fabricated 80/72 numbers anywhere.
+    expect(find.byKey(const Key('today-setup-profile')), findsOneWidget);
     expect(find.text('80'), findsNothing);
     expect(find.text('72'), findsNothing);
     expect(find.text('80 kg'), findsNothing);
     expect(find.text('72 kg'), findsNothing);
 
-    // The gentle setup affordance is offered (opens onboarding).
-    expect(find.byKey(const Key('today-setup-profile')), findsOneWidget);
+    // Honest empty state: em-dashes appear in the nutrition rings (now a
+    // secondary glance below the fold) — scroll to them.
+    await _scrollTo(tester, const Key('today-calorie-ring'));
+    expect(find.text('—'), findsWidgets);
   });
 
   testWidgets('real weight + goal render their values, not dashes',
