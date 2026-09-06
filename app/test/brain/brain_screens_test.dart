@@ -157,6 +157,14 @@ void main() {
     ));
     await tester.pumpAndSettle();
 
+    // The For-you section now sits below the nutrition hero — scroll to it.
+    await tester.dragUntilVisible(
+      find.byKey(const Key('home-brain')),
+      find.byType(Scrollable).first,
+      const Offset(0, -250),
+    );
+    await tester.pumpAndSettle();
+
     expect(find.byKey(const Key('home-brain')), findsOneWidget);
     expect(find.byKey(const Key('insight-card-buy-butter')), findsOneWidget);
   });

@@ -76,6 +76,12 @@ void main() {
         (tester) async {
       final h = JourneyHarness();
       await pumpApp(tester, h.overrides);
+      await tester.dragUntilVisible(
+        find.byKey(const Key('home-log-meal-btn')),
+        find.byType(Scrollable).first,
+        const Offset(0, -250),
+      );
+      await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('home-log-meal-btn')));
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('insight-card-eat-setup')), findsOneWidget);
@@ -144,6 +150,12 @@ void main() {
         ),
       ]);
       await pumpApp(tester, h.overrides);
+      await tester.dragUntilVisible(
+        find.byKey(const Key('home-log-meal-btn')),
+        find.byType(Scrollable).first,
+        const Offset(0, -250),
+      );
+      await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('home-log-meal-btn')));
       await tester.pumpAndSettle();
       // Scroll down to today's log (below the form).
@@ -170,6 +182,12 @@ void main() {
       // exercises the offline-queued path: the write must land, not "fail".
       final h = JourneyHarness();
       await pumpApp(tester, h.overrides);
+      await tester.dragUntilVisible(
+        find.byKey(const Key('home-log-meal-btn')),
+        find.byType(Scrollable).first,
+        const Offset(0, -250),
+      );
+      await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('home-log-meal-btn')));
       await tester.pumpAndSettle();
       await tester.enterText(
@@ -238,6 +256,12 @@ void main() {
       // A stub OFF client that resolves every code to null (no product found).
       await pumpApp(
           tester, coverageOverrides(h, offClient: StubOffClient(null)));
+      await tester.dragUntilVisible(
+        find.byKey(const Key('home-log-meal-btn')),
+        find.byType(Scrollable).first,
+        const Offset(0, -250),
+      );
+      await tester.pumpAndSettle();
       await tester.tap(find.byKey(const Key('home-log-meal-btn')));
       await tester.pumpAndSettle();
 

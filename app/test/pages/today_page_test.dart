@@ -176,6 +176,18 @@ Future<void> _scrollToRestock(WidgetTester tester) async {
   await tester.pumpAndSettle();
 }
 
+/// Scroll the dashboard up until the weight card is built + laid out — the
+/// nutrition hero now leads the screen, so the weight card sits below the fold
+/// in the default test viewport.
+Future<void> _scrollToWeight(WidgetTester tester) async {
+  await tester.dragUntilVisible(
+    find.byKey(const Key('today-weight-card')),
+    find.byType(Scrollable),
+    const Offset(0, -300),
+  );
+  await tester.pumpAndSettle();
+}
+
 /// A pantry item helper for restock-soon tests.
 PantryItem _pItem(
   String id, {
@@ -230,8 +242,9 @@ void main() {
       },
     ));
     await tester.pumpAndSettle();
+    await _scrollToWeight(tester);
 
-    expect(find.textContaining('62.5'), findsWidgets); // hero weight
+    expect(find.textContaining('62.5'), findsWidgets); // weight card
     expect(find.text('72 kg'), findsOneWidget); // goal badge
     // A profile with data does NOT show the setup card.
     expect(find.byKey(const Key('today-setup-profile')), findsNothing);
@@ -263,7 +276,10 @@ void main() {
     await tester.pumpAndSettle();
 
     // There are three macro rings; none has a goal in R1.
-    final rings = tester.widgetList<ProgressRing>(find.byType(ProgressRing));
+    // The three macro rings (exclude the big CALORIES hero ring).
+    final rings = tester
+        .widgetList<ProgressRing>(find.byType(ProgressRing))
+        .where((r) => r.label != 'CALORIES');
     expect(rings, hasLength(3));
     for (final r in rings) {
       expect(r.goal, isNull); // no fabricated goal
@@ -366,8 +382,10 @@ void main() {
     ));
     await tester.pumpAndSettle();
 
-    // Each ring now carries its real target — no more null goals.
-    final rings = tester.widgetList<ProgressRing>(find.byType(ProgressRing));
+    // Each macro ring now carries its real target — no more null goals.
+    final rings = tester
+        .widgetList<ProgressRing>(find.byType(ProgressRing))
+        .where((r) => r.label != 'CALORIES');
     expect(rings, hasLength(3));
     expect(rings.map((r) => r.goal), [150.0, 250.0, 70.0]);
     // The calorie headline shows the real target denominator.
@@ -385,7 +403,9 @@ void main() {
     ));
     await tester.pumpAndSettle();
 
-    final rings = tester.widgetList<ProgressRing>(find.byType(ProgressRing));
+    final rings = tester
+        .widgetList<ProgressRing>(find.byType(ProgressRing))
+        .where((r) => r.label != 'CALORIES');
     for (final r in rings) {
       expect(r.goal, isNull); // macro targets unset → no fabricated fill
     }
@@ -406,6 +426,7 @@ void main() {
       ],
     ));
     await tester.pumpAndSettle();
+    await _scrollToWeight(tester);
 
     // Current = the single weigh-in's 63, not the 62.5 profile scalar.
     expect(find.textContaining('63'), findsWidgets);
@@ -430,6 +451,7 @@ void main() {
       ],
     ));
     await tester.pumpAndSettle();
+    await _scrollToWeight(tester);
 
     // 65 → 62 = a real 3 kg drop; the trend chip renders.
     final chip = find.byKey(const Key('today-weight-trend'));
@@ -441,6 +463,7 @@ void main() {
       (tester) async {
     await tester.pumpWidget(_dashboard(profile: {'weight_kg': 62.5}));
     await tester.pumpAndSettle();
+    await _scrollToWeight(tester);
 
     expect(find.textContaining('62.5'), findsWidgets); // profile fallback
     expect(find.byKey(const Key('today-weight-trend')), findsNothing);
