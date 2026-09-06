@@ -227,6 +227,13 @@ void main() {
     await tester.pumpAndSettle();
 
     // Home surfaces the real BUY insight in "For you" (a low item is genuine).
+    // The section now sits below the nutrition hero — scroll to it.
+    await tester.dragUntilVisible(
+      find.byKey(const Key('home-brain')),
+      find.byType(Scrollable).first,
+      const Offset(0, -250),
+    );
+    await tester.pumpAndSettle();
     expect(find.byKey(const Key('home-brain')), findsOneWidget);
     expect(find.byKey(const Key('insight-card-buy-milk')), findsOneWidget);
 
@@ -326,7 +333,14 @@ void main() {
     await tester.pumpAndSettle();
 
     // Home's "For you" section is present and carries BOTH a real EAT and a real
-    // BUY card — the Brain woven multiple kinds from one user's real data.
+    // BUY card — the Brain woven multiple kinds from one user's real data. It now
+    // sits below the nutrition hero — scroll to it first.
+    await tester.dragUntilVisible(
+      find.byKey(const Key('home-brain')),
+      find.byType(Scrollable).first,
+      const Offset(0, -250),
+    );
+    await tester.pumpAndSettle();
     expect(find.byKey(const Key('home-brain')), findsOneWidget);
     expect(find.byKey(const Key('insight-card-eat')), findsOneWidget);
     expect(find.byKey(const Key('insight-card-buy-eggs')), findsOneWidget);

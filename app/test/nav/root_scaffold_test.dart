@@ -162,6 +162,12 @@ void main() {
 
     // Home carries the relocated affordances: settings (top-left) + log-meal.
     expect(find.byKey(const Key('home-settings-btn')), findsOneWidget);
+    // The log-meal button sits below the nutrition hero — scroll to it.
+    await tester.dragUntilVisible(
+      find.byKey(const Key('home-log-meal-btn')),
+      find.byType(Scrollable).first,
+      const Offset(0, -250),
+    );
     expect(find.byKey(const Key('home-log-meal-btn')), findsOneWidget);
 
     // tapping Gym shows the gym page

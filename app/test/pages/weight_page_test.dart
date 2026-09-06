@@ -294,7 +294,12 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // The weight card is on the page — tap it.
+      // The weight card sits below the nutrition hero now — scroll to it.
+      await tester.dragUntilVisible(
+        find.byKey(const Key('today-weight-card')),
+        find.byType(Scrollable).first,
+        const Offset(0, -250),
+      );
       final card = find.byKey(const Key('today-weight-card'));
       expect(card, findsOneWidget);
       await tester.tap(card);

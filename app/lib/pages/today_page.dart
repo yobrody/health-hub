@@ -284,22 +284,31 @@ class _TodayPageState extends ConsumerState<TodayPage> {
         ),
         AppSpacing.gapV6,
 
-        // Prominent "Log a meal" action — meal capture is a Home action
-        // now, not a tab. Pushes the existing NutritionPage as a route.
-        FilledButton.icon(
-          key: const Key('home-log-meal-btn'),
-          onPressed: _openLogMeal,
-          icon: const Icon(Icons.restaurant_menu),
-          label: const Text('Log a meal'),
-        ),
-        AppSpacing.gapV8,
-
         // If the profile is empty, lead with the gentle setup affordance —
         // the honest "we show nothing we don't know" invitation.
         if (_profile.isEmpty) ...[
           _SetupProfileCard(onTap: _openOnboarding),
           AppSpacing.gapV8,
         ],
+
+        // HERO — today's nutrition (calorie ring + macros). The centerpiece:
+        // the calm "how am I doing today" glance, modelled on the calorie-ring
+        // home that nutrition-app users already know — wearing our own brand.
+        _NutritionHero(
+          today: _today,
+          goals: _goalsData,
+          onEditGoals: _editGoals,
+        ),
+        AppSpacing.gapV6,
+
+        // The single, camera-first primary action — snap-to-log a meal.
+        FilledButton.icon(
+          key: const Key('home-log-meal-btn'),
+          onPressed: _openLogMeal,
+          icon: const Icon(Icons.photo_camera_outlined),
+          label: const Text('Log a meal'),
+        ),
+        AppSpacing.gapV8,
 
         // The Brain's "For you" section — the top few personalized insights
         // across all kinds (Eat / Buy / Train), each an honest connected card
@@ -327,17 +336,6 @@ class _TodayPageState extends ConsumerState<TodayPage> {
           trend: _weightTrend,
           onTap: _openWeightPage,
         ),
-        AppSpacing.gapV8,
-
-        SectionHeader(
-          title: 'NUTRITION',
-          trailing: TextButton(
-            key: const Key('today-edit-goals'),
-            onPressed: _editGoals,
-            child: Text(_goalsData.isEmpty ? 'Set goals' : 'Edit goals'),
-          ),
-        ),
-        _NutritionCard(today: _today, goals: _goalsData),
         AppSpacing.gapV8,
 
         // Restock soon — replaces BOTH the old training card AND the old
@@ -726,95 +724,115 @@ class _TrendChip extends StatelessWidget {
   }
 }
 
-// ── Nutrition card ───────────────────────────────────────────────────────────
+// ── Nutrition hero ───────────────────────────────────────────────────────────
 
-/// Today's real intake as calories + protein/carbs/fat rings, filled against the
-/// user's real daily [goals].
+/// The home centerpiece: today's calories as a big ring, three macro rings under
+/// it, an honest caption, and a set/edit-goals affordance.
 ///
-/// **Honesty:** a ring fills only when its target is a REAL (non-null) goal; an
-/// unset target keeps the ring in its honest empty state (value on a bare track,
-/// no fabricated denominator). A day with nothing logged shows `—`, not `0`. The
-/// calorie headline shows a "/ target" only when the calorie goal is set.
-class _NutritionCard extends StatelessWidget {
-  const _NutritionCard({required this.today, required this.goals});
+/// Modelled on the calorie-ring home that nutrition-app users already know (so
+/// it's instantly familiar), wearing our own warm/serif brand. It sits directly
+/// on the canvas — no card — so it reads as THE focal point, not one more tile.
+///
+/// **Honesty is preserved.** The big ring only fills against a REAL calorie
+/// goal; with no goal it shows what you've eaten on a bare track (no fabricated
+/// denominator), and `—` when nothing's logged. Each macro ring likewise fills
+/// only against a real target. The "/ target kcal" line shows only when the
+/// calorie goal is set.
+class _NutritionHero extends StatelessWidget {
+  const _NutritionHero({
+    required this.today,
+    required this.goals,
+    required this.onEditGoals,
+  });
 
   final _DayNutrition today;
   final NutritionGoals goals;
+  final VoidCallback onEditGoals;
 
   @override
   Widget build(BuildContext context) {
     final colors = context.appColors;
     final text = Theme.of(context).textTheme;
 
-    return StatCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Calories headline — the day's real total, or a dash when nothing
-          // (with real macros) has been logged.
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.baseline,
-            textBaseline: TextBaseline.alphabetic,
-            children: [
-              Text(
-                today.kcal != null ? _round(today.kcal!) : '—',
-                style: AppTypography.heroNumber(
-                  color: today.kcal != null
-                      ? colors.textPrimary
-                      : colors.textSecondary,
-                  fontSize: 44,
-                ),
-              ),
-              AppSpacing.gapH2,
-              Padding(
-                padding: const EdgeInsets.only(bottom: 6),
-                child: Text(
-                  // Show "/ target kcal" only when the calorie goal is real.
-                  goals.caloriesKcal != null
-                      ? '/ ${_round(goals.caloriesKcal!)} kcal'
-                      : 'kcal today',
-                  style:
-                      text.titleSmall?.copyWith(color: colors.textSecondary),
-                ),
-              ),
-            ],
-          ),
-          AppSpacing.gapV5,
-          // The three macro rings — each fills against its REAL goal, else stays
-          // in the honest empty state (null goal → bare track, no fake fill).
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: [
-              ProgressRing(
-                value: today.proteinG,
-                goal: goals.proteinG,
-                label: 'Protein',
-                unit: 'g',
-                color: colors.primary,
-              ),
-              ProgressRing(
-                value: today.carbsG,
-                goal: goals.carbsG,
-                label: 'Carbs',
-                unit: 'g',
-                color: colors.primaryStrong,
-              ),
-              ProgressRing(
-                value: today.fatG,
-                goal: goals.fatG,
-                label: 'Fat',
-                unit: 'g',
-                color: colors.accent,
-              ),
-            ],
-          ),
-          AppSpacing.gapV4,
+    final eaten = today.kcal;
+    final goal = goals.caloriesKcal;
+    final hasGoal = goal != null && goal > 0;
+
+    // The honest center read for the big ring:
+    //  • goal set → calories REMAINING (goal − eaten, floored at 0);
+    //  • no goal  → what you've eaten, or '—' when nothing is logged.
+    final String center;
+    if (hasGoal) {
+      final remaining = goal - (eaten ?? 0);
+      center = _round(remaining < 0 ? 0 : remaining);
+    } else {
+      center = eaten != null ? _round(eaten) : '—';
+    }
+
+    return Column(
+      children: [
+        // The calorie hero ring — the app's core "how am I doing" glyph, big.
+        ProgressRing(
+          key: const Key('today-calorie-ring'),
+          value: eaten, // drives the arc (eaten / goal); null → bare track
+          goal: goal, // null → honest empty state, never a fabricated fill
+          centerLabel: center,
+          unit: hasGoal ? 'kcal left' : 'kcal today',
+          label: 'CALORIES',
+          size: 208,
+          strokeWidth: 16,
+          color: colors.primaryStrong,
+        ),
+        AppSpacing.gapV5,
+        // The three macro rings — each fills against its REAL goal, else stays
+        // in the honest empty state (null goal → bare track, no fake fill).
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+          children: [
+            ProgressRing(
+              value: today.proteinG,
+              goal: goals.proteinG,
+              label: 'Protein',
+              unit: 'g',
+              color: colors.primary,
+            ),
+            ProgressRing(
+              value: today.carbsG,
+              goal: goals.carbsG,
+              label: 'Carbs',
+              unit: 'g',
+              color: colors.primaryStrong,
+            ),
+            ProgressRing(
+              value: today.fatG,
+              goal: goals.fatG,
+              label: 'Fat',
+              unit: 'g',
+              color: colors.accent,
+            ),
+          ],
+        ),
+        AppSpacing.gapV4,
+        // Honest supporting line, plus the real calorie target when it's set.
+        Text(
+          _caption(),
+          style: text.bodySmall,
+          textAlign: TextAlign.center,
+        ),
+        if (hasGoal) ...[
+          AppSpacing.gapV1,
           Text(
-            _caption(),
-            style: text.bodySmall,
+            '/ ${_round(goal)} kcal',
+            style: text.titleSmall?.copyWith(color: colors.textSecondary),
           ),
         ],
-      ),
+        AppSpacing.gapV2,
+        TextButton(
+          key: const Key('today-edit-goals'),
+          onPressed: onEditGoals,
+          child: Text(goals.isEmpty ? 'Set daily goals' : 'Edit goals'),
+        ),
+      ],
     );
   }
 
