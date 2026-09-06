@@ -112,6 +112,9 @@ void main() {
     final s = deliveryServices.firstWhere((s) => s.name == 'Tesco');
     final uri = s.buildUri('Oat Milk');
     expect(uri.host, 'www.tesco.com');
+    // Lock the search path intentionally (the live Tesco Groceries endpoint),
+    // so a stray path change is caught rather than silently 404-ing on device.
+    expect(uri.path, '/shop/en-GB/search');
     expect(uri.queryParameters['query'], 'Oat Milk');
   });
 

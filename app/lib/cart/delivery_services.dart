@@ -33,6 +33,10 @@ final List<DeliveryService> deliveryServices = [
     name: 'Tesco',
     buildUri: (query) {
       final q = (query ?? '').trim();
+      // Search path `/shop/en-GB/search` is the current live Tesco Groceries
+      // search endpoint (Google indexes real "Results for …" pages there). The
+      // older `/groceries/en-GB/search` may also work — if Tesco search ever
+      // misbehaves on device, that's the first alternative to try.
       return q.isEmpty
           ? Uri.parse('https://www.tesco.com/groceries/')
           : Uri(

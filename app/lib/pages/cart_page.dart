@@ -633,7 +633,9 @@ class _HandoffSection extends StatelessWidget {
               for (final service in deliveryResult)
                 ListTile(
                   key: Key(
-                    'cart-delivery-${service.name.toLowerCase().replaceAll(' ', '-')}',
+                    // Same convention as _grocerKey: strip the apostrophe so
+                    // Sainsbury's → cart-delivery-sainsburys (key-safe, testable).
+                    'cart-delivery-${service.name.toLowerCase().replaceAll("'", '').replaceAll(' ', '-')}',
                   ),
                   dense: true,
                   contentPadding: EdgeInsets.zero,
