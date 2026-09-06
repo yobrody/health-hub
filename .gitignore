@@ -48,3 +48,11 @@ scripts/_check.mjs
 .serena/
 .supabase-admin.local
 *.admin.local
+.codemagic-token.local
+
+# Flutter golden-test failure output — regenerated on every failed run, never source
+app/test/goldens/failures/
+# Playwright MCP local artifacts
+.playwright-mcp/
+# Supabase CLI local temp
+supabase/.temp/
