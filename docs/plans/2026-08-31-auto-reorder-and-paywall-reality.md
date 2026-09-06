@@ -22,6 +22,28 @@ delivered honestly:
 **So "fully automatic" is both infeasible AND a bad idea. We must not advertise or
 charge for it** — that would be a false claim and it breaks the honesty spine.
 
+## ⚠️ Bigger blocker for *us specifically*: Instacart is unusable in the UK (verified 2026-09-06)
+Even the honest "one-tap checkout" ceiling relies on Instacart — and Instacart is a dead
+end for a UK-based solo founder:
+
+- **Instacart operates in the US + Canada ONLY** (confirmed against Instacart's coverage
+  docs). Any cart it builds is stocked from US/Canadian stores — useless for a London user.
+- **Signup eligibility requires being a registered business OR a resident of the US/Canada**
+  (per the IDP get-started + approval docs). A UK resident with no company **fails both and
+  cannot obtain a key at all.**
+- Production keys also require a **formal 30–40 day approval** review before they function.
+
+**Consequence:** the Instacart IDP integration in the repo, though code-complete, can never
+be deployed by the current founder. The "auto-build cart → one-tap checkout" premium feature
+is effectively a **US-market feature**, real only for a future US launch / a US-eligible
+operator — not for UK dogfooding today.
+
+**The UK reality:** no UK grocer (Tesco, Sainsbury's, ASDA, Ocado, Amazon Fresh UK, Morrisons)
+offers a public consumer cart-prefill API to a solo dev. The only zero-approval path that works
+in the UK is the **search/deep-link hand-off already in the app** (`cart/delivery_services.dart`):
+tap → opens the grocer pre-searched with the gap items → the user adds + checks out. That is the
+honest UK ceiling, and it is what dogfooding should use.
+
 ## What IS real, valuable, and honest — reframe the paywall
 The genuine magic isn't hands-off ordering; it's **removing all the work up to one
 tap.** Reframe the value:
@@ -46,7 +68,11 @@ a strong £5 pitch. (Honest microcopy: "One tap to order — we've done everythi
 ## What's missing (the actual build, in order)
 1. **Deploy the Instacart IDP integration** — get an IDP API key, set the secret,
    deploy `instacart-cart`, verify the pre-filled cart URL works end-to-end. _(One-tap
-   checkout — the honest ceiling.)_
+   checkout — the honest ceiling.)_ **⚠️ US/Canada only + requires US/CA residency or a
+   registered business to sign up — NOT available to the current UK founder (see the UK
+   blocker section above). This step is deferred to a US launch / US-eligible operator.**
+   For the UK, "the cart step" = the existing search/deep-link hand-off, improved to real
+   UK grocers.
 2. **The auto-loop trigger** — when the cadence learner + pantry say an item is
    low/due, auto-add it to the cart (already have the pieces; wire the automation +
    an honest "we added X to your cart" surface). Gate the *automation* behind Pro.
