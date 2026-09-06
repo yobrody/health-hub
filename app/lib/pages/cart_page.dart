@@ -1,32 +1,32 @@
-// Cart page — grocery-list notepad + honest hand-off section (R-4 + R-5).
+// Cart page — grocery-list notepad + honest UK grocer hand-off section.
 //
 // The Cart is the honest, physical end of the eat → deplete → restock → cart
-// loop: a real notepad you add to, check off, share, and hand off to a grocery
-// delivery service via pre-searched deep-links (not a faked checkout).
+// loop: a real notepad you add to, check off, share, and hand off to a UK
+// grocer via a pre-searched deep-link (not a faked checkout).
 //
-// R-4 additions:
+// Hand-off (UK grocers — the user is in London):
 //   • "Share List" — share_plus sheet with unchecked items first, then checked.
-//   • Per-item search icon — opens that item pre-searched in Amazon Fresh.
-//   • Store buttons — Amazon Fresh / Instacart pre-searching the first unchecked
-//     item.  Label: "Opens a search — add items there".
-//   • "Grocery Delivery" section — requests location; shows all four services
-//     as tappable links.  Permission denied → same list + honest note.
+//   • Per-item search icon — opens that item pre-searched at Tesco.
+//   • Four grocer buttons — Tesco / Sainsbury's / Amazon Fresh UK / Ocado. Each,
+//     on tap: copies the FULL list to the clipboard, opens the grocer
+//     pre-searched for the first item, and shows a SnackBar telling the user to
+//     paste each item. Empty list → just opens the grocer home.
+//   • "Grocery Delivery" section — requests location; shows the same four UK
+//     grocers as tappable links. Permission denied → same list + honest note.
 //
-// R-5 addition (Instacart pre-filled cart):
-//   • Instacart button now PREFERS a pre-filled shopping list (via the
-//     `instacart-cart` edge function), which opens Instacart with ALL items
-//     already loaded.  Falls back silently to the search deep-link when the
-//     edge function is unavailable or returns an error, so the button always
-//     does something useful.
-//   • Honest label while loading: "Opening Instacart…"
-//   • NEVER claims an order was placed or is in progress.
+// Instacart's US-only "pre-filled cart" edge-function flow was removed. Instacart
+// is US/Canada-only and unusable for a UK user; the pure InstacartClient seam is
+// retained in the repo for a possible future US launch but is no longer wired
+// here.
 //
-// Honesty rules (unchanged + extended):
+// Honesty rules:
 //   • Every line is real user data — nothing is fabricated or pre-seeded.
 //   • The "restock soon" suggestions come from REAL pantry data only.
 //   • NEVER use "order", "checkout", "add to cart", "buy now" labels.
 //   • Location section NEVER claims to verify delivery availability.
-//   • Pre-filled link: if unavailable → fall back, never show a broken state.
+//   • Buttons only OPEN the grocer + copy the list — never claim an order.
+
+import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -39,7 +39,6 @@ import '../brain/insight.dart';
 import '../cart/delivery_services.dart';
 import '../cart/grocery_item.dart';
 import '../cart/grocery_list_repo.dart';
-import '../cart/instacart_client.dart';
 import '../cart/link_launcher.dart';
 import '../cart/location_service.dart';
 import '../design_system/colors.dart';
@@ -54,7 +53,6 @@ class CartPage extends ConsumerStatefulWidget {
     this.repo,
     this.linkLauncher,
     this.locationService,
-    this.instacartClient,
   });
 
   /// Optional overrides so widget tests can inject in-memory fakes without a
@@ -69,11 +67,6 @@ class CartPage extends ConsumerStatefulWidget {
   final LinkLauncher? linkLauncher;
   final LocationService? locationService;
 
-  /// Optional override for the Instacart pre-filled cart client. In the running
-  /// app this comes from [instacartClientProvider] (via [ConsumerState]). Tests
-  /// inject a [FakeInstacartClient] here so no network is ever touched.
-  final InstacartClient? instacartClient;
-
   @override
   ConsumerState<CartPage> createState() => _CartPageState();
 }
@@ -86,18 +79,6 @@ class _CartPageState extends ConsumerState<CartPage> {
   late final LocationService _location =
       widget.locationService ?? const RealLocationService();
 
-  // Resolved lazily so tests that inject via widget.instacartClient don't
-  // trigger provider reads, and the real app reads the provider once on first
-  // use. We resolve on the first _openInstacart call.
-  InstacartClient? _instacartClientCache;
-
-  InstacartClient get _instacartClient {
-    if (_instacartClientCache != null) return _instacartClientCache!;
-    _instacartClientCache =
-        widget.instacartClient ?? ref.read(instacartClientProvider);
-    return _instacartClientCache!;
-  }
-
   final _addCtrl = TextEditingController();
 
   // Delivery near-me panel state.
@@ -105,9 +86,6 @@ class _CartPageState extends ConsumerState<CartPage> {
   bool _deliveryLoading = false;
   List<DeliveryService> _deliveryResult = [];
   String? _deliveryDeniedNote;
-
-  // Instacart pre-filled cart loading state.
-  bool _instacartLoading = false;
 
   @override
   void dispose() {
@@ -249,64 +227,53 @@ class _CartPageState extends ConsumerState<CartPage> {
     return unchecked.isNotEmpty ? unchecked.first.name : _items.first.name;
   }
 
-  DeliveryService _serviceByName(String name) =>
-      deliveryServices.firstWhere((s) => s.name == name);
+  /// The full list, one real item name per line, unchecked items first (what's
+  /// still needed) then checked (already got). Used for the clipboard copy so
+  /// the user can paste each line into the grocer's search. Real data only.
+  String get _fullListText => [
+        ..._items.where((i) => !i.done).map((i) => i.name),
+        ..._items.where((i) => i.done).map((i) => i.name),
+      ].join('\n');
 
-  Future<void> _openAmazon([String? query]) async {
-    await _launcher
-        .launch(_serviceByName('Amazon Fresh').buildUri(query ?? _firstItemQuery));
+  /// Open a UK grocer pre-searched for the first item. On a non-empty list this
+  /// ALSO copies the full list to the clipboard and shows a SnackBar prompting
+  /// the user to paste each item — since these grocers can't accept a pre-filled
+  /// cart from us, pasting is the honest fastest path to a full basket.
+  ///
+  /// Never claims an order was placed — it only opens the grocer + copies text.
+  Future<void> _openGrocer(DeliveryService service) async {
+    if (_items.isEmpty) {
+      // Nothing to copy — just open the grocer's home page.
+      await _launcher.launch(service.buildUri(null));
+      return;
+    }
+
+    // Copy the full list so the user can paste each line. Tolerant like every
+    // other write in the app: a clipboard failure must NEVER block opening the
+    // grocer — so we fire-and-forget the copy (swallowing any error) and open
+    // the grocer regardless.
+    unawaited(
+      Clipboard.setData(ClipboardData(text: _fullListText)).catchError((_) {}),
+    );
+    await _launcher.launch(service.buildUri(_firstItemQuery));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        key: Key('cart-grocer-snackbar'),
+        content: Text('List copied — paste each item to add'),
+      ),
+    );
   }
 
-  /// Open Instacart, preferring a pre-filled shopping list via the edge
-  /// function. Falls back to the search deep-link if the edge function fails or
-  /// is unavailable. Never claims an order was placed.
-  ///
-  /// When called without arguments, sends ALL current item names to the edge
-  /// function so every item lands in the pre-filled cart. The fallback uses
-  /// [_firstItemQuery] (the existing search behaviour) so the button is never
-  /// a dead end.
-  Future<void> _openInstacart([String? query]) async {
-    // If called with an explicit query (legacy path), use the search link as-is.
-    if (query != null) {
-      await _launcher
-          .launch(_serviceByName('Instacart').buildUri(query));
-      return;
-    }
+  /// The Tesco service (used by the per-item search icon). Falls back to the
+  /// first grocer if the list is ever reordered.
+  DeliveryService get _perItemGrocer => deliveryServices.firstWhere(
+        (s) => s.name == 'Tesco',
+        orElse: () => deliveryServices.first,
+      );
 
-    // Build the real list: names from the live item list (unchecked first, then
-    // checked) — real user data, nothing fabricated.
-    final allNames = [
-      ..._items.where((i) => !i.done).map((i) => i.name),
-      ..._items.where((i) => i.done).map((i) => i.name),
-    ];
-
-    if (allNames.isEmpty) {
-      // Empty list → open Instacart store home (search link handles null).
-      await _launcher
-          .launch(_serviceByName('Instacart').buildUri(null));
-      return;
-    }
-
-    setState(() => _instacartLoading = true);
-
-    Uri? prefilled;
-    try {
-      prefilled = await _instacartClient.shoppingListUrl(allNames);
-    } finally {
-      if (mounted) setState(() => _instacartLoading = false);
-    }
-
-    if (!mounted) return;
-
-    if (prefilled != null) {
-      // Pre-filled list available — open it.
-      await _launcher.launch(prefilled);
-    } else {
-      // Honest fallback: the edge function was unavailable or returned an error.
-      // Fall back to the existing search deep-link so the button always works.
-      await _launcher
-          .launch(_serviceByName('Instacart').buildUri(_firstItemQuery));
-    }
+  Future<void> _searchItem(String name) async {
+    await _launcher.launch(_perItemGrocer.buildUri(name));
   }
 
   // ── Delivery near me ─────────────────────────────────────────────────────
@@ -451,8 +418,8 @@ class _CartPageState extends ConsumerState<CartPage> {
                             item: _items[i],
                             onToggle: () => _toggle(_items[i]),
                             onRemove: () => _remove(_items[i]),
-                            // Per-item search: opens this item in Amazon Fresh.
-                            onSearch: () => _openAmazon(_items[i].name),
+                            // Per-item search: opens this item at Tesco.
+                            onSearch: () => _searchItem(_items[i].name),
                           ),
                         ],
                       ],
@@ -464,11 +431,8 @@ class _CartPageState extends ConsumerState<CartPage> {
                 // ── Hand-off section ────────────────────────────────────────
                 const SectionHeader(title: 'HAND-OFF'),
                 _HandoffSection(
-                  items: _items,
                   onShare: _items.isEmpty ? null : _shareList,
-                  onOpenAmazon: _openAmazon,
-                  onOpenInstacart: _openInstacart,
-                  instacartLoading: _instacartLoading,
+                  onOpenGrocer: _openGrocer,
                   onDeliveryNearMe: _onDeliveryNearMe,
                   deliveryExpanded: _deliveryExpanded,
                   deliveryLoading: _deliveryLoading,
@@ -521,11 +485,11 @@ class _GroceryRow extends StatelessWidget {
             ),
           ),
         ),
-        // Per-item search — "Search in Amazon Fresh", never "Buy on Amazon".
+        // Per-item search — "Search at Tesco", never "Buy at Tesco".
         IconButton(
           key: Key('cart-item-search-${item.id}'),
           icon: Icon(Icons.search, size: 18, color: colors.textSecondary),
-          tooltip: 'Search in Amazon Fresh',
+          tooltip: 'Search at Tesco',
           visualDensity: VisualDensity.compact,
           onPressed: onSearch,
         ),
@@ -543,17 +507,15 @@ class _GroceryRow extends StatelessWidget {
 
 // ── _HandoffSection ──────────────────────────────────────────────────────────
 
-/// The hand-off card: share + store deep-links + delivery near me.
+/// The hand-off card: share + UK grocer deep-links + delivery near me.
 ///
 /// Honest labels throughout — no "order", "checkout", "add to cart", "buy".
-/// Instacart button prefers a pre-filled list; falls back to search silently.
+/// Each grocer button copies the full list, opens the grocer pre-searched for
+/// the first item, and prompts the user to paste. Never claims an order.
 class _HandoffSection extends StatelessWidget {
   const _HandoffSection({
-    required this.items,
     required this.onShare,
-    required this.onOpenAmazon,
-    required this.onOpenInstacart,
-    required this.instacartLoading,
+    required this.onOpenGrocer,
     required this.onDeliveryNearMe,
     required this.deliveryExpanded,
     required this.deliveryLoading,
@@ -563,14 +525,10 @@ class _HandoffSection extends StatelessWidget {
     required this.firstItemQuery,
   });
 
-  final List<GroceryItem> items;
   final VoidCallback? onShare;
-  final VoidCallback onOpenAmazon;
-  final VoidCallback onOpenInstacart;
 
-  /// True while the [instacartClient] is fetching the pre-filled list URL.
-  /// The button shows a loading state and is non-interactive during this time.
-  final bool instacartLoading;
+  /// Opens the given UK grocer: copies the full list + launches a pre-search.
+  final void Function(DeliveryService service) onOpenGrocer;
 
   final VoidCallback onDeliveryNearMe;
   final bool deliveryExpanded;
@@ -579,6 +537,11 @@ class _HandoffSection extends StatelessWidget {
   final String? deliveryDeniedNote;
   final LinkLauncher launcher;
   final String? firstItemQuery;
+
+  /// Stable per-grocer key: `cart-grocer-<name-lowercased-dashed>` with the
+  /// apostrophe stripped (e.g. `cart-grocer-sainsburys`).
+  static String _grocerKey(String name) =>
+      'cart-grocer-${name.toLowerCase().replaceAll("'", '').replaceAll(' ', '-')}';
 
   @override
   Widget build(BuildContext context) {
@@ -603,59 +566,28 @@ class _HandoffSection extends StatelessWidget {
 
           AppSpacing.gapV4,
 
-          // b. Store buttons: Amazon Fresh + Instacart, honest labels.
-          //
-          // Amazon Fresh: opens a search for the first item (unchanged).
-          // Instacart: tries a pre-filled list first, falls back to search.
-          // Neither button claims an order was placed.
+          // b. UK grocer buttons. Each copies your full list, then opens that
+          // grocer pre-searched for the first item — nothing is ordered.
           Text(
-            'Opens Instacart with your list · Amazon searches the first item',
+            'Opens your grocer pre-searched for the first item · your full list '
+            'is copied to paste',
             style: text.bodySmall?.copyWith(color: colors.textSecondary),
             textAlign: TextAlign.center,
           ),
-          AppSpacing.gapV2,
-          Row(
-            children: [
-              Expanded(
-                child: OutlinedButton.icon(
-                  key: const Key('cart-amazon'),
-                  onPressed: onOpenAmazon,
-                  icon: const Icon(Icons.open_in_new, size: 16),
-                  label: const Text('Amazon Fresh'),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: colors.primaryStrong,
-                    side: BorderSide(color: colors.primaryStrong),
-                  ),
-                ),
+          AppSpacing.gapV3,
+          for (var i = 0; i < deliveryServices.length; i++) ...[
+            if (i > 0) AppSpacing.gapV2,
+            OutlinedButton.icon(
+              key: Key(_grocerKey(deliveryServices[i].name)),
+              onPressed: () => onOpenGrocer(deliveryServices[i]),
+              icon: const Icon(Icons.open_in_new, size: 16),
+              label: Text(deliveryServices[i].name),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: colors.primaryStrong,
+                side: BorderSide(color: colors.primaryStrong),
               ),
-              AppSpacing.gapH3,
-              Expanded(
-                child: OutlinedButton.icon(
-                  key: const Key('cart-instacart'),
-                  // Disabled while fetching the pre-filled URL so double-taps
-                  // don't fire two separate launches.
-                  onPressed: instacartLoading ? null : onOpenInstacart,
-                  icon: instacartLoading
-                      ? SizedBox(
-                          width: 16,
-                          height: 16,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            color: colors.primaryStrong,
-                          ),
-                        )
-                      : const Icon(Icons.open_in_new, size: 16),
-                  label: Text(
-                    instacartLoading ? 'Opening…' : 'Instacart',
-                  ),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: colors.primaryStrong,
-                    side: BorderSide(color: colors.primaryStrong),
-                  ),
-                ),
-              ),
-            ],
-          ),
+            ),
+          ],
 
           AppSpacing.gapV4,
 
@@ -701,7 +633,9 @@ class _HandoffSection extends StatelessWidget {
               for (final service in deliveryResult)
                 ListTile(
                   key: Key(
-                    'cart-delivery-${service.name.toLowerCase().replaceAll(' ', '-')}',
+                    // Same convention as _grocerKey: strip the apostrophe so
+                    // Sainsbury's → cart-delivery-sainsburys (key-safe, testable).
+                    'cart-delivery-${service.name.toLowerCase().replaceAll("'", '').replaceAll(' ', '-')}',
                   ),
                   dense: true,
                   contentPadding: EdgeInsets.zero,

@@ -1,16 +1,17 @@
-// Widget tests for the R-4 Cart hand-off section.
+// Widget + unit tests for the UK grocer Cart hand-off section.
 //
 // Contracts tested:
-//  1. cart-amazon → FakeLinkLauncher called with amazonfresh + first-item URL.
-//  2. cart-instacart → FakeLinkLauncher called with instacart.com + first-item.
-//  3. Per-item search (cart-item-search-<id>) → that item's name URL-encoded.
-//  4. cart-share-sheet button renders and is enabled when list is non-empty.
-//  5. cart-delivery-near-me (location granted) → service list shown.
-//  6. cart-delivery-near-me (permission denied) → service list + honest note.
-//  7. No "order", "checkout", "add to cart", "buy now" text visible anywhere.
-//  8. All existing tests still pass (verified by running the full suite).
+//  1. deliveryServices == exactly [Tesco, Sainsbury's, Amazon Fresh UK, Ocado].
+//  2. Each grocer's buildUri('Oat Milk') → expected host + encoded query.
+//  3. cart-grocer-tesco (seeded) → launcher opens tesco.com pre-searching the
+//     first unchecked item AND a "List copied — paste each item to add" SnackBar.
+//  4. cart-share-sheet enabled/disabled by list emptiness.
+//  5. cart-delivery-near-me (granted / denied) → the four UK grocers shown.
+//  6. No "order", "checkout", "add to cart", "buy now", "place order" text.
+//  7. Empty list → tapping a grocer opens the store home (no query).
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:health_hub/cart/delivery_services.dart';
@@ -65,8 +66,7 @@ class _FakeOutboxStore implements OutboxStore {
 
 /// Build a CartPage with injected fakes. [seed] items are pre-added to the
 /// repo before the widget is built. The Brain's BUY insights come from the
-/// shared provider (empty pantry here → no restock cards), overridden via
-/// [brainOverrides].
+/// shared provider (empty pantry here → no restock cards).
 Future<({Widget widget, GroceryListRepo repo, FakeLinkLauncher launcher})>
     _buildCart(
   WidgetTester tester, {
@@ -101,60 +101,105 @@ Future<({Widget widget, GroceryListRepo repo, FakeLinkLauncher launcher})>
 // ── Tests ─────────────────────────────────────────────────────────────────────
 
 void main() {
-  // 1. Amazon Fresh button calls launcher with amazonfresh + first-item query.
-  testWidgets('cart-amazon opens Amazon Fresh pre-searched for first item',
+  // 1. The pure list is exactly the four UK grocers, in order.
+  test('deliveryServices is exactly the four UK grocers in order', () {
+    final names = deliveryServices.map((s) => s.name).toList();
+    expect(names, ['Tesco', "Sainsbury's", 'Amazon Fresh UK', 'Ocado']);
+  });
+
+  // 2. Per-grocer URI builders (unit).
+  test('Tesco buildUri encodes the query in the `query` param', () {
+    final s = deliveryServices.firstWhere((s) => s.name == 'Tesco');
+    final uri = s.buildUri('Oat Milk');
+    expect(uri.host, 'www.tesco.com');
+    // Lock the canonical Tesco Groceries search path so a stray change is
+    // caught rather than silently 404-ing on device.
+    expect(uri.path, '/groceries/en-GB/search');
+    expect(uri.queryParameters['query'], 'Oat Milk');
+  });
+
+  test("Sainsbury's buildUri puts the encoded query in the path", () {
+    final s = deliveryServices.firstWhere((s) => s.name == "Sainsbury's");
+    final uri = s.buildUri('Oat Milk');
+    expect(uri.host, 'www.sainsburys.co.uk');
+    // The path segment carries the URL-encoded item name.
+    expect(uri.path, contains(Uri.encodeComponent('Oat Milk')));
+    // And it decodes back to the original.
+    expect(uri.pathSegments.last, 'Oat Milk');
+  });
+
+  test('Amazon Fresh UK buildUri uses amazon.co.uk + amazonfresh + `k`', () {
+    final s = deliveryServices.firstWhere((s) => s.name == 'Amazon Fresh UK');
+    final uri = s.buildUri('Oat Milk');
+    expect(uri.host, 'www.amazon.co.uk');
+    expect(uri.queryParameters['k'], 'Oat Milk');
+    expect(uri.toString(), contains('amazonfresh'));
+  });
+
+  test('Ocado buildUri uses ocado.com + `entry` param', () {
+    final s = deliveryServices.firstWhere((s) => s.name == 'Ocado');
+    final uri = s.buildUri('Oat Milk');
+    expect(uri.host, 'www.ocado.com');
+    expect(uri.queryParameters['entry'], 'Oat Milk');
+  });
+
+  // Empty query → each grocer opens its store home (no search).
+  test('empty query opens each grocer home page', () {
+    for (final s in deliveryServices) {
+      final uri = s.buildUri(null);
+      // Home pages carry no search term.
+      expect(uri.queryParameters['query'], isNull);
+      expect(uri.queryParameters['k'], isNull);
+      expect(uri.queryParameters['entry'], isNull);
+    }
+  });
+
+  // 3. Tapping a grocer copies the list, launches a pre-search, shows SnackBar.
+  testWidgets(
+      'cart-grocer-tesco copies the list, opens Tesco pre-searched, snackbars',
       (tester) async {
+    // Capture Clipboard.setData calls via the mock platform channel.
+    String? copied;
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      SystemChannels.platform,
+      (call) async {
+        if (call.method == 'Clipboard.setData') {
+          copied = (call.arguments as Map)['text'] as String?;
+        }
+        return null;
+      },
+    );
+
     final ctx = await _buildCart(tester, seed: ['Oat Milk', 'Bread']);
     await tester.pumpWidget(ctx.widget);
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byKey(const Key('cart-amazon')));
+    await tester.ensureVisible(find.byKey(const Key('cart-grocer-tesco')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('cart-grocer-tesco')));
     await tester.pumpAndSettle();
 
+    // Launched exactly once, to Tesco pre-searching the first unchecked item.
     expect(ctx.launcher.launched, hasLength(1));
     final uri = ctx.launcher.launched.first;
-    expect(uri.toString(), contains('amazonfresh'));
-    // First unchecked item ('Oat Milk') should be the query.
-    expect(uri.toString(), contains(Uri.encodeQueryComponent('Oat Milk')));
+    expect(uri.host, 'www.tesco.com');
+    expect(uri.queryParameters['query'], 'Oat Milk');
+
+    // The full list landed on the clipboard (both items, real names).
+    expect(copied, contains('Oat Milk'));
+    expect(copied, contains('Bread'));
+
+    // And the honest SnackBar told the user to paste.
+    expect(
+      find.text('List copied — paste each item to add'),
+      findsOneWidget,
+    );
+
+    tester.binding.defaultBinaryMessenger
+        .setMockMethodCallHandler(SystemChannels.platform, null);
   });
 
-  // 2. Instacart button calls launcher with instacart.com + first-item query.
-  testWidgets('cart-instacart opens Instacart pre-searched for first item',
-      (tester) async {
-    final ctx = await _buildCart(tester, seed: ['Eggs']);
-    await tester.pumpWidget(ctx.widget);
-    await tester.pumpAndSettle();
-
-    await tester.tap(find.byKey(const Key('cart-instacart')));
-    await tester.pumpAndSettle();
-
-    expect(ctx.launcher.launched, hasLength(1));
-    final uri = ctx.launcher.launched.first;
-    expect(uri.host, contains('instacart.com'));
-    expect(uri.toString(), contains(Uri.encodeQueryComponent('Eggs')));
-  });
-
-  // 3. Per-item search opens that item's name in Amazon Fresh.
-  testWidgets(
-      'per-item search button launches Amazon Fresh with that item name',
-      (tester) async {
-    final ctx = await _buildCart(tester, seed: ['Spinach', 'Tomatoes']);
-    await tester.pumpWidget(ctx.widget);
-    await tester.pumpAndSettle();
-
-    final items = await ctx.repo.all();
-    // Tap the search icon for 'Spinach' (first item).
-    final spinach = items.firstWhere((i) => i.name == 'Spinach');
-    await tester.tap(find.byKey(Key('cart-item-search-${spinach.id}')));
-    await tester.pumpAndSettle();
-
-    expect(ctx.launcher.launched, hasLength(1));
-    final uri = ctx.launcher.launched.first;
-    expect(uri.toString(), contains('amazonfresh'));
-    expect(uri.toString(), contains(Uri.encodeQueryComponent('Spinach')));
-  });
-
-  // 4. Share button renders and is enabled when list is non-empty.
+  // 4. Share button enabled/disabled by list emptiness.
   testWidgets('cart-share-sheet is enabled when list has items', (tester) async {
     final ctx = await _buildCart(tester, seed: ['Milk']);
     await tester.pumpWidget(ctx.widget);
@@ -162,7 +207,6 @@ void main() {
 
     final shareBtn = find.byKey(const Key('cart-share-sheet'));
     expect(shareBtn, findsOneWidget);
-    // FilledButton should be enabled (onPressed is non-null when list non-empty).
     final btn = tester.widget<FilledButton>(shareBtn);
     expect(btn.onPressed, isNotNull);
   });
@@ -178,9 +222,9 @@ void main() {
     expect(btn.onPressed, isNull);
   });
 
-  // 5. Delivery near me with granted location → services list shown.
+  // 5. Delivery near me with granted location → the four UK grocers shown.
   testWidgets(
-      'cart-delivery-near-me with location granted shows delivery services',
+      'cart-delivery-near-me with location granted shows UK grocers',
       (tester) async {
     final ctx = await _buildCart(
       tester,
@@ -189,28 +233,24 @@ void main() {
     await tester.pumpWidget(ctx.widget);
     await tester.pumpAndSettle();
 
-    // The hand-off section is below the fold in the test viewport — scroll to it.
     await tester.ensureVisible(find.byKey(const Key('cart-delivery-near-me')));
     await tester.pumpAndSettle();
-
     await tester.tap(find.byKey(const Key('cart-delivery-near-me')));
     await tester.pumpAndSettle();
 
-    // All four delivery services should be visible somewhere in the tree
-    // (the list may be partially off-screen; test via the widget tree, not
-    // hit-test position — find.text searches all rendered Text widgets).
-    expect(find.text('Instacart'), findsAtLeastNWidgets(1));
-    expect(find.text('Amazon Fresh'), findsAtLeastNWidgets(1));
-    expect(find.text('Uber Eats'), findsAtLeastNWidgets(1));
-    expect(find.text('DoorDash'), findsAtLeastNWidgets(1));
+    // The four UK grocer names appear (as button labels and/or tile titles).
+    expect(find.text('Tesco'), findsAtLeastNWidgets(1));
+    expect(find.text("Sainsbury's"), findsAtLeastNWidgets(1));
+    expect(find.text('Amazon Fresh UK'), findsAtLeastNWidgets(1));
+    expect(find.text('Ocado'), findsAtLeastNWidgets(1));
 
     // Honest note absent when location was granted.
     expect(find.byKey(const Key('cart-delivery-denied-note')), findsNothing);
   });
 
-  // 6. Delivery near me with permission denied → services + honest note.
+  // 6. Delivery near me with permission denied → grocers + honest note.
   testWidgets(
-      'cart-delivery-near-me with permission denied shows services + honest note',
+      'cart-delivery-near-me with permission denied shows grocers + note',
       (tester) async {
     final ctx = await _buildCart(
       tester,
@@ -220,23 +260,16 @@ void main() {
     await tester.pumpWidget(ctx.widget);
     await tester.pumpAndSettle();
 
-    // Scroll to the button before tapping.
     await tester.ensureVisible(find.byKey(const Key('cart-delivery-near-me')));
     await tester.pumpAndSettle();
-
     await tester.tap(find.byKey(const Key('cart-delivery-near-me')));
     await tester.pumpAndSettle();
 
-    // Services still shown.
-    expect(find.text('Instacart'), findsAtLeastNWidgets(1));
-    expect(find.text('Amazon Fresh'), findsAtLeastNWidgets(1));
+    expect(find.text('Tesco'), findsAtLeastNWidgets(1));
+    expect(find.text('Ocado'), findsAtLeastNWidgets(1));
 
-    // Honest denied note shown.
     expect(find.byKey(const Key('cart-delivery-denied-note')), findsOneWidget);
-    expect(
-      find.textContaining('open each to check'),
-      findsOneWidget,
-    );
+    expect(find.textContaining('open each to check'), findsOneWidget);
   });
 
   // 7. No forbidden labels visible anywhere on the page.
@@ -251,13 +284,11 @@ void main() {
     await tester.pumpWidget(ctx.widget);
     await tester.pumpAndSettle();
 
-    // Expand the delivery panel (scroll to button first).
     await tester.ensureVisible(find.byKey(const Key('cart-delivery-near-me')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('cart-delivery-near-me')));
     await tester.pumpAndSettle();
 
-    // Collect all text in the widget tree (case-insensitive).
     final allText = tester
         .widgetList<Text>(find.byType(Text))
         .map((t) => t.data?.toLowerCase() ?? '')
@@ -280,7 +311,7 @@ void main() {
   });
 
   // 8. Delivery service tiles launch correct URIs via the fake launcher.
-  testWidgets('tapping a delivery service tile opens that service',
+  testWidgets('tapping a delivery service tile opens that grocer',
       (tester) async {
     final ctx = await _buildCart(
       tester,
@@ -290,62 +321,49 @@ void main() {
     await tester.pumpWidget(ctx.widget);
     await tester.pumpAndSettle();
 
-    // Scroll to and tap the delivery button.
     await tester.ensureVisible(find.byKey(const Key('cart-delivery-near-me')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('cart-delivery-near-me')));
     await tester.pumpAndSettle();
 
-    // Scroll to the Instacart delivery tile and tap it.
-    await tester.ensureVisible(
-        find.byKey(const Key('cart-delivery-instacart')));
+    await tester.ensureVisible(find.byKey(const Key('cart-delivery-ocado')));
     await tester.pumpAndSettle();
-    await tester
-        .tap(find.byKey(const Key('cart-delivery-instacart')));
+    await tester.tap(find.byKey(const Key('cart-delivery-ocado')));
     await tester.pumpAndSettle();
 
     expect(ctx.launcher.launched, hasLength(1));
-    expect(ctx.launcher.launched.first.host, contains('instacart.com'));
+    expect(ctx.launcher.launched.first.host, 'www.ocado.com');
   });
 
-  // Verify the pure delivery_services list has the expected entries.
-  test('deliveryServices list contains all four expected services', () {
-    final names = deliveryServices.map((s) => s.name).toList();
-    expect(names, contains('Amazon Fresh'));
-    expect(names, contains('Instacart'));
-    expect(names, contains('Uber Eats'));
-    expect(names, contains('DoorDash'));
-  });
-
-  // Amazon Fresh URI builder encodes the query correctly.
-  test('Amazon Fresh URI builder includes amazonfresh + encoded query', () {
-    final service =
-        deliveryServices.firstWhere((s) => s.name == 'Amazon Fresh');
-    final uri = service.buildUri('Oat Milk');
-    expect(uri.toString(), contains('amazonfresh'));
-    expect(uri.queryParameters['k'], 'Oat Milk');
-  });
-
-  // Instacart URI builder encodes the query correctly.
-  test('Instacart URI builder includes instacart.com + encoded query', () {
-    final service =
-        deliveryServices.firstWhere((s) => s.name == 'Instacart');
-    final uri = service.buildUri('Greek Yoghurt');
-    expect(uri.host, contains('instacart.com'));
-    expect(uri.queryParameters['k'], 'Greek Yoghurt');
-  });
-
-  // Empty list → both store buttons still launch (to store home/category).
-  testWidgets('cart-amazon with empty list opens Amazon Fresh home',
+  // 9. Empty list → tapping a grocer opens the store home (no query).
+  testWidgets('cart-grocer-tesco with empty list opens the store home',
       (tester) async {
     final ctx = await _buildCart(tester);
     await tester.pumpWidget(ctx.widget);
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byKey(const Key('cart-amazon')));
+    await tester.ensureVisible(find.byKey(const Key('cart-grocer-tesco')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('cart-grocer-tesco')));
     await tester.pumpAndSettle();
 
     expect(ctx.launcher.launched, hasLength(1));
-    expect(ctx.launcher.launched.first.toString(), contains('amazonfresh'));
+    final uri = ctx.launcher.launched.first;
+    expect(uri.host, 'www.tesco.com');
+    // Store home — no search query.
+    expect(uri.queryParameters['query'], isNull);
+  });
+
+  // 10. Grocer key naming: apostrophe stripped, spaces dashed.
+  testWidgets('all four grocer buttons render with their stable keys',
+      (tester) async {
+    final ctx = await _buildCart(tester, seed: ['Milk']);
+    await tester.pumpWidget(ctx.widget);
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('cart-grocer-tesco')), findsOneWidget);
+    expect(find.byKey(const Key('cart-grocer-sainsburys')), findsOneWidget);
+    expect(find.byKey(const Key('cart-grocer-amazon-fresh-uk')), findsOneWidget);
+    expect(find.byKey(const Key('cart-grocer-ocado')), findsOneWidget);
   });
 }
